@@ -1,0 +1,70 @@
+# Rust / Swift outputs and local build bundles
+/target/
+/dist/
+/build/
+/.build/
+*.app/
+*.dSYM/
+
+# Local Pi agent roots at any depth; the product adapter is source, not agent state.
+pi/
+!src/adapters/pi/
+!src/adapters/pi/**
+
+# Local runtime / data roots (production uses XDG directories outside this repo)
+/runtime/
+/recordings/
+/meetings/
+/models/
+/state/
+/cache/
+/logs/
+*.sock
+*.pid
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.log
+# Local logs / diagnostic bundles only, not all public distribution archives.
+logs*.zip
+logs*.tar
+logs*.tar.gz
+logs*.tgz
+logs*.tar.bz2
+logs*.tar.xz
+diagnostic*.zip
+diagnostic*.tar
+diagnostic*.tar.gz
+diagnostic*.tgz
+diagnostic*.tar.bz2
+diagnostic*.tar.xz
+
+# Credentials and local environment; never ignore source manifests or licenses
+.env
+.env.*
+!.env.example
+auth.json
+credentials.json
+*.pem
+*.key
+
+# Personal audio, derived local test artifacts and model weights
+*.wav
+*.aiff
+*.aif
+*.mp3
+*.m4a
+*.caf
+*.m4b
+*.flac
+*.pcm
+*.f32
+*.onnx
+*.safetensors
+*.pt
+*.pth
+
+# Editor / platform noise
+.DS_Store
+*.swp
+*.swo

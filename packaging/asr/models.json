@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "model_version": "sherpa-onnx-1.13.2-fire-red-asr-large-zh_en-2025-02-16-int8",
+  "native_version": "1.13.2",
+  "assets": [
+    {
+      "id": "fire-red-asr-int8",
+      "kind": "tarbz2",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-fire-red-asr-large-zh_en-2025-02-16.tar.bz2",
+      "sha256": "1b158e9d46715ed1cd387402b125de26f2e09bf2cb73926414b7fbd74d1973e2",
+      "archive_bytes": 1469513701,
+      "installed_bytes": 1738971645,
+      "files": {
+        "tokens.txt": "6907215aeb034f6926b26bf8abfd650f756781622480a2342ec1f29b2072cafe",
+        "encoder.int8.onnx": "e60cfef737a0ea324846a64eca8b9dae35898f353f4e34b62ad7e536e2d86add",
+        "decoder.int8.onnx": "c08b9d0297ed17ad84087085e27a4adedcc4e8b3ef14770369f1665681cc507d"
+      }
+    },
+    {
+      "id": "silero-vad",
+      "kind": "file",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+      "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6",
+      "archive_bytes": 643854,
+      "installed_bytes": 643854,
+      "files": { "silero_vad.onnx": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6" }
+    }
+  ]
+}
