@@ -93,6 +93,10 @@ printf '# Synthetic minutes\nDecision at 0ms.\n'
             fs::set_permissions(p, fs::Permissions::from_mode(0o700)).unwrap();
         }
         let cfg = AppConfig {
+            notifications: omm::core::notifications::NotificationConfig {
+                enabled: false,
+                ..Default::default()
+            },
             worker_executable: worker,
             asr: AsrConfig {
                 model_version: "fixture-asr".into(),
@@ -1667,4 +1671,326 @@ async fn unstarted_recording_late_success_is_confirmed_before_new_start() {
         ErrorCode::Conflict
     );
     assert!(controller.recording().unwrap().is_some());
+}
+
+// The child below runs the actual daemon select loop, capture IPC, isolated worker and Pi;
+// only desktop delivery is replaced. This fixture cannot reach the user's XDG roots.
+struct DaemonNotifier {
+    paths: Paths,
+    root: PathBuf,
+    mode: String,
+    reapers: omm::core::process::Reapers,
+}
+#[async_trait::async_trait]
+impl omm::core::notifications::NotificationAdapter for DaemonNotifier {
+    async fn send(&self, event: omm::core::notifications::NotificationEvent) -> Result<()> {
+        use omm::service::daemon::Recording;
+        let store = Store::open(&self.paths)?;
+        let tasks = store.tasks()?;
+        let recording = store.state::<Recording>("recording")?;
+        let snapshot = json!({
+            "event": event,
+            "recordingConfirmed": recording.is_some_and(|r| r.start_confirmed),
+            "sealedMeetings": store.meetings()?.len(),
+            "taskStates": tasks.iter().map(|task| task.status).collect::<Vec<_>>(),
+            "summaryCommitted": tasks.iter().any(|task| task.status == TaskStatus::Completed && store.read_artifact(task.id, Stage::Summary).is_ok())
+        });
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut log = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .mode(0o600)
+            .open(self.root.join("notices.jsonl"))?;
+        writeln!(log, "{snapshot}")?;
+        if self.mode == "reject" {
+            return Err(OmmError::unavailable("SECRET_NOTIFICATION_ERROR"));
+        }
+        if self.mode == "hung" {
+            let child = tokio::process::Command::new("/bin/sleep")
+                .arg("30")
+                .env_clear()
+                .spawn()?;
+            write_private_replace(
+                &self.root.join("notification-pid"),
+                child.id().unwrap().to_string().as_bytes(),
+            )?;
+            let mut owned = omm::core::process::OwnedChild::new(child, self.reapers.clone(), None);
+            owned.wait().await?;
+        }
+        Ok(())
+    }
+    async fn drain(&self) -> Result<()> {
+        self.reapers.drain().await?;
+        write_private_replace(
+            &self.root.join("notification-drained"),
+            b"owned exit confirmed",
+        )
+    }
+}
+#[test]
+#[ignore = "internal subprocess fixture; invoked only with private test roots"]
+fn core_notification_daemon_fixture() {
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+    let paths = Paths::resolve(&home, &Default::default()).unwrap();
+    let root = home.parent().unwrap().to_owned();
+    assert!(root
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .starts_with("omm-it-"));
+    let runtime = paths.runtime_location(&std::env::vars().collect()).unwrap();
+    let adapter = Arc::new(DaemonNotifier {
+        paths: paths.clone(),
+        root,
+        mode: std::env::var("OMM_TEST_NOTIFIER_MODE").unwrap(),
+        reapers: Default::default(),
+    });
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(omm::service::daemon::run_at_with_notifier(
+            paths, runtime, adapter,
+        ))
+        .unwrap();
+}
+impl Fixture {
+    fn daemon_notifying(&self, mode: &str) -> ChildGuard {
+        let mut config = AppConfig::load(&self.paths).unwrap();
+        config.notifications.enabled = true;
+        config.save(&self.paths).unwrap();
+        self.start_proxy();
+        let mut child = ChildGuard(
+            Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "core_notification_daemon_fixture",
+                    "--ignored",
+                    "--nocapture",
+                ])
+                .env_clear()
+                .env(
+                    "HOME",
+                    self.paths.config.parent().unwrap().parent().unwrap(),
+                )
+                .env("XDG_RUNTIME_DIR", &self.runtime)
+                .env("OMM_TEST_NOTIFIER_MODE", mode)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::inherit())
+                .spawn()
+                .unwrap(),
+        );
+        await_condition(|| {
+            assert!(
+                child.0.try_wait().unwrap().is_none(),
+                "notifying fixture exited before ready"
+            );
+            self.invoke(&["service", "status"]).status.success()
+        });
+        child
+    }
+    fn notices(&self) -> Vec<Value> {
+        let bytes = fs::read(self._temp.path().join("notices.jsonl")).unwrap_or_default();
+        bytes
+            .split(|b| *b == b'\n')
+            .filter_map(|line| serde_json::from_slice(line).ok())
+            .collect()
+    }
+    fn await_notice(&self, event: &str) {
+        await_condition(|| self.notices().iter().any(|notice| notice["event"] == event));
+    }
+}
+#[test]
+fn notifications_daemon_auto_confirmation_seal_and_pipeline_commit() {
+    let f = Fixture::new();
+    configure_lark(&f, false);
+    let lark = f._temp.path().join("fake-lark");
+    fs::write(
+        &lark,
+        fs::read_to_string(&lark)
+            .unwrap()
+            .replace("Synthetic", "SECRET_MEETING_TITLE"),
+    )
+    .unwrap();
+    let mut daemon = f.daemon_notifying("ok");
+    f.await_notice("recording_started");
+    assert_eq!(f.state.lock().unwrap().starts, 1);
+    assert!(f.state.lock().unwrap().recording);
+    fs::write(f._temp.path().join("phase"), "unknown").unwrap();
+    f.ok(&["record", "stop"]);
+    f.await_notice("recording_stopped");
+    f.await_notice("summary_ready");
+    let notices = f.notices();
+    assert_eq!(
+        notices
+            .iter()
+            .map(|n| n["event"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["recording_started", "recording_stopped", "summary_ready"]
+    );
+    assert_eq!(notices[0]["recordingConfirmed"], true);
+    assert_eq!(notices[1]["sealedMeetings"], 1);
+    assert_eq!(notices[2]["summaryCommitted"], true);
+    assert!(!serde_json::to_string(&notices).unwrap().contains("SECRET"));
+    f.ok(&["service", "stop"]);
+    wait_success(&mut daemon);
+    assert!(f._temp.path().join("notification-drained").exists());
+    assert!(!f.runtime.join("omm/service.sock").exists());
+}
+#[test]
+fn notifications_daemon_start_and_seal_failure_never_report_success() {
+    let f = Fixture::new();
+    f.state.lock().unwrap().deny = true;
+    let mut daemon = f.daemon_notifying("ok");
+    f.error(&["record", "start", "--title", "SECRET_TITLE"], 3);
+    f.await_notice("recording_failed");
+    assert_eq!(f.notices().len(), 1);
+    assert!(!f.state.lock().unwrap().recording);
+    f.state.lock().unwrap().deny = false;
+    f.ok(&["record", "start", "--title", "SECRET_TITLE"]);
+    f.await_notice("recording_started");
+    f.state.lock().unwrap().files = vec![f._temp.path().join("missing.wav")];
+    assert!(!f.invoke(&["record", "stop"]).status.success());
+    assert!(Store::open(&f.paths).unwrap().tasks().unwrap().is_empty());
+    assert!(!f
+        .notices()
+        .iter()
+        .any(|n| n["event"] == "recording_stopped"));
+    assert!(Store::open(&f.paths)
+        .unwrap()
+        .state::<Value>("recording")
+        .unwrap()
+        .is_some());
+    {
+        let mut state = f.state.lock().unwrap();
+        state.files = vec![state.file.clone().unwrap()];
+    }
+    f.ok(&["record", "stop"]);
+    f.await_notice("recording_stopped");
+    f.await_notice("summary_ready");
+    let notices = f.notices();
+    assert_eq!(
+        notices
+            .iter()
+            .map(|n| n["event"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec![
+            "recording_failed",
+            "recording_started",
+            "recording_stopped",
+            "summary_ready"
+        ]
+    );
+    assert_eq!(notices[1]["recordingConfirmed"], true);
+    assert_eq!(notices[2]["sealedMeetings"], 1);
+    assert_eq!(notices[3]["summaryCommitted"], true);
+    assert!(!serde_json::to_string(&notices).unwrap().contains("SECRET"));
+    f.ok(&["service", "stop"]);
+    wait_success(&mut daemon);
+}
+#[test]
+fn notifications_daemon_asr_and_summary_failures_follow_durable_task_state() {
+    for (executable, event, stage) in [
+        ("fake-worker", "asr_failed", Stage::Transcribe),
+        ("fake-pi", "summary_failed", Stage::Summary),
+    ] {
+        let f = Fixture::new();
+        let script = if executable == "fake-worker" {
+            r#"#!/bin/sh
+input=$(/bin/cat)
+id=$(printf '%s' "$input" | /usr/bin/sed -En 's/.*"task_id":"([^"]+)".*/\1/p')
+attempt=$(printf '%s' "$input" | /usr/bin/sed -En 's/.*"attempt":([0-9]+).*/\1/p')
+printf '{"type":"error","schema_version":1,"task_id":"%s","attempt":%s,"error":{"code":"corrupt","retryable":false,"message":"SECRET_ASR_ERROR"}}\n' "$id" "$attempt"
+exit 1
+"#
+        } else {
+            "#!/bin/sh\n/bin/cat >/dev/null\nprintf SECRET_PI_ERROR >&2\nexit 0\n"
+        };
+        fs::write(f._temp.path().join(executable), script).unwrap();
+        let mut daemon = f.daemon_notifying("ok");
+        f.ok(&["record", "start", "--title", "SECRET_TITLE"]);
+        f.ok(&["record", "stop"]);
+        f.await_notice(event);
+        let failure = f
+            .notices()
+            .into_iter()
+            .find(|n| n["event"] == event)
+            .unwrap();
+        assert!(failure["taskStates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s == "failed"));
+        let task = Store::open(&f.paths)
+            .unwrap()
+            .tasks()
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert_eq!(task.stage, stage);
+        assert!(!f.notices().iter().any(|n| n["event"] == "summary_ready"));
+        assert!(!serde_json::to_string(&f.notices())
+            .unwrap()
+            .contains("SECRET"));
+        f.ok(&["service", "stop"]);
+        wait_success(&mut daemon);
+    }
+}
+#[test]
+fn notifications_daemon_rejection_preserves_business_success_and_stop() {
+    let f = Fixture::new();
+    let mut daemon = f.daemon_notifying("reject");
+    f.ok(&["record", "start"]);
+    f.ok(&["record", "stop"]);
+    f.await_notice("summary_ready");
+    let store = Store::open(&f.paths).unwrap();
+    await_condition(|| {
+        store
+            .state::<Value>("notification_diagnostic")
+            .unwrap()
+            .is_some()
+    });
+    let diagnostic = store
+        .state::<Value>("notification_diagnostic")
+        .unwrap()
+        .unwrap();
+    assert_eq!(diagnostic["code"], "call_rejected");
+    assert!(!diagnostic.to_string().contains("SECRET"));
+    assert_eq!(store.tasks().unwrap()[0].status, TaskStatus::Completed);
+    assert!(store
+        .read_artifact(store.tasks().unwrap()[0].id, Stage::Summary)
+        .is_ok());
+    f.ok(&["service", "stop"]);
+    wait_success(&mut daemon);
+}
+#[test]
+fn notifications_daemon_shutdown_cancels_queue_and_reaps_owned_notifier_child() {
+    let f = Fixture::new();
+    let mut daemon = f.daemon_notifying("hung");
+    f.ok(&["record", "start"]);
+    await_condition(|| f._temp.path().join("notification-pid").exists());
+    let pid: i32 = fs::read_to_string(f._temp.path().join("notification-pid"))
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(unsafe { libc::kill(pid, 0) }, 0);
+    f.ok(&["record", "stop"]);
+    await_condition(|| {
+        Store::open(&f.paths)
+            .unwrap()
+            .tasks()
+            .unwrap()
+            .iter()
+            .any(|t| t.status == TaskStatus::Completed)
+    });
+    f.ok(&["service", "stop"]);
+    wait_success(&mut daemon);
+    // Adapter drain is part of the final reply; the child is gone before the root drops.
+    assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
+    let last_pid: i32 = fs::read_to_string(f._temp.path().join("notification-pid"))
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(unsafe { libc::kill(last_pid, 0) }, -1);
+    assert!(f._temp.path().join("notification-drained").exists());
+    assert!(!f.runtime.join("omm/service.sock").exists());
 }

@@ -7,6 +7,7 @@ use std::{fs, path::PathBuf};
 #[serde(default, deny_unknown_fields)]
 pub struct AppConfig {
     pub version: String,
+    pub notifications: super::notifications::NotificationConfig,
     pub asr: AsrConfig,
     pub pi: PiConfig,
     pub capture_executable: PathBuf,
@@ -24,6 +25,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             version: "1".into(),
+            notifications: Default::default(),
             asr: AsrConfig {
                 threads: 2,
                 timeout_ms: 7_200_000,
@@ -123,6 +125,8 @@ impl AppConfig {
     /// Only typed product fields are editable; never store credentials or grant recording consent here.
     pub fn set(&mut self, key: &str, value: &str) -> Result<()> {
         let allowed = [
+            "notifications.enabled",
+            "notifications.events",
             "capture_executable",
             "worker_executable",
             "lark_executable",

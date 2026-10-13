@@ -35,7 +35,14 @@ impl Fixture {
         self.paths.create_private_dirs().unwrap();
         write_private_new(
             &self.paths.config.join("config.json"),
-            &serde_json::to_vec(&AppConfig::default()).unwrap(),
+            &serde_json::to_vec(&AppConfig {
+                notifications: omm::core::notifications::NotificationConfig {
+                    enabled: false,
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .unwrap(),
         )
         .unwrap();
     }
