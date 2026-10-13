@@ -1,0 +1,33 @@
+AGENTS.md
+  s_18c6871cda816e::t_cd9fcd7fe289fc 14
+src/adapters/mod.rs
+  s_18c6871cda816e::t_15855d96563813 9
+src/adapters/notification.rs
+  s_18c6871cda816e::t_0fb38ff016e645 1-83
+src/core/mod.rs
+  s_18c6871cda816e::t_d03d9c4856bdfc 11
+src/core/notifications.rs
+  s_18c6871cda816e::t_c0a95d78fb9f59 1-199
+src/core/pipeline.rs
+  s_18c6871cda816e::t_0d1c13e0032a0b 1-5,12-20,86-100
+tests/core_integration.rs
+  s_18c6871cda816e::t_6499d1ef23d379 96-99,1675-1996
+tests/core_runtime.rs
+  s_18c6871cda816e::t_a9a9e32febc2eb 38-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e3871ae517d5e04a172d22dd3001b8e5f28e1fdb",
+  "prompts": {},
+  "sessions": {
+    "s_18c6871cda816e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1347d-15f9-765a-9420-e9e744979627",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
