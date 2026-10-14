@@ -1,0 +1,91 @@
+docs/segment-benchmark.md
+  s_88cc65ec23b24c::t_32ba8b95645e5f 1-57
+native/yulu-capture/audio_daemon.swift
+  s_88cc65ec23b24c::t_613b5ebfbf4521 34,234-235,241-242,566-567,570-571,594-600,703-704,775,780,784,786,796-797,813-816,832-835,880-887,2004-2136,2273-2279,2475,2544-2545,2558-2561,2567,2586,2590,2593-2659,2720-2721,2723-2799,2803,2900,2929-2989,3137,3139
+packaging/audio/licenses/ffmpeg-LGPL-2.1.txt
+  s_88cc65ec23b24c::t_4da43fb50b3bed 1-502
+packaging/audio/licenses/opus-BSD-3-Clause.txt
+  s_88cc65ec23b24c::t_2661053888ec0a 1-44
+packaging/audio/sources.json
+  s_88cc65ec23b24c::t_43f851fe096ef4 1
+src/adapters/asr/chunks.rs
+  s_88cc65ec23b24c::t_fe8fe107b04d2e 1-124
+src/adapters/asr/codec.rs
+  s_88cc65ec23b24c::t_feaf158ee18414 1-459
+src/adapters/asr/native.rs
+  s_88cc65ec23b24c::t_e129d2f78d2e49 91-96,156,192,205,213-235,270-275,300-301,303,305-310,313-332,339-356,375-380,412-418
+src/cli/mod.rs
+  s_88cc65ec23b24c::t_a8a8720d43bb4a 88-99,147-151,298,332,524,591-600,609-619,642-643,650-660,672-674,721-730,735-738
+src/core/archive_pipeline.rs
+  s_88cc65ec23b24c::t_f42f640862267e 1-44
+src/core/audio_toolchain.rs
+  s_88cc65ec23b24c::t_f4d8f3c3efe636 1-255
+src/core/config.rs
+  s_88cc65ec23b24c::t_6b28fa0e3bbce7 9,29,32,53,64-69,78-82,84,86,91,96,142
+src/core/contracts.rs
+  s_88cc65ec23b24c::t_97f691602319e5 107-118,123-124,163-184,187-188,196,217-221,269-277,282-293,393-402,407-409,415-500
+src/core/mod.rs
+  s_88cc65ec23b24c::t_cdbcabbdbd0ba0 1-2,5,8
+src/core/opus.rs
+  s_88cc65ec23b24c::t_946555f0c5f3e8 1-109
+src/core/pipeline.rs
+  s_88cc65ec23b24c::t_1b7cdb59b26075 4,21-64,67-140,143,145-149,174-177,200-213,216-231,234-249,270-273,277-289,292-309
+src/core/process.rs
+  s_88cc65ec23b24c::t_3e5da7864817e9 95-108
+src/core/store.rs
+  s_88cc65ec23b24c::t_a823911435cefd 41-46,52-64,96,99-102,122-186,206-214,254-268,285-300,377,463-477,485,487-492,496,499,528-533,579,674-680,763-765
+src/core/store/archives.rs
+  s_88cc65ec23b24c::t_99d125c39bc40d 1-366
+src/core/store/segments.rs
+  s_88cc65ec23b24c::t_8ef32b333aed53 1-785
+src/service/daemon.rs
+  s_88cc65ec23b24c::t_627671c668a520 83-84,179,271-304,393-424,504-506,543,718-766,771,774,784-786,790,823,844,875-883,893-899
+tests/capture_adapter.rs
+  s_88cc65ec23b24c::t_4de28a15bf711a 61,489-510,1023-1382
+tests/capture_source_contract.rs
+  s_88cc65ec23b24c::t_e0381eb03e224a 8-47
+tests/core_cli.rs
+  s_88cc65ec23b24c::t_87ea17b3beafa9 109,137-406
+tests/core_foundation.rs
+  s_88cc65ec23b24c::t_0653f38f63969a 25,34
+tests/core_integration.rs
+  s_88cc65ec23b24c::t_7fcc340993c8f1 17,36-38,47-68,78,91,106-107,109-113,121,135-136,144-145,176,198-199,205-207,213-272,305,318,352-354,367-370,390-394,397-398,439-443,445-449,678,699,1636,2118-2457
+tests/core_pipeline_pi.rs
+  s_88cc65ec23b24c::t_a7d8072dcf9aa6 51,58
+tests/core_recovery.rs
+  s_88cc65ec23b24c::t_cdabc38647ca8f 27,93,154
+tests/notifications.rs
+  s_88cc65ec23b24c::t_6a2b078251f57f 160
+tests/opus_archive.rs
+  s_88cc65ec23b24c::t_b089c7f7d48b79 1-654
+tests/pipeline_diagnostics.rs
+  s_ce2ee3eba2f6d6::t_ce84459a08935d 1-388
+tests/segment_benchmark.rs
+  s_88cc65ec23b24c::t_e3e4d351b2fed3 1-493
+tests/segment_pipeline.rs
+  s_88cc65ec23b24c::t_b5b177b5150217 1-945
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "617465a62e60d1d68170c21656030580adcf4754",
+  "prompts": {},
+  "sessions": {
+    "s_88cc65ec23b24c": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a13897-b6bf-702e-9914-d2c2e518800b",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_ce2ee3eba2f6d6": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a13afa-2561-75ec-8944-4c467d7f045b",
+        "model": "glm-5.3"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
