@@ -3,12 +3,16 @@ use crate::{
         asr::LocalAsrAdapter,
         capture::{CapturePaths, MacCaptureAdapter},
         meeting::LarkAdapter,
+        notification::MacNotificationAdapter,
         pi::PiAdapter,
     },
     core::{
         config::AppConfig,
         contracts::*,
         lifecycle::{Action, Lifecycle},
+        notifications::{
+            notification_channel, NotificationAdapter, NotificationEvent, NotificationSink,
+        },
         paths::*,
         pipeline,
         process::Reapers,
@@ -96,6 +100,7 @@ pub struct Controller {
     pub capture: Arc<dyn CaptureAdapter>,
     pub instance: Uuid,
     pub lifecycle: Lifecycle,
+    pub notifications: NotificationSink,
 }
 impl Controller {
     pub fn new(
@@ -109,12 +114,30 @@ impl Controller {
             capture,
             instance,
             lifecycle: Lifecycle::new(cfg.start_delay_ms, cfg.end_grace_ms),
+            notifications: NotificationSink::default(),
         }
     }
     pub fn recording(&self) -> Result<Option<Recording>> {
         Store::open(&self.paths)?.state("recording")
     }
     pub async fn start(&mut self, title: String, source_id: Option<String>) -> Result<Value> {
+        let result = self.start_inner(title, source_id).await;
+        if result.is_err() {
+            self.recording_failed();
+        }
+        result
+    }
+    pub fn recording_failed(&self) {
+        let scope = self
+            .recording()
+            .ok()
+            .flatten()
+            .map(|r| r.session_id)
+            .unwrap_or(self.instance);
+        self.notifications
+            .emit(NotificationEvent::RecordingFailed, scope, 1);
+    }
+    async fn start_inner(&mut self, title: String, source_id: Option<String>) -> Result<Value> {
         let store = Store::open(&self.paths)?;
         if store.state::<Recording>("recording")?.is_some() {
             return Err(OmmError::new(
@@ -177,6 +200,8 @@ impl Controller {
                 store.set_state("recording", &record)?;
                 self.lifecycle.reconcile_recording(source_id);
                 store.clear_state("suppressed_unknown_source")?;
+                self.notifications
+                    .emit(NotificationEvent::RecordingStarted, id, 1);
                 Ok(json!(status))
             }
             Err(error) => {
@@ -188,6 +213,13 @@ impl Controller {
         }
     }
     pub async fn seal(&mut self, manual: bool) -> Result<Value> {
+        let result = self.seal_inner(manual).await;
+        if result.is_err() {
+            self.recording_failed();
+        }
+        result
+    }
+    async fn seal_inner(&mut self, manual: bool) -> Result<Value> {
         let mut store = Store::open(&self.paths)?;
         let Some(mut record) = store.state::<Recording>("recording")? else {
             let status = match self.capture.status().await {
@@ -246,6 +278,8 @@ impl Controller {
         } else {
             self.lifecycle.reconcile_recording(None);
         }
+        self.notifications
+            .emit(NotificationEvent::RecordingStopped, meeting.session_id, 1);
         Ok(json!({"meetingId":meeting.session_id,"task":task,"recording":false}))
     }
     pub fn observation_action(
@@ -324,6 +358,10 @@ impl Controller {
         if !record.start_confirmed {
             record.start_confirmed = true;
             store.set_state("recording", &record)?;
+            if status.recording {
+                self.notifications
+                    .emit(NotificationEvent::RecordingStarted, record.session_id, 1);
+            }
         }
         if record.rotation_pending && !status.recording {
             let stopped = self.capture.stop().await?;
@@ -550,6 +588,14 @@ pub async fn run(paths: Paths) -> Result<Value> {
     run_at(paths, location).await
 }
 pub async fn run_at(paths: Paths, location: RuntimeLocation) -> Result<Value> {
+    run_at_with_notifier(paths, location, Arc::new(MacNotificationAdapter::default())).await
+}
+/// Runs the same service loop with an explicit notifier, allowing isolated integration fixtures.
+pub async fn run_at_with_notifier(
+    paths: Paths,
+    location: RuntimeLocation,
+    notification_adapter: Arc<dyn NotificationAdapter>,
+) -> Result<Value> {
     let cfg = AppConfig::load(&paths)?;
     cfg.validate_policy()?;
     let guard = RuntimeGuard::acquire(&location, &paths.state)?;
@@ -584,7 +630,10 @@ pub async fn run_at(paths: Paths, location: RuntimeLocation) -> Result<Value> {
         instance,
         Duration::from_secs(15),
     )?);
+    let (notifications, mut notification_runner) =
+        notification_channel(paths.clone(), notification_adapter.clone());
     let mut controller = Controller::new(paths.clone(), native.clone(), instance, &cfg);
+    controller.notifications = notifications.clone();
     if let Some(r) = controller.recording()? {
         controller.lifecycle.reconcile_recording(r.source_id);
     }
@@ -597,6 +646,7 @@ pub async fn run_at(paths: Paths, location: RuntimeLocation) -> Result<Value> {
     )?;
     let worker_pi = pi.clone();
     let worker_paths = paths.clone();
+    let worker_notifications = notifications.clone();
     let worker = tokio::spawn(async move {
         let cfg = AppConfig::load(&worker_paths)?;
         let asr: Box<dyn AsrAdapter> = if cfg.worker_executable.is_absolute() {
@@ -606,7 +656,15 @@ pub async fn run_at(paths: Paths, location: RuntimeLocation) -> Result<Value> {
         };
         let mut store = Store::open(&worker_paths)?;
         loop {
-            match pipeline::run_one(&mut store, asr.as_ref(), worker_pi.as_ref(), 60_000).await? {
+            match pipeline::run_one_notifying(
+                &mut store,
+                asr.as_ref(),
+                worker_pi.as_ref(),
+                60_000,
+                &worker_notifications,
+            )
+            .await?
+            {
                 Some(task) => {
                     store.schedule_retry(&task, chrono::Utc::now().timestamp_millis())?;
                 }
@@ -644,10 +702,10 @@ pub async fn run_at(paths: Paths, location: RuntimeLocation) -> Result<Value> {
                         if matches!(req.command.as_str(), "record_start"|"record_stop"|"capture_auto_stop"|"shutdown") {control_epoch=control_epoch.wrapping_add(1); }
                         helper.observe_endpoint(&native,&paths)?;
                         let action=match req.command.as_str(){
-                            "status"=>Ok(json!({"running":true,"paths":paths,"runtime":location,"serviceInstanceId":guard.owner.instance_id,"serviceUid":guard.owner.uid,"servicePid":guard.owner.pid,"singleServiceScope":"selected runtime and persistent STATE; explicitly isolated roots may run independently","capture":native.status().await.ok(),"recording":controller.recording()?.map(|r|json!({"sessionId":r.session_id,"sourceId":r.source_id})),"pipelineHealthy":!worker.is_finished(),"piCacheRecovery":Store::open(&paths)?.state::<serde_json::Value>("pi_cache_recovery")?,"lastCaptureError":Store::open(&paths)?.state::<OmmError>("capture_error")?,"lastMeetingObservation":Store::open(&paths)?.state::<serde_json::Value>("meeting_observation")?})),
+                            "status"=>Ok(json!({"running":true,"paths":paths,"runtime":location,"serviceInstanceId":guard.owner.instance_id,"serviceUid":guard.owner.uid,"servicePid":guard.owner.pid,"singleServiceScope":"selected runtime and persistent STATE; explicitly isolated roots may run independently","capture":native.status().await.ok(),"recording":controller.recording()?.map(|r|json!({"sessionId":r.session_id,"sourceId":r.source_id})),"pipelineHealthy":!worker.is_finished(),"piCacheRecovery":Store::open(&paths)?.state::<serde_json::Value>("pi_cache_recovery")?,"lastCaptureError":Store::open(&paths)?.state::<OmmError>("capture_error")?,"lastMeetingObservation":Store::open(&paths)?.state::<serde_json::Value>("meeting_observation")?,"notificationDiagnostic":Store::open(&paths)?.state::<serde_json::Value>("notification_diagnostic")?})),
                             "capture_auto_stop"=>controller.callback(&req).await,
                             "record_status"=>native.status().await.map(|s|json!(s)),
-                            "record_start"=>{async {ensure_helper(&native,&cfg,&socket,&mut helper,&paths).await?;controller.start(req.title.unwrap_or_else(||"Meeting".into()),None).await}.await},
+                            "record_start"=>{async {if let Err(e)=ensure_helper(&native,&cfg,&socket,&mut helper,&paths).await {controller.recording_failed();return Err(e);}controller.start(req.title.unwrap_or_else(||"Meeting".into()),None).await}.await},
                             "record_stop"=>controller.seal(true).await,
                             "shutdown"=>{let sealed=controller.seal(false).await;let stopped=match sealed{Ok(value)=>helper.shutdown(&native,&paths).await.map(|()|value),Err(e)=>Err(e)};if stopped.is_ok(){shutdown_reply=Some(stream);break stopped;}stopped},
                             _=>Err(OmmError::invalid("unsupported service command"))};
@@ -663,9 +721,9 @@ pub async fn run_at(paths: Paths, location: RuntimeLocation) -> Result<Value> {
                 helper.observe_endpoint(&native,&paths)?;
                 helper.reap_exited(&native,&paths)?;
                 if let Some(mut record)=controller.recording()? {if native.status().await.is_err(){let store=Store::open(&paths)?;if record.sealed.is_none() && store.state::<Option<Uuid>>("pending_stop")?.flatten()!=Some(record.session_id) {record.rotation_pending=true;record.gaps.push("helper_restart".into());store.set_state("recording",&record)?;}
-                    if let Err(e)=ensure_helper(&native,&latest,&socket,&mut helper,&paths).await{store.set_state("capture_error",&e)?;continue;}}}
-                if let Err(e)=controller.reconcile().await {Store::open(&paths)?.set_state("capture_error",&e)?;}
-                if controller.recording()?.is_some_and(|r| now-r.segment_started_ms>=latest.segment_ms as i64){if let Err(e)=controller.rotate().await{Store::open(&paths)?.set_state("capture_error",&e)?;}}
+                    if let Err(e)=ensure_helper(&native,&latest,&socket,&mut helper,&paths).await{controller.recording_failed();store.set_state("capture_error",&e)?;continue;}}}
+                if let Err(e)=controller.reconcile().await {controller.recording_failed();Store::open(&paths)?.set_state("capture_error",&e)?;}
+                if controller.recording()?.is_some_and(|r| now-r.segment_started_ms>=latest.segment_ms as i64){if let Err(e)=controller.rotate().await{controller.recording_failed();Store::open(&paths)?.set_state("capture_error",&e)?;}}
                 if latest.auto_record && observation_job.is_none() {
                     let adapter=LarkAdapter::with_reapers(latest.clone(),native.clone(),observation_reapers.clone());
                     observation_job=Some(ObservationJob{epoch:control_epoch,configuration:serde_json::to_vec(&latest)?,task:tokio::spawn(async move{adapter.observe().await})});
@@ -683,7 +741,7 @@ pub async fn run_at(paths: Paths, location: RuntimeLocation) -> Result<Value> {
                 }
                 if matches!(action,Action::Start|Action::Switch) {
                     let start=async {ensure_helper(&native,&latest,&socket,&mut helper,&paths).await?;controller.start(observation.title.unwrap_or_else(||"Lark Meeting".into()),observation.source_id).await}.await;
-                    if let Err(e)=start{controller.lifecycle.reconcile_recording(None);Store::open(&paths)?.set_state("capture_error",&e)?;}
+                    if let Err(e)=start{controller.recording_failed();controller.lifecycle.reconcile_recording(None);Store::open(&paths)?.set_state("capture_error",&e)?;}
                 }
             }
         }
@@ -740,6 +798,19 @@ pub async fn run_at(paths: Paths, location: RuntimeLocation) -> Result<Value> {
             None => Ok(value),
         },
     };
+    // Queue cancellation has a budget; confirming owned-child exit may take longer.
+    drop(controller);
+    drop(notifications);
+    if tokio::time::timeout(Duration::from_secs(3), &mut notification_runner)
+        .await
+        .is_err()
+    {
+        notification_runner.abort();
+        let _ = notification_runner.await;
+    }
+    if notification_adapter.drain().await.is_err() {
+        eprintln!("warning: notification cleanup failed");
+    }
     let service_instance = guard.owner.instance_id;
     drop(listener);
     drop(guard);

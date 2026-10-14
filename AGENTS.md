@@ -11,6 +11,7 @@ Read [README.md](README.md), [prd.md](prd.md) and [the design](docs/overview-des
 - `src/adapters/capture` and `native/yulu-capture`: the Swift helper and identity-bound socket protocol. **Preserve the imported Yulu audio acquisition/PCM/synchronization/WAV/recovery kernel.** Do not replace it with a new Rust recorder, driver or alternate capture backend. Keep necessary product identity/IPC/packaging fixes narrow, and preserve the MIT license and provenance notice.
 - `src/adapters/asr`, `src/bin/asr_worker.rs`, `workers/local-asr`: bounded audio preprocessing and an isolated Rust worker using the pinned sherpa-onnx C API. Keep Rust/C layouts, native lifetimes and model hashes aligned. No Python product runtime or silent engine/model fallback.
 - `src/adapters/pi`: transcript-only, bounded Pi print calls and owned workspace cleanup. No inherited personal tools/extensions/context, no audio upload, no new text-upload approval gate.
+- `src/core/notifications` and `src/adapters/notification`: generic typed lifecycle/task events and bounded macOS script-host calls. Never send meeting content or treat call success as visible delivery/authorization; no independent OMM notification identity is claimed. Tests must inject a fake notifier or disable notifications, never send desktop notifications implicitly.
 - `packaging`: own capture identity, entitlements and immutable model manifest. Never impersonate Yulu or remove dependency licenses.
 
 ## Build and controlled validation

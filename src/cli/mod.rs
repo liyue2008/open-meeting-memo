@@ -37,6 +37,10 @@ pub enum Commands {
         check: bool,
     },
     Doctor,
+    Notifications {
+        #[command(subcommand)]
+        command: NotificationCommand,
+    },
     Permissions {
         #[command(subcommand)]
         command: PermissionCommand,
@@ -81,6 +85,12 @@ pub enum Commands {
         #[command(subcommand)]
         command: ModelCommand,
     },
+}
+#[derive(Subcommand)]
+pub enum NotificationCommand {
+    Check,
+    Request,
+    Test,
 }
 #[derive(Subcommand)]
 pub enum PermissionCommand {
@@ -317,6 +327,43 @@ pub async fn execute_at(
                 json!({"initialized":true,"ready":false,"requires":["explicit native executable/library paths","explicit models download","dedicated Pi configuration/authentication","valid explicit XDG runtime or secure macOS best-effort replacement"]}),
             )
         }
+        Commands::Notifications { command } => {
+            use crate::{
+                adapters::notification::MacNotificationAdapter,
+                core::notifications::{NotificationAdapter, NotificationEvent},
+            };
+            let adapter = MacNotificationAdapter::default();
+            if matches!(command, NotificationCommand::Check) {
+                let config = AppConfig::load(paths);
+                return Ok(
+                    json!({"available":MacNotificationAdapter::available(),"permission":"unknown","identity":"macOS system AppleScript host; not an independently authorized OMM app","visibility":"unknown","enabled":config.as_ref().ok().map(|c|c.notifications.enabled),"configurationReadable":config.is_ok()}),
+                );
+            }
+            if matches!(command, NotificationCommand::Request) && non_interactive {
+                return Err(OmmError::new(
+                    ErrorCode::InteractionRequired,
+                    false,
+                    "open notification settings explicitly from a desktop",
+                ));
+            }
+            let operation = async {
+                match command {
+                    NotificationCommand::Request => adapter.request_settings().await,
+                    NotificationCommand::Test => adapter.send(NotificationEvent::Test).await,
+                    NotificationCommand::Check => unreachable!(),
+                }
+            };
+            let result = tokio::time::timeout(std::time::Duration::from_secs(3), operation)
+                .await
+                .map_err(|_| {
+                    OmmError::new(ErrorCode::Timeout, false, "notification call timed out")
+                });
+            adapter.drain().await?;
+            result??;
+            Ok(
+                json!({"callSucceeded":true,"settingsOpened":matches!(command,NotificationCommand::Request),"permission":"unknown","visibility":"unknown","note":"system script host controls presentation; call success is not visible delivery or authorization"}),
+            )
+        }
         Commands::Permissions { command } => match command {
             PermissionCommand::Check => Ok(
                 json!({"microphone":"unknown","systemAudio":"unknown","accessibility":"unknown","capture":daemon::request_at(paths, runtime.as_ref().map_err(Clone::clone)?,"record_status",None).await.ok(),"note":"helper readiness is not a complete OS permission audit"}),
@@ -458,7 +505,7 @@ pub async fn execute_at(
             let mut cfg = AppConfig::load(paths)?;
             match command {
                 ConfigCommand::Show => Ok(
-                    json!({"version":cfg.version,"asrModelVersion":cfg.asr.model_version,"pi":{"provider":cfg.pi.provider,"model":cfg.pi.model,"promptVersion":cfg.pi.prompt_version},"autoEnabled":cfg.auto_record,"recordingConsent":cfg.recording_consent,"startDelayMs":cfg.start_delay_ms,"endGraceMs":cfg.end_grace_ms}),
+                    json!({"version":cfg.version,"asrModelVersion":cfg.asr.model_version,"pi":{"provider":cfg.pi.provider,"model":cfg.pi.model,"promptVersion":cfg.pi.prompt_version},"autoEnabled":cfg.auto_record,"notifications":cfg.notifications,"recordingConsent":cfg.recording_consent,"startDelayMs":cfg.start_delay_ms,"endGraceMs":cfg.end_grace_ms}),
                 ),
                 ConfigCommand::Validate => {
                     cfg.validate()?;

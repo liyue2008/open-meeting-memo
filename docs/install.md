@@ -138,3 +138,26 @@ omm service uninstall --json
 - native 加载失败：检查固定版本、arm64、依赖路径/最低系统版本及包 hash，不能使用测试 C 夹具冒充原生引擎。
 - Pi失败：检查专用目录认证、同一个 provider/model、可用额度与 Node；只重试纪要，不自动改模型或再转写。普通诊断不输出原始 stderr。
 - `task wait` 超时：退出5，不取消持久任务；查看 `task show`。blocked/failed 用 `omm process --task <id> --retry`，不要删音频。
+
+## 7. 桌面状态通知
+
+通知默认启用，只显示泛化状态：真实录音成功开始、成功封存并入队转写、纪要提交完成、录音/转写/纪要阶段失败。不会发送会议标题、参会者、逐字稿、路径或凭据，也不会调用 Pi 验证通知。转写单阶段处理不会误报纪要已生成；音频轮换/重连不重复弹开始/停止。
+
+```sh
+omm notifications check --json
+omm notifications request          # 仅打开系统通知设置，需用户自行操作
+omm notifications test --json      # 显式发送一条无敏感内容测试，忽略事件开关
+omm config set notifications.enabled false
+omm config set notifications.enabled true
+omm config set notifications.events '["recording_started","recording_stopped","summary_ready","recording_failed","asr_failed","summary_failed"]'
+```
+
+此版本使用系统 `/usr/bin/osascript` 的 `display notification`，固定脚本随 Rust CLI/service 编译，无额外 helper、个人脚本、扩展或安装组件。通知归属于 **macOS 的 AppleScript 执行宿主**，不是独立的 OMMCapture 或 OMM 通知应用；请以系统实际显示的宿主条目管理，不能承诺所有系统版本都出现同名权限项。`request` 只打开通知设置，不主动授权或模拟点击；`check` 的权限/可见性始终 `unknown`。调用成功不证明用户看到了横幅，系统授权、勿扰、登录桌面及通知样式都会影响显示。后台 LaunchAgent 递送仍需在用户桌面实际验证。
+
+队列最多16条、单次调用最多3秒；调用拒绝或超时只记录脱敏 `notificationDiagnostic`（`service status`），不改变录音封存/任务结果。开始/停止按会话、纪要完成按 task/attempt 持久去重。失败不写永久 receipt：按错误阶段跨任务共享60秒冷却，使用持久化的 UTC 毫秒时间，重启不清冷却；实际尝试调用（包括拒绝/超时）才占用冷却，被跳过的错误不延长冷却，同一 task/attempt 在冷却结束后再失败可再次提醒。时间回拨重建冷却，不永久压制；业务 attempt 和产物不变，成功仍可独立提醒。
+
+队列满的提示仅在服务 stderr。停机给队列3秒处理预算后取消，并等待自有子进程确认退出；子进程回收超过3秒会记录脱敏等待提示，继续保留所有权。因此**服务总退出时间没有严格3秒上限**。通知是尽力而为，不是可靠事件订阅：崩溃、队列满、退出或系统拒绝可能漏显示，receipt 只代表调用尝试；状态和产物仍以 CLI/数据库为准。旧配置缺少 notifications 字段按默认启用解析；升级不改变已有自动录音和录音同意配置。
+
+源码升级仍先独立审查，再按第1节部署新 CLI；无需替换录音 bundle 来增加此通知能力。未审查构建不能覆盖运行中的用户安装。如果已有录音或转写任务，先只读检查 `service status` / `task list`，不要为了验证通知中断真实处理；待安全维护时点再正常封存并停止服务，保留 config、DATA、STATE、已授权 auto/consent 和 Pi 专用认证，不把历史 auto=false 写回。只备份需替换的非秘密安装元数据。
+
+桌面验收应在部署审查通过后只发送一条固定测试消息：可用同一用户 GUI 域的临时单次 LaunchAgent 调用 `omm notifications test --json`，验证后台运行而非只验证终端。记录调用结果与可见性证据为两个结论；只读取/截取标题为 Open Meeting Memo、正文为固定 OMM 测试通知的那张通知卡片，不抓取整个桌面或其他通知。若无法取得该卡片或系统递送证据，标记可见性未验证；设置交互由用户完成，禁止脚本点击授权。测试 LaunchAgent 不 KeepAlive，验证后移除，仅使用审查通过的用户 CLI。此机制的真实后台显示及 macOS 13 全链兼容尚未验收。

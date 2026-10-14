@@ -172,3 +172,11 @@ Rust 源码建议 `src/core`、`src/adapters`、`src/service`、`src/cli`，辅�
 已按[安装指南](install.md)在用户目录验证 CLI、开发签名 bundle、真实用户 LaunchAgent 注册/启动/正常停止/卸载保留数据，auto 保持关闭。官方1.13.2动态库及已校验权重成功处理自产中英文短 WAV，Pi 成功对仅本次文本生成短纪要。它们不替代真实硬件采集、系统权限或正在进行的个人会议检测；无人桌面授权下 capture IPC 超时，具体权限仍 unknown。
 
 启动错误恢复新增显式 `Recording.start_confirmed`：新意图未确认，匹配开始响应或可信 session 对账后确认，legacy 缺字段默认已确认以保守保护。仅未确认、helper 明确 idle 且无 session/path/error、私有 canonical 会议目录全空且无音频段/封存/index 时可清理意图；失败启动的 gap/rotation 标记不意味着已有音频。不清理有任何文件、不同/未知 helper、已确认或 legacy 记录，不删除音频。helper 启动重试有15秒总预算；尚未授予权限不能变成就绪承诺。参考 Yulu 的路径/行号均指移植参考树，不是贡献者必须拥有的个人目录；移植版本及 hash 见[provenance notice](../native/yulu-capture/NOTICE.md)。
+
+### 桌面通知边界
+
+核心使用 `NotificationEvent` 类型化状态，独立 `NotificationAdapter` 只接收枚举，不接收会议标题/正文/凭据/原始错误。Controller 在匹配的真实 start 响应（或未确认意图的可信 recording 对账）及成功封存/任务入队后发事件；轮换与重连保留一次会话语义。pipeline 在失败状态持久化后发阶段错误，在 summary 提交成功后发完成，转写单阶段不会发纪要完成。
+
+macOS adapter 调用系统 osascript 的固定 AppleScript，消息来自编译期常量 argv；最小环境、不加载个人脚本，不改录音内核。没有新增独立 App 通知身份/权限；执行宿主身份与桌面显示由 macOS 管理。16槽非阻塞队列、3秒调用预算、owned-child 取消回收；通知失败/拒绝不影响任务结果。只有会话/任务attempt成功事件持久去重；所有失败事件按阶段跨任务共享60秒冷却，不使用永久 task receipt。时钟可注入，生产使用持久 UTC 毫秒：重启保留冷却，跳过的失败不延长冷却，同一 attempt 后续重试在冷却结束后仍可提醒；时间回拨重新建立冷却。调用拒绝/超时也消耗冷却以防刷屏，不修改业务 attempt 或产物。成功 receipt 表示调用尝试，不代表系统递送，崩溃仍可能漏通知。正常退出队列有3秒处理预算后取消；子进程回收超过监控预算时记录等待提示，继续等待 owned exit，不承诺总退出≤3秒，不丢弃活进程所有权。
+
+`notifications.enabled` 默认 true，`notifications.events` 允许筛选泛化状态，旧配置兼容。显式 `notifications check/request/test` 分别只读检查机制、打开系统设置、发送无敏感测试；权限与可见性 unknown，用户在系统界面操作，不能脚本授权。未增加 MCP/WebUI、付费模型调用或录音授权。实际 daemon 集成夹具在临时 XDG 根注入 fake notifier，运行同一 select/自动观察/捕获 IPC/自动管线/退出流程，用受控 helper/worker/Pi 验证成功时序、失败和子进程回收，不触及个人会议。真实后台可见递送、勿扰与拒权行为须桌面实测，不能以子进程 exit0 代替；安全升级保留已有 auto/consent 配置，活跃处理期间不替换服务。测试只能针对固定自产通知卡片取证，不抓取个人通知。macOS 13 全链兼容仍待实机验收。

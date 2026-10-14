@@ -1,10 +1,23 @@
-use super::{contracts::*, store::Store};
+use super::{
+    contracts::*,
+    notifications::{NotificationEvent, NotificationSink},
+    store::Store,
+};
 /// One stage with renewable ownership; committing the transcript automatically queues summary.
 pub async fn run_one(
     store: &mut Store,
     asr: &dyn AsrAdapter,
     pi: &dyn SummaryAdapter,
     lease_ms: i64,
+) -> Result<Option<Task>> {
+    run_one_notifying(store, asr, pi, lease_ms, &NotificationSink::default()).await
+}
+pub async fn run_one_notifying(
+    store: &mut Store,
+    asr: &dyn AsrAdapter,
+    pi: &dyn SummaryAdapter,
+    lease_ms: i64,
+    notifications: &NotificationSink,
 ) -> Result<Option<Task>> {
     let now = chrono::Utc::now().timestamp_millis();
     let Some(mut claim) = store.claim(now, lease_ms)? else {
@@ -70,6 +83,21 @@ pub async fn run_one(
     });
     if let Err(e) = result {
         store.fail(&claim, &e, chrono::Utc::now().timestamp_millis())?;
+        notifications.emit(
+            if stage == Stage::Transcribe {
+                NotificationEvent::AsrFailed
+            } else {
+                NotificationEvent::SummaryFailed
+            },
+            claim.task.id,
+            claim.context.attempt,
+        );
+    } else if stage == Stage::Summary {
+        notifications.emit(
+            NotificationEvent::SummaryReady,
+            claim.task.id,
+            claim.context.attempt,
+        );
     }
     // Completed disposable work is removed; original audio and committed artifacts never are.
     if claim.context.work_dir.exists() {

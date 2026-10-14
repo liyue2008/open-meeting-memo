@@ -6,6 +6,7 @@ pub mod asr;
 #[rustfmt::skip]
 pub mod capture;
 pub mod meeting;
+pub mod notification;
 pub mod pi;
 
 use crate::core::contracts::*;
