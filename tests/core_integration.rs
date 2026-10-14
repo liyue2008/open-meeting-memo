@@ -14,7 +14,7 @@ use std::{
     process::{Child, Command, Output},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, Condvar, Mutex,
     },
     thread,
     time::Duration,
@@ -33,6 +33,9 @@ struct HelperState {
     session: Option<Uuid>,
     file: Option<PathBuf>,
     files: Vec<PathBuf>,
+    closed: Vec<PathBuf>,
+    temporary_files: Vec<PathBuf>,
+    current_closed: bool,
     recording: bool,
     starts: u32,
     deny: bool,
@@ -40,6 +43,28 @@ struct HelperState {
     quit_error: bool,
     retain_reply_endpoint: bool,
     reply_endpoint: Option<UnixStream>,
+}
+// Bound only the process-heavy fixtures: a default-parallel test run must not
+// launch dozens of independent daemons competing with subsecond timing probes.
+static PROCESS_SLOTS: (Mutex<usize>, Condvar) = (Mutex::new(0), Condvar::new());
+struct ProcessSlot;
+impl ProcessSlot {
+    fn acquire() -> Self {
+        let (count, ready) = &PROCESS_SLOTS;
+        let mut active = count.lock().unwrap();
+        while *active >= 4 {
+            active = ready.wait(active).unwrap();
+        }
+        *active += 1;
+        Self
+    }
+}
+impl Drop for ProcessSlot {
+    fn drop(&mut self) {
+        let (count, ready) = &PROCESS_SLOTS;
+        *count.lock().unwrap() -= 1;
+        ready.notify_one();
+    }
 }
 struct Fixture {
     _temp: TempDir,
@@ -50,6 +75,7 @@ struct Fixture {
     helper: Option<thread::JoinHandle<()>>,
     instance: Uuid,
     proxy: Mutex<Option<ChildGuard>>,
+    _process_slot: ProcessSlot,
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -62,6 +88,7 @@ impl Drop for Fixture {
 }
 impl Fixture {
     fn new() -> Self {
+        let process_slot = ProcessSlot::acquire();
         let temp = tempfile::Builder::new()
             .prefix("omm-it-")
             .tempdir_in("/private/tmp")
@@ -76,10 +103,14 @@ impl Fixture {
         let pi = root.join("fake-pi");
         fs::write(&worker,r#"#!/bin/sh
 [ "$*" = '--protocol 1' ] || exit 70
-printf x >> "$(/usr/bin/dirname "$0")/asr-count"
+printf x >> "${0%/*}/asr-count"
+printf 'start\n' >> "${0%/*}/worker-phases"
 input=$(/bin/cat)
-id=$(printf '%s' "$input" | /usr/bin/sed -En 's/.*"task_id":"([^"]+)".*/\1/p')
-attempt=$(printf '%s' "$input" | /usr/bin/sed -En 's/.*"attempt":([0-9]+).*/\1/p')
+printf 'input\n' >> "${0%/*}/worker-phases"
+identity=$(printf '%s' "$input" | /usr/bin/sed -En 's/.*"task_id":"([^"]+)".*"attempt":([0-9]+).*/\1 \2/p')
+id=${identity% *}
+attempt=${identity##* }
+printf 'parsed\n' >> "${0%/*}/worker-phases"
 printf '{"type":"result","schema_version":1,"task_id":"%s","attempt":%s,"transcript":{"schemaVersion":1,"modelVersion":"fixture-asr","durationMs":100,"segments":[{"source":"mic","startMs":0,"endMs":90,"text":"SYNTHETIC_TRANSCRIPT"}]}}\n' "$id" "$attempt"
 "#).unwrap();
         fs::write(&pi,r#"#!/bin/sh
@@ -87,6 +118,7 @@ for flag in --print --no-tools --no-mcp --no-extensions --no-skills --no-session
 case "$*" in *SYNTHETIC_TRANSCRIPT*) exit 72;; esac
 input=$(/bin/cat)
 case "$input" in *segment-0000.wav*|*state.sqlite*) exit 73;; esac
+printf x >> "${0%/*}/pi-count"
 printf '# Synthetic minutes\nDecision at 0ms.\n'
 "#).unwrap();
         for p in [&worker, &pi] {
@@ -100,7 +132,8 @@ printf '# Synthetic minutes\nDecision at 0ms.\n'
             worker_executable: worker,
             asr: AsrConfig {
                 model_version: "fixture-asr".into(),
-                timeout_ms: 2000,
+                // Concurrent subprocess fixtures need startup headroom; product deadlines are unchanged.
+                timeout_ms: 15_000,
                 ..Default::default()
             },
             pi: PiConfig {
@@ -108,7 +141,8 @@ printf '# Synthetic minutes\nDecision at 0ms.\n'
                 provider: "fixture-cloud".into(),
                 model: "fixture-model".into(),
                 prompt_version: "v1".into(),
-                timeout_ms: 2000,
+                // Concurrent subprocess fixtures need startup headroom; product deadlines are unchanged.
+                timeout_ms: 15_000,
                 max_input_bytes: 1024,
                 max_output_bytes: 1024,
             },
@@ -139,7 +173,7 @@ printf '# Synthetic minutes\nDecision at 0ms.\n'
                         let mut s = state2.lock().unwrap();
                         let response = match req["action"].as_str().unwrap() {
                             "status" => {
-                                json!({"quitError":s.quit_error,"captureIPCVersion":1,"instance_id":if s.wrong_identity {Uuid::nil()} else {instance},"recording":s.recording,"session_id":s.session.map(|id|id.to_string()).unwrap_or_default(),"file":s.file.as_ref().map(|p|p.to_str().unwrap()).unwrap_or(""),"sysReady":!s.deny,"micReady":!s.deny})
+                                json!({"quitError":s.quit_error,"captureIPCVersion":1,"instance_id":if s.wrong_identity {Uuid::nil()} else {instance},"recording":s.recording,"session_id":s.session.map(|id|id.to_string()).unwrap_or_default(),"file":if s.current_closed {""} else {s.file.as_ref().map(|p|p.to_str().unwrap()).unwrap_or("")},"sysReady":!s.deny,"micReady":!s.deny})
                             }
                             "start" => {
                                 if s.deny {
@@ -161,17 +195,81 @@ printf '# Synthetic minutes\nDecision at 0ms.\n'
                                         wav.write_sample(0i16).unwrap();
                                     }
                                     wav.finalize().unwrap();
+                                    fs::set_permissions(&file, fs::Permissions::from_mode(0o600))
+                                        .unwrap();
                                     s.starts += 1;
                                     s.session = Some(session);
                                     s.file = Some(file.clone());
                                     s.files = vec![file.clone()];
                                     s.recording = true;
+                                    s.current_closed = false;
+                                    s.closed.clear();
+                                    s.temporary_files.clear();
                                     json!({"instance_id":instance,"session_id":session,"status":"recording","file":file})
                                 }
                             }
                             "stop" => {
                                 s.recording = false;
-                                json!({"instance_id":instance,"session_id":s.session,"status":"stopped","files":s.files,"file":s.file,"duration":0.1})
+                                // The real helper clears its current writer, retaining sealed files.
+                                s.current_closed = true;
+                                json!({"instance_id":instance,"session_id":s.session,"status":"stopped","paged_segments":true,"file":s.file,"duration":0.1})
+                            }
+                            "sealed_segments" => {
+                                let available = if s.recording { &s.closed } else { &s.files };
+                                let after = req["after_sequence"].as_i64().unwrap_or(-1);
+                                let limit = req["limit"].as_u64().unwrap_or(8) as usize;
+                                let mut rows = vec![];
+                                let mut frame_offset = 0u64;
+                                let mut seal_failed = false;
+                                for (sequence, path) in available.iter().enumerate() {
+                                    let descriptor =
+                                        PathBuf::from(format!("{}.sealed.json", path.display()));
+                                    let hash_receipt = PathBuf::from(format!(
+                                        "{}.source-sha256",
+                                        descriptor.display()
+                                    ));
+                                    let frames = match hound::WavReader::open(path) {
+                                        Ok(wav) => u64::from(wav.duration()),
+                                        Err(_) if descriptor.exists() && hash_receipt.exists() => {
+                                            serde_json::from_slice::<Value>(
+                                                &fs::read(&descriptor).unwrap(),
+                                            )
+                                            .unwrap()["frame_count"]
+                                                .as_u64()
+                                                .unwrap()
+                                        }
+                                        Err(_) => {
+                                            seal_failed = true;
+                                            break;
+                                        }
+                                    };
+                                    let doc = json!({"schema_version":1,"session_id":s.session,"instance_id":instance,"sequence":sequence,"offset_frames":frame_offset,"frame_count":frames,"sample_rate":48000,"path":path,"temporary":s.temporary_files.contains(path),"legacy_wav":false});
+                                    frame_offset += frames;
+                                    if sequence as i64 <= after {
+                                        continue;
+                                    }
+                                    if rows.len() == limit {
+                                        break;
+                                    }
+                                    let bytes = serde_json::to_vec(&doc).unwrap();
+                                    if !hash_receipt.exists() {
+                                        omm::core::paths::write_private_new(
+                                            &hash_receipt,
+                                            omm::core::store::hash_file(path).unwrap().as_bytes(),
+                                        )
+                                        .unwrap();
+                                    }
+                                    if !descriptor.exists() {
+                                        omm::core::paths::write_private_new(&descriptor, &bytes)
+                                            .unwrap();
+                                    }
+                                    rows.push(json!({"document":doc,"descriptor_sha256":omm::core::store::hash_file(&descriptor).unwrap(),"sha256":if path.exists() {omm::core::store::hash_file(path).unwrap()} else {fs::read_to_string(hash_receipt).unwrap()}}));
+                                }
+                                if seal_failed {
+                                    json!({"error":"capture_recovery_state_failed"})
+                                } else {
+                                    json!({"instance_id":instance,"origin_instance_id":instance,"session_id":s.session,"segments":rows,"has_more":(after+1) as usize+rows.len()<available.len()})
+                                }
                             }
                             "windows" => json!({"windows":[]}),
                             "audio_devices" => json!({"input":[],"default_input_uid":""}),
@@ -204,6 +302,7 @@ printf '# Synthetic minutes\nDecision at 0ms.\n'
             helper: Some(helper),
             instance,
             proxy: Mutex::new(None),
+            _process_slot: process_slot,
         };
         fixture.start_proxy();
         fixture
@@ -216,6 +315,7 @@ printf '# Synthetic minutes\nDecision at 0ms.\n'
         {
             return;
         }
+        private_dir(&self.runtime.join("omm/capture")).unwrap();
         *proxy = Some(ChildGuard(
             Command::new(std::env::current_exe().unwrap())
                 .args([
@@ -249,6 +349,9 @@ printf '# Synthetic minutes\nDecision at 0ms.\n'
                 self.paths.config.parent().unwrap().parent().unwrap(),
             )
             .env("XDG_RUNTIME_DIR", &self.runtime)
+            // Parallel fixtures each own a daemon; hundreds of idle scheduler
+            // threads must not starve the bounded shell protocol fixtures.
+            .env("TOKIO_WORKER_THREADS", "1")
             .args(args)
             .arg("--json")
             .arg("--non-interactive");
@@ -261,8 +364,10 @@ printf '# Synthetic minutes\nDecision at 0ms.\n'
         let o = self.invoke(args);
         assert!(
             o.status.success(),
-            "{args:?}: {}",
-            String::from_utf8_lossy(&o.stdout)
+            "{args:?}: {}; worker phases: {}; daemon: {}",
+            String::from_utf8_lossy(&o.stdout),
+            fs::read_to_string(self._temp.path().join("worker-phases")).unwrap_or_default(),
+            fs::read_to_string(self._temp.path().join("daemon-output")).unwrap_or_default()
         );
         let value: Value = serde_json::from_slice(&o.stdout).unwrap();
         assert_eq!(value["schemaVersion"], 1);
@@ -282,10 +387,15 @@ printf '# Synthetic minutes\nDecision at 0ms.\n'
         if self.helper.is_some() {
             self.start_proxy();
         }
+        let log = self._temp.path().join("daemon-output");
+        if !log.exists() {
+            write_private_new(&log, b"").unwrap();
+        }
+        let output = fs::OpenOptions::new().append(true).open(log).unwrap();
         let child = ChildGuard(
             self.command(&["service", "run"])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
+                .stdout(output.try_clone().unwrap())
+                .stderr(output)
                 .spawn()
                 .unwrap(),
         );
@@ -326,7 +436,17 @@ fn real_cli_service_capture_worker_and_pi_queue_round_trip_without_audio_upload_
     );
     f.ok(&["record", "auto", "enable", "--confirm-recording-consent"]);
     f.ok(&["record", "auto", "disable"]);
+    // Exercise the original AppConfig one-hour default through actual service startup.
+    let mut legacy = AppConfig::load(&f.paths).unwrap();
+    legacy.segment_ms = 3_600_000;
+    legacy.save(&f.paths).unwrap();
+    let original_config = fs::read(f.paths.config.join("config.json")).unwrap();
     let mut daemon = f.daemon();
+    assert_eq!(f.ok(&["config", "show"])["segmentMs"], 1_800_000);
+    assert_eq!(
+        fs::read(f.paths.config.join("config.json")).unwrap(),
+        original_config
+    );
     for args in [
         &["paths"][..],
         &["doctor"],
@@ -555,7 +675,7 @@ case "$*" in
     let id = c.recording().unwrap().unwrap().session_id;
     c.rotate().await.unwrap();
     assert_eq!(c.recording().unwrap().unwrap().session_id, id);
-    assert_eq!(f.state.lock().unwrap().starts, 2);
+    assert_eq!(f.state.lock().unwrap().starts, 1); // Rolling never stops/starts capture.
     let mut ended = o.clone();
     ended.state = MeetingState::Inactive;
     ended.evidence = Evidence::Strong;
@@ -576,7 +696,7 @@ case "$*" in
         .unwrap()
         .pop()
         .unwrap();
-    assert_eq!(sealed.segments.len(), 2);
+    assert_eq!(sealed.segments.len(), 1);
     fs::write(
         lark,
         "#!/bin/sh\nprintf 'SECRET_SYNTHETIC_AUTH_ERROR' >&2\nexit 1\n",
@@ -1513,6 +1633,7 @@ fn unstarted_recording_fixture() -> (
     let directory = f.paths.data.join("meetings").join(id.to_string());
     private_dir(&directory).unwrap();
     let record = Recording {
+        segment_ms: 1_800_000,
         session_id: id,
         title: "Synthetic unstarted intent".into(),
         start_confirmed: false,
@@ -1993,4 +2114,344 @@ fn notifications_daemon_shutdown_cancels_queue_and_reaps_owned_notifier_child() 
     assert_eq!(unsafe { libc::kill(last_pid, 0) }, -1);
     assert!(f._temp.path().join("notification-drained").exists());
     assert!(!f.runtime.join("omm/service.sock").exists());
+}
+#[test]
+fn rolling_segment_a_transcribes_before_b_is_sealed_and_summary_runs_once_after_stop() {
+    let f = Fixture::new();
+    let mut daemon = f.daemon();
+    let started = f.ok(&["record", "start", "--title", "Generated rolling fixture"]);
+    let session = Uuid::parse_str(started["session_id"].as_str().unwrap()).unwrap();
+    assert!(
+        Store::open(&f.paths).unwrap().tasks().unwrap().is_empty(),
+        "no frames have sealed, no task is created"
+    );
+    {
+        let mut state = f.state.lock().unwrap();
+        let first = state.file.clone().unwrap();
+        let second = first.parent().unwrap().join("segment-0001.wav");
+        fs::copy(&first, &second).unwrap();
+        fs::set_permissions(&second, fs::Permissions::from_mode(0o600)).unwrap();
+        state.closed = vec![first.clone()];
+        state.files = vec![first, second.clone()];
+        state.file = Some(second);
+    }
+    let mut done = false;
+    for _ in 0..100 {
+        let store = Store::open_read_only(&f.paths).unwrap();
+        if store.has_segmented_session(session).unwrap()
+            && store
+                .segment_progress(session)
+                .unwrap()
+                .iter()
+                .any(|s| s.status == "done")
+        {
+            done = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(done, "segment A did not process while B remained active");
+    assert!(f.state.lock().unwrap().recording);
+    assert_eq!(f.state.lock().unwrap().starts, 1);
+    assert_eq!(fs::read(f._temp.path().join("asr-count")).unwrap().len(), 1);
+    assert!(!f._temp.path().join("pi-count").exists());
+    let partial = f.ok(&["meeting", "show", &session.to_string()]);
+    assert_eq!(partial["meeting"]["sealed_at_ms"], 0);
+    assert_eq!(
+        partial["segmentProgress"]["transcription"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let stopped = f.ok(&["record", "stop"]);
+    let id = stopped["task"]["id"].as_str().unwrap();
+    f.ok(&["task", "wait", id, "--timeout", "10s"]);
+    let store = Store::open_read_only(&f.paths).unwrap();
+    assert_eq!(store.meetings().unwrap().len(), 1);
+    assert_eq!(store.tasks().unwrap().len(), 1);
+    assert_eq!(
+        store
+            .segment_progress(session)
+            .unwrap()
+            .iter()
+            .filter(|s| s.status == "done")
+            .count(),
+        2
+    );
+    assert_eq!(store.partial_transcript(session).unwrap().duration_ms, 200);
+    assert_eq!(f.state.lock().unwrap().starts, 1);
+    assert_eq!(fs::read(f._temp.path().join("asr-count")).unwrap().len(), 2);
+    assert_eq!(fs::read(f._temp.path().join("pi-count")).unwrap().len(), 1);
+    f.ok(&["service", "stop"]);
+    assert!(daemon.0.wait().unwrap().success());
+}
+
+#[test]
+fn parallel_fake_worker_startup_handshake_has_fixture_headroom_without_relaxing_product_timeout() {
+    let f = Fixture::new();
+    assert!(
+        AppConfig::load(&f.paths).unwrap().asr.timeout_ms >= 5000,
+        "fixture subprocess handshake still uses the flaky two-second deadline"
+    );
+    let worker = f._temp.path().join("fake-worker");
+    let original = fs::read_to_string(&worker).unwrap();
+    fs::write(
+        &worker,
+        original.replacen("#!/bin/sh\n", "#!/bin/sh\n/bin/sleep 2.25\n", 1),
+    )
+    .unwrap();
+    let mut daemon = f.daemon();
+    f.ok(&[
+        "record",
+        "start",
+        "--title",
+        "Generated delayed worker handshake",
+    ]);
+    let task = f.ok(&["record", "stop"])["task"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    f.ok(&["task", "wait", &task, "--timeout", "1m"]);
+    let forced = f.ok(&[
+        "process",
+        f.ok(&["task", "show", &task])["session_id"]
+            .as_str()
+            .unwrap(),
+        "--force",
+    ]);
+    f.ok(&[
+        "task",
+        "wait",
+        forced["id"].as_str().unwrap(),
+        "--timeout",
+        "1m",
+    ]);
+    assert_eq!(fs::read(f._temp.path().join("asr-count")).unwrap(), b"xx");
+    f.ok(&["service", "stop"]);
+    assert!(daemon.0.wait().unwrap().success());
+}
+
+#[test]
+#[ignore = "explicit locked codec; real daemon with generated recovery descriptor and fake ASR/Pi"]
+fn recovered_descriptor_daemon_cleanup_continues_and_admission_freezes_bitrate() {
+    let f = Fixture::new();
+    let worker = f._temp.path().join("fake-worker");
+    let script = fs::read_to_string(&worker).unwrap();
+    fs::write(&worker, script
+        .replacen("printf '{\"type\"", "duration=$(printf '%s' \"$input\" | /usr/bin/tr ',' '\\n' | /usr/bin/sed -En 's/.*\"duration_ms\":([0-9]+).*/\\1/p' | /usr/bin/awk '{s+=$1} END {print s}')\nprintf '{\"type\"", 1)
+        .replace("\"durationMs\":100", "\"durationMs\":%s")
+        .replace("' \"$id\" \"$attempt\"", "' \"$id\" \"$attempt\" \"$duration\""))
+        .unwrap();
+    let manifest = PathBuf::from(std::env::var_os("OMM_CODEC_TEST_MANIFEST").unwrap());
+    f.ok(&[
+        "codec",
+        "install",
+        "--from",
+        manifest.parent().unwrap().to_str().unwrap(),
+    ]);
+    f.ok(&["config", "set", "audio.opus_bitrate_kbps", "64"]);
+    let mut daemon = f.daemon();
+    let started = f.ok(&["record", "start"]);
+    let session = Uuid::parse_str(started["session_id"].as_str().unwrap()).unwrap();
+    let first = {
+        let mut state = f.state.lock().unwrap();
+        let first = state.file.clone().unwrap();
+        let second = first.parent().unwrap().join("second.wav");
+        fs::copy(&first, &second).unwrap();
+        fs::set_permissions(&second, fs::Permissions::from_mode(0o600)).unwrap();
+        state.closed = vec![first.clone()];
+        state.files = vec![first.clone(), second.clone()];
+        state.temporary_files = vec![second.clone()];
+        state.file = Some(second);
+        first
+    };
+    await_condition(|| {
+        let progress = Store::open(&f.paths)
+            .unwrap()
+            .archive_progress(session)
+            .unwrap();
+        assert!(
+            !progress
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|a| a["status"] == "failed"),
+            "archive failed: {progress}"
+        );
+        assert!(
+            daemon.0.try_wait().unwrap().is_none(),
+            "daemon exited: {progress}"
+        );
+        progress
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["status"] == "done")
+    });
+    let original_receipt = Store::open(&f.paths)
+        .unwrap()
+        .meeting_audio(session)
+        .unwrap()[0]
+        .file
+        .clone();
+    assert_eq!(original_receipt.bitrate, 64000);
+    assert!(first.exists());
+    f.ok(&["config", "set", "audio.opus_bitrate_kbps", "96"]);
+    let stopped = f.ok(&["record", "stop"]);
+    f.ok(&[
+        "task",
+        "wait",
+        stopped["task"]["id"].as_str().unwrap(),
+        "--timeout",
+        "20s",
+    ]);
+    await_condition(|| {
+        Store::open(&f.paths)
+            .unwrap()
+            .meeting_audio(session)
+            .unwrap()
+            .len()
+            == 2
+    });
+    let archived = Store::open(&f.paths)
+        .unwrap()
+        .meeting_audio(session)
+        .unwrap();
+    assert_eq!(
+        archived.iter().map(|a| a.file.bitrate).collect::<Vec<_>>(),
+        [64000, 96000]
+    );
+    assert!(first.exists(), "recovered temporary:false WAV must stay");
+    f.ok(&["config", "set", "audio.opus_bitrate_kbps", "32"]);
+    let forced = f.ok(&["process", &session.to_string(), "--force"]);
+    let force_id = Uuid::parse_str(forced["id"].as_str().unwrap()).unwrap();
+    f.ok(&["task", "wait", &force_id.to_string(), "--timeout", "20s"]);
+    let mut store = Store::open(&f.paths).unwrap();
+    let lineage = store.recorded_asr_inputs(force_id).unwrap().unwrap();
+    assert_eq!(lineage["requested_audio"]["opus_bitrate_kbps"], 32);
+    assert_eq!(
+        lineage["inputs"][0]["source_archive"]["files"][0]["bitrate"],
+        64000
+    );
+    assert_eq!(
+        lineage["inputs"][1]["source_archive"]["files"][0]["bitrate"],
+        96000
+    );
+    for input in lineage["inputs"].as_array().unwrap() {
+        assert!(input["source_archive"]["encoder_version"]
+            .as_str()
+            .unwrap()
+            .contains("sha256:"));
+        assert_eq!(input["actual_sha256"].as_str().unwrap().len(), 64);
+    }
+    assert!(lineage["inputs"][0]["codec_lineage"].is_null());
+    assert_eq!(
+        lineage["inputs"][1]["codec_lineage"]["files"][0]["bitrate"],
+        96000
+    );
+    assert!(store
+        .claim_archive(chrono::Utc::now().timestamp_millis(), 60000)
+        .unwrap()
+        .is_none());
+    for audio in &archived {
+        assert_eq!(
+            omm::core::store::hash_file(&audio.file.path).unwrap(),
+            audio.file.sha256
+        );
+    }
+    drop(store);
+    f.ok(&["config", "set", "audio.opus_bitrate_kbps", "96"]);
+    // Replay admits neither a new value for the existing segment nor a duplicate encoder job.
+    f.ok(&["service", "stop"]);
+    assert!(daemon.0.wait().unwrap().success());
+    let mut daemon = f.daemon();
+    let started = f.ok(&["record", "start"]);
+    let next = Uuid::parse_str(started["session_id"].as_str().unwrap()).unwrap();
+    let stopped = f.ok(&["record", "stop"]);
+    f.ok(&[
+        "task",
+        "wait",
+        stopped["task"]["id"].as_str().unwrap(),
+        "--timeout",
+        "20s",
+    ]);
+    await_condition(|| {
+        !Store::open(&f.paths)
+            .unwrap()
+            .meeting_audio(next)
+            .unwrap()
+            .is_empty()
+    });
+    assert_eq!(
+        Store::open(&f.paths).unwrap().meeting_audio(next).unwrap()[0]
+            .file
+            .bitrate,
+        96000
+    );
+    assert_eq!(
+        omm::core::store::hash_file(&original_receipt.path).unwrap(),
+        original_receipt.sha256
+    );
+    assert!(first.exists());
+    f.ok(&["service", "stop"]);
+    assert!(daemon.0.wait().unwrap().success());
+}
+
+#[test]
+fn diagnostic_insert_failure_real_daemon_retries_and_processes_next_meeting() {
+    let f = Fixture::new();
+    let worker = f._temp.path().join("fake-worker");
+    let script = fs::read_to_string(&worker).unwrap().replace("printf 'parsed\\n' >> \"${0%/*}/worker-phases\"", r#"printf 'parsed\n' >> "${0%/*}/worker-phases"
+if [ ! -f "${0%/*}/backend-once" ]; then
+  printf x > "${0%/*}/backend-once"
+  printf '{"type":"error","schema_version":1,"task_id":"%s","attempt":%s,"error":{"code":"backend","retryable":true,"message":"PRIVATE_NATIVE_BODY"}}\n' "$id" "$attempt"
+  exit 0
+fi"#);
+    assert!(script.contains("backend-once"));
+    fs::write(&worker, script).unwrap();
+    let conn = rusqlite::Connection::open(f.paths.state.join("state.sqlite")).unwrap();
+    conn.execute_batch("CREATE TRIGGER reject_diagnostic BEFORE INSERT ON settings WHEN NEW.key LIKE 'stage-error:%' BEGIN SELECT RAISE(FAIL,'PRIVATE_DIAGNOSTIC_BODY'); END;").unwrap();
+    let mut daemon = f.daemon();
+    for (i, title) in ["Synthetic first", "Synthetic next"].iter().enumerate() {
+        let started = f.ok(&["record", "start", "--title", title]);
+        let session = Uuid::parse_str(started["session_id"].as_str().unwrap()).unwrap();
+        let sealed = f.ok(&["record", "stop"]);
+        let task = Uuid::parse_str(sealed["task"]["id"].as_str().unwrap()).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        loop {
+            let store = Store::open(&f.paths).unwrap();
+            if store.task(task).unwrap().status == TaskStatus::Completed {
+                let progress = store.segment_progress(session).unwrap();
+                assert_eq!(progress[0].status, "done");
+                assert_eq!(progress[0].retries, if i == 0 { 1 } else { 0 });
+                assert!(store.stage_error_events(task).unwrap().is_empty());
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "daemon lane must continue after observer rejection"
+            );
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
+    assert_eq!(fs::read(f._temp.path().join("asr-count")).unwrap(), b"xxx");
+    f.ok(&["service", "stop"]);
+    assert!(daemon.0.wait().unwrap().success());
+    let output = fs::read_to_string(f._temp.path().join("daemon-output")).unwrap();
+    let records: Vec<_> = output
+        .lines()
+        .filter(|line| line.contains("stage_error_diagnostic_unavailable"))
+        .collect();
+    assert_eq!(records.len(), 1);
+    for line in records {
+        assert!(!line.contains("PRIVATE_NATIVE_BODY"));
+        assert!(!line.contains("PRIVATE_DIAGNOSTIC_BODY"));
+        assert!(!line.contains(f._temp.path().to_str().unwrap()));
+        let evidence: omm::core::store::StageAttemptError =
+            serde_json::from_str(line.split_once("evidence=").unwrap().1).unwrap();
+        assert_eq!(evidence.code, ErrorCode::Backend);
+        assert!(evidence.retryable);
+        assert_eq!(evidence.input_hashes.len(), 1);
+    }
 }

@@ -2,7 +2,7 @@
 
 本地录音和转写，使用已配置的 Pi 生成会议纪要。首版面向 macOS、Apple Silicon、飞书与命令行；录音 helper 编译目标是 macOS 13+，本指南固定的官方 ASR 库依赖 macOS 15.5+，较旧系统未验证完整链路。不包含实时字幕、说话人识别、网页界面或 MCP 服务。
 
-**当前为开发版本，不是已发布或验证过真实会议的产品。** 既有86项受控基线已通过独立代码复审；本次新增启动恢复修复待独立复审。目前80项默认测试加11项真实 Swift 合成回归通过；它们不代表真实录音、系统授权或模型质量验收。Swift 录音适配器、Rust 原生转写 worker、核心队列及 CLI 已接线。
+**当前为开发版本，不是已发布或验证过真实会议的产品。** 新分段版本待独立复审及用户级部署。录音按音频帧封存为最长30分钟的片段；每段封存后立即进入独立、可恢复的本地转写队列，会议结束后聚合转写并生成一次纪要。最终音频是48kHz、单声道的真实 Ogg/Opus（`.opus`），需要显式安装固定编码工具。受控测试及自产20/60秒语音基准没有验证真实录音、系统授权或长会议质量。
 
 - [用户级安装、依赖、卸载与故障处理](docs/install.md)
 - [贡献者/Agent 指南](AGENTS.md) · [概要设计及边界](docs/overview-design.md) · [需求](prd.md)
@@ -16,6 +16,8 @@
 ```sh
 cargo build --locked
 bash packaging/capture/build-dev.sh
+# 显式下载校验固定源码并在 target 构建，不安装系统软件或用户服务
+bash packaging/audio/build-dev.sh
 ```
 
 Cargo 默认启用 `capture`、`asr`；输出 `target/debug/omm` 与 `target/debug/omm-asr-worker`。开发录音程序位于 `target/capture/OMMCapture.app/Contents/MacOS/omm-capture`，开发签名不是公证或发布签名。Rust worker 使用 sherpa-onnx **1.13.2 C API**，推理由 C++/ONNX 执行，不能称为纯 Rust 推理。
@@ -96,9 +98,17 @@ omm task list --json
 
 前台与 LaunchAgent 服务均可使用上述显式目录或安全替代目录。`service install/start/stop/uninstall` 是用户显式操作；默认受控测试只使用临时 HOME 和伪服务运行器，不注册真实服务。安装时显式运行根随四个持久根记录到 profile/LaunchAgent；CLI 运行根冲突时拒绝操作。macOS 替代根不写为跨登录固定 locator，每次从系统重新解析；显式根确实消失时允许带诊断退化到替代根。`uninstall` 先尝试封存活跃录音，再注销服务，不删 DATA/STATE/CONFIG 或已提交结果；无法确认活跃录音已封存时拒绝卸载。封存成功后，对服务启动或接管的 helper 都执行身份绑定的退出请求，验证实际进程退出和 socket 消失后才报告成功；错误身份、仍在录制、退出失败或已接管端点异常丢失均拒绝成功。不杀未验证的 PID，不自行删除 capture socket；从未启动 helper 的服务可正常停止。
 
-自动录音默认关闭。15 秒强信号确认、30 秒结束宽限是可配置建议，不是已验证的漏录指标；轮询可能漏掉开头或多录尾段。手动停止抑制当前会议自动重启；无法识别来源时需明确结束或再次手动开始才能解除保守抑制。服务重启先对账，不重复起录；同来源 ID 重连保留 session，不同强来源 ID 按稳定确认时间建立候选，先封存旧会议再开始独立会议。短抖动、unknown 和手动录制不触发身份切换。轮换音频段保留原 session 和缺口记录。睡眠后的对账不能保证睡前通知、恢复完整性或无丢音，需要真实机器验证。
+自动录音默认关闭。15 秒强信号确认、30 秒结束宽限是可配置建议，不是已验证的漏录指标；轮询可能漏掉开头或多录尾段。手动停止抑制当前会议自动重启；无法识别来源时需明确结束或再次手动开始才能解除保守抑制。服务重启先对账，不重复起录；同来源 ID 重连保留 session，不同强来源 ID 按稳定确认时间建立候选，先封存旧会议再开始独立会议。短抖动、unknown 和手动录制不触发身份切换。帧级轮换保留原 session，默认/最大 `1800` 秒；`omm config set segment_ms 60000` 可设置60000–1800000的整数毫秒。正常轮换只切已配对PCM的写入文件，不停止/重启采集。恢复或系统睡眠仍可能产生缺口。睡眠后的对账不能保证睡前通知、恢复完整性或无丢音，需要真实机器验证。
 
-封存音频只进入本地 ASR worker。逐字稿独立提交后自动排队调用 Pi，不存在文本外发批准开关；Pi 的 stdin 只含转写文本/时间信息，**不传音频、路径或任务数据库**。Pi 使用固定 print argv，禁工具、MCP、扩展、技能、上下文文件、会话与自动批准；长文本分块后合并。权限收缩不是操作系统沙箱，配置文件和供应商实现仍需信任。
+有效片段封存后，不等会议结束就进入独立持久转写队列；无音频帧不创建任务。每段以及已识别的语音活动段都有绑定输入/模型/版本的检查点，失败、超时或重启只补未完成部分。`meeting show` / `task show` 显示段状态和无正文的处理进度；`meeting read --artifact transcript` 在最终转写提交前返回 `partial:true`。会议封存且所有段完成后，按采集帧位置聚合一次最终转写并排队调用 Pi，不生成每段纪要或每段启停通知。
+
+码率默认48kbps，可用 `omm config set audio.opus_bitrate_kbps 64` 选择32/48/64/96；`omm config show` 显示当前值。每段正式入队时冻结码率，改配置只影响随后入队的新段；已入队但尚未编码的段也沿用原值。旧归档/检查点不重写，`process --force` 只重转写、不重新编码；仍有原WAV时使用校验后的原WAV，否则解码旧归档。输入记录区分当前请求值和原归档实际码率、编码器版本及hash。
+
+采集仍使用已有PCM配对、同步、WAV写头与恢复内核。后台编码与ASR各有一条队列：最终公开混音和内部麦克风/系统声源各一份单声道 `.opus`，转写保留声源标签。归档检查容器、预跳过帧、尾填充、解码帧数和hash，原子发布收据；只有归档和段检查点验证完成、没有音频读者租约时才清理本次临时WAV。历史WAV永不自动清理，仍可处理。崩溃时合法零帧空尾保留原文件、排除逻辑段列表；截断或格式异常的尾文件保守报错。缺编码器或编码失败保留原WAV，并在归档进度中报告错误，不能当成音频归档已就绪。三份音频增加空间和编码成本，来源文件不在默认音频列表展示。
+
+新配置转写默认3线程、单worker，已保存的2线程配置保持原值；按逻辑核数的一半预留采集/服务和单线程编码槽后限制1–3线程，小核机器共享编码/ASR槽。编码使用 `nice 10`、单线程/单过滤线程；没有动态采样控制算法。CPU目标是所属进程总CPU÷逻辑核数约低于50%，不是系统硬配额。基准与取舍见[性能记录](docs/segment-benchmark.md)。
+
+音频只进入本地 ASR worker。逐字稿独立提交后自动排队调用 Pi，不存在文本外发批准开关；Pi 的 stdin 只含转写文本/时间信息，**不传音频、路径或任务数据库**。Pi 使用固定 print argv，禁工具、MCP、扩展、技能、上下文文件、会话与自动批准；长文本分块后合并。权限收缩不是操作系统沙箱，配置文件和供应商实现仍需信任。
 
 Pi 临时目录使用实例/任务/attempt/STATE 所有权记录与独占锁。正常取消先终止并等待持有句柄的子进程退出，再删除自己的目录；服务正常停止等待回收完成。父服务被 SIGKILL 时 Pi 可能成为孤儿并继续模型调用，不保证立刻终止。恢复仅在所有权/任务匹配、锁空闲且父与子 PID 均确认死亡后删除；活跃、身份/存活未知、损坏记录或路径攻击保留并诊断，不凭 PID 杀进程，也不删除其他 STATE 的目录。
 
@@ -116,7 +126,7 @@ omm task wait <task-id> --timeout 20m --json
 
 普通处理按输入和配置幂等；`all --force` 新建 attempt，保留旧产物。`summary --force` 只复用校验后的已提交逐字稿，记录来源 attempt/hash/原 ASR 配置，使用新的 Pi 配置生成纪要，不隐式重新转写。纪要失败只重试纪要；有限退避、租约续期和提交 journal 支持重启恢复。`wait` 超时不取消任务或删除音频。
 
-`meeting list --query` 只匹配标题，`--source` 匹配来源 ID，不搜索录音或逐字稿全文；`read` 返回已提交文本，转写为结构化 JSON 内容。所有命令支持 `--json` 与 `--non-interactive`。退出码：0 成功；2 输入/配置；3 缺依赖、认证、权限或交互要求；4 损坏/真实处理错误；5 等待超时；6 冲突。后端失败诊断不回显会议内容、凭据或原始 stderr。
+`meeting list --query` 只匹配标题，`--source` 匹配来源 ID，不搜索录音或逐字稿全文；`read` 返回已提交或明确标记的部分文本，转写为结构化 JSON 内容；`meeting show` 的 `audio` 仅列公开混音归档。所有命令支持 `--json` 与 `--non-interactive`。退出码：0 成功；2 输入/配置；3 缺依赖、认证、权限或交互要求；4 损坏/真实处理错误；5 等待超时；6 冲突。后端失败诊断不回显会议内容、凭据或原始 stderr。
 
 ## 验证边界与许可
 
@@ -129,7 +139,7 @@ OMM_CAPTURE_TEST_BINARY="$PWD/target/capture/OMMCapture.app/Contents/MacOS/omm-c
 OMM_CAPTURE_TEST_BINARY="$PWD/target/capture/OMMCapture.app/Contents/MacOS/omm-capture" cargo test --locked --test core_integration review_r1_03_ -- --ignored
 ```
 
-项目源码采用 [Apache-2.0](LICENSE)，不改变依赖/模型的各自许可。Swift 内核与算法参考 Yulu 的 MIT 许可保留于 [录音许可](native/yulu-capture/LICENSE)、[录音来源及适配说明](native/yulu-capture/NOTICE.md)、[转写参考许可](workers/local-asr/LICENSE-Yulu)。sherpa 官方头文件的许可见 [LICENSE-sherpa-onnx](workers/local-asr/LICENSE-sherpa-onnx)。模型/动态库不随开发构建打包，重新分发时须另外核对其许可证。
+项目源码采用 [Apache-2.0](LICENSE)，不改变依赖/模型的各自许可。Swift 内核与算法参考 Yulu 的 MIT 许可保留于 [录音许可](native/yulu-capture/LICENSE)、[录音来源及适配说明](native/yulu-capture/NOTICE.md)、[转写参考许可](workers/local-asr/LICENSE-Yulu)。sherpa 官方头文件的许可见 [LICENSE-sherpa-onnx](workers/local-asr/LICENSE-sherpa-onnx)。编码工具固定 FFmpeg 8.1.2（关闭GPL/网络/自动探测，LGPL-2.1-or-later）及 libopus 1.5.2（BSD-3-Clause）；源码hash与许可见 [编码工具清单](packaging/audio/sources.json) 和 [许可目录](packaging/audio/licenses)。显式用户级安装会保留完整校验源码和重建脚本。模型/动态库不随开发构建打包，重新分发时须另外核对其许可证。
 
 ## 桌面状态通知
 

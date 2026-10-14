@@ -31,6 +31,7 @@ SOFTWARE.
 //     -framework AVFoundation -framework CoreMedia -framework CoreAudio
 
 import Cocoa
+import CryptoKit
 import ScreenCaptureKit
 import AVFoundation
 import CoreMedia
@@ -224,20 +225,21 @@ func saveBridge(_ bridge: [String: Any]) -> Bool {
         let data = try JSONSerialization.data(withJSONObject: bridge)
         try data.write(to: BRIDGE_PATH, options: .atomic)
         guard chmod(BRIDGE_PATH.path, 0o600) == 0 else { throw NSError(domain: "capture", code: 1) }
-        bridgeError = ""
         return true
     } catch {
         bridgeError = "capture_recovery_state_failed"
         return false
     }
 }
-func appendBridgeFile(_ path: String) {
+@discardableResult
+func appendBridgeFile(_ path: String, sequence: Int = 0, offsetFrames: Int = 0, segmentMs: Int = 1800000) -> Bool {
     var bridge = readBridge()
     var files = bridge["files"] as? [String] ?? []
     if !files.contains(path) { files.append(path) }
     bridge["files"] = files
     bridge["recording"] = true
-    saveBridge(bridge)
+    bridge["current_path"] = path; bridge["current_sequence"] = sequence; bridge["current_offset_frames"] = offsetFrames; bridge["segment_ms"] = segmentMs
+    return saveBridge(bridge)
 }
 
 // EOF-framed, bounded, fixed internal service command; no shell/Python or audio upload.
@@ -561,10 +563,12 @@ func normalizeToDBFS(_ samples: [Int16], targetDB: Float = -20) -> [Int16] {
 
 // ─── 状态管理 ──────────────────────────────────────────
 
-func writeState(recording: Bool, title: String = "", path: String = "") {
+@discardableResult
+func writeState(recording: Bool, title: String = "", path: String = "", sequence: Int = 0, offsetFrames: Int = 0, segmentMs: Int = 1800000) -> Bool {
     let df = ISO8601DateFormatter()
     var d: [String: Any] = [
-        "version": 2,
+        "version": 3,
+        "sequence": sequence, "offset_frames": offsetFrames, "segment_ms": segmentMs,
         "recording": recording,
         "status": recording ? "recording" : "idle",
         "title": recording ? title : "",
@@ -587,9 +591,13 @@ func writeState(recording: Bool, title: String = "", path: String = "") {
         d["resume_count"] = prior["resume_count"] ?? 0
         d["meeting_id"] = prior["meeting_id"] ?? ""
     }
-    if let data = try? JSONSerialization.data(withJSONObject: d, options: .prettyPrinted) {
-        try? data.write(to: STATE_PATH, options: [.atomic])
-    }
+    do {
+        let data = try JSONSerialization.data(withJSONObject: d, options: .prettyPrinted)
+        try data.write(to: STATE_PATH, options: [.atomic])
+        guard chmod(STATE_PATH.path, 0o600) == 0 else { throw NSError(domain: "capture", code: 1) }
+        let file = try FileHandle(forWritingTo: STATE_PATH); defer { try? file.close() }; try file.synchronize()
+        return true
+    } catch { bridgeError = "capture_recovery_state_failed"; return false }
 }
 
 func readStateDict() -> [String: Any]? {
@@ -692,7 +700,8 @@ class AudioRecorder {
     private let recorderQueue = DispatchQueue(label: "org.openmeetingmemo.audioRecorder")
     private let recorderQueueKey = DispatchSpecificKey<Bool>()
 
-    private var writer: WavWriter?
+    private var writer: RollingRecordingWriter?
+    private var maxSegmentFrames = 1800 * 48000
     private var isRecordingState = false
     private var startTime: Date?
     private var lastMicAudioTime: Date?
@@ -763,16 +772,18 @@ class AudioRecorder {
         }
     }
 
-    func configure(silenceSeconds: TimeInterval, silenceThreshold: Float, outputDir: URL) {
+    func configure(silenceSeconds: TimeInterval, silenceThreshold: Float, outputDir: URL, segmentMs: Int = 1800000) {
         syncState {
             silenceSecondsState = silenceSeconds
             silenceThresholdState = silenceThreshold
             outputDirState = outputDir
+            maxSegmentFrames = min(1800000, max(60000, segmentMs)) * 48
         }
     }
 
-    func start(title: String) -> String? {
+    func start(title: String, sequence: Int = 0, offsetFrames: Int = 0) -> String? {
         return syncState {
+            if !bridgeError.isEmpty { return nil }
             if isRecordingState {
                 return writer?.url.path
             }
@@ -782,7 +793,8 @@ class AudioRecorder {
             guard let directory = AnchoredRecordingDirectory(
                 root: RECORDING_DIR,
                 target: outputDirState
-            ), let w = WavWriter(directory: directory, filename: fn) else {
+            ), let w = RollingRecordingWriter(directory: directory, filename: fn, maxFrames: maxSegmentFrames,
+                                                sequence: sequence, offsetFrames: offsetFrames, title: title) else {
                 log("Recording directory changed or is unsafe: \(outputDirState.path)")
                 return nil
             }
@@ -798,7 +810,10 @@ class AudioRecorder {
             sysGapMicFallbackLogged = false
             meetingMicStateState = .unknown
             autoStopRequested = false
-            writeState(recording: true, title: title, path: url.path)
+            guard writeState(recording: true, title: title, path: url.path, sequence: sequence,
+                             offsetFrames: offsetFrames, segmentMs: maxSegmentFrames / 48) else {
+                isRecordingState = false; return nil
+            }
             log("🎙 \(fn)")
             startSilenceMonitorOnQueue()
             return url.path
@@ -814,6 +829,10 @@ class AudioRecorder {
             flushBuffersOnQueue()
             let p = writer?.url.path
             writer?.finalize()
+            guard writer?.failed != true, writeState(recording: false) else {
+                bridgeError = "capture_recovery_state_failed"; return (p, dur)
+            }
+            bridgeError = ""
             writer = nil
             startTime = nil
             lastMicAudioTime = nil
@@ -858,6 +877,14 @@ class AudioRecorder {
     func noteCaptureRouteChange(now: Date = Date()) {
         syncState {
             guard isRecordingState else { return }
+            var bridge = readBridge()
+            var gaps = bridge["gaps"] as? [[String: Any]] ?? []
+            let wallTimeMs = Int(now.timeIntervalSince1970 * 1000)
+            let startedWallMs = bridge["started_wall_ms"] as? Int ?? Int((startTime ?? now).timeIntervalSince1970 * 1000)
+            gaps.append(["frame_offset": writer?.framePosition ?? 0, "wall_time_ms": wallTimeMs,
+                         "wall_offset_ms": max(0, wallTimeMs - startedWallMs), "kind": "microphone_route_restart"])
+            bridge["gaps"] = gaps
+            if !saveBridge(bridge) { bridgeError = "capture_recovery_state_failed" }
             lastMicAudioTime = now
             lastSysAudioTime = now
         }
@@ -1974,6 +2001,139 @@ final class ProcessTapBackend: CaptureBackend {
 
 // ─── Socket 服务器 ────────────────────────────────────
 
+extension AnchoredRecordingDirectory {
+    func openExistingFile(named filename: String, writable: Bool = false) -> FileHandle? {
+        guard !filename.isEmpty, filename != ".", filename != "..", !filename.contains("/"), stillAnchored() else { return nil }
+        let fd = filename.withCString { Darwin.openat(targetFD, $0, (writable ? O_RDWR : O_RDONLY) | O_NOFOLLOW) }
+        guard fd >= 0 else { return nil }
+        var opened = stat(); var named = stat()
+        let located = filename.withCString { Darwin.fstatat(targetFD, $0, &named, AT_SYMLINK_NOFOLLOW) }
+        guard Darwin.fstat(fd, &opened) == 0, located == 0,
+              (opened.st_mode & S_IFMT) == S_IFREG, opened.st_uid == geteuid(),
+              opened.st_mode & 0o777 == 0o600, opened.st_nlink == 1,
+              opened.st_dev == named.st_dev, opened.st_ino == named.st_ino, stillAnchored() else {
+            Darwin.close(fd); return nil
+        }
+        return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+    }
+
+    // Repair only the owned interrupted file. PCM bytes and the imported WAV header layout stay unchanged.
+    func sealInterruptedWav(named filename: String, legacy: Bool = false) -> Int? {
+        guard let handle = openExistingFile(named: filename, writable: true) else { return nil }
+        defer { try? handle.close() }
+        do {
+            let size = try handle.seekToEnd()
+            guard size >= 82, size - 82 <= (legacy ? UInt64(UInt32.max) - 74 : UInt64(1800 * 48000 * 4)) else { return nil }
+            try handle.seek(toOffset: 0)
+            guard let data = try handle.read(upToCount: 82), data.count == 82 else { return nil }
+            let h = [UInt8](data)
+            guard Array(h[0..<4]) == Array("RIFF".utf8), Array(h[8..<12]) == Array("WAVE".utf8),
+                  Array(h[12..<16]) == Array("fmt ".utf8), h[16] == 16,
+                  h[17...19].allSatisfy({ $0 == 0 }), h[20] == 1, h[21] == 0,
+                  h[22] == 2, h[23] == 0, Array(h[24..<28]) == [0x80, 0xbb, 0, 0],
+                  h[34] == 16, h[35] == 0, Array(h[74..<78]) == Array("data".utf8) else { return nil }
+            let payload = (size - 82) / 4 * 4
+            try handle.truncate(atOffset: payload + 82)
+            var riffSize = UInt32(payload + 74).littleEndian
+            var dataSize = UInt32(payload).littleEndian
+            try handle.seek(toOffset: 4)
+            try withUnsafeBytes(of: &riffSize) { try handle.write(contentsOf: Data($0)) }
+            try handle.seek(toOffset: 78)
+            try withUnsafeBytes(of: &dataSize) { try handle.write(contentsOf: Data($0)) }
+            try handle.synchronize()
+            guard stillAnchored() else { return nil }
+            return Int(payload / 4)
+        } catch { return nil }
+    }
+
+    func publishDescriptor(named filename: String, data: Data) -> Bool {
+        let temporary = UUID().uuidString + ".descriptor.tmp"
+        guard !filename.contains("/"), stillAnchored(), let file = createFile(named: temporary) else { return false }
+        defer { removeFile(named: temporary) }
+        do {
+            try file.handle.write(contentsOf: data)
+            try file.handle.synchronize()
+            try file.handle.close()
+            let renamed = temporary.withCString { source in filename.withCString { destination in
+                Darwin.renameatx_np(targetFD, source, targetFD, destination, UInt32(RENAME_EXCL))
+            }}
+            return renamed == 0 && Darwin.fsync(targetFD) == 0 && stillAnchored()
+        } catch { return false }
+    }
+
+}
+
+// MIT Yulu rolling-writer seam: split already paired PCM, never restart capture.
+final class RollingRecordingWriter {
+    private let directory: AnchoredRecordingDirectory
+    private let filename: String
+    private let maxFrames: Int
+    private var current: WavWriter?
+    private let title: String
+    var framePosition: Int { offset + frames }
+    private var frames = 0
+    private var offset = 0
+    private var sequence = 0
+    private(set) var failed = false
+    var url: URL { current?.url ?? directory.targetURL.appendingPathComponent(filename) }
+    init?(directory: AnchoredRecordingDirectory, filename: String, maxFrames: Int,
+          sequence: Int = 0, offsetFrames: Int = 0, title: String = "meeting") {
+        guard sequence >= 0, offsetFrames >= 0, maxFrames > 0, maxFrames <= 1800 * 48000,
+              let writer = WavWriter(directory: directory, filename: filename) else { return nil }
+        self.directory = directory; self.filename = filename; self.maxFrames = maxFrames; self.title = title
+        self.current = writer; self.sequence = sequence; self.offset = offsetFrames
+    }
+    static func writableFrames(offered: Int, current: Int, limit: Int) -> Int {
+        min(offered, limit - current)
+    }
+    func append(_ data: Data) {
+        guard !failed, data.count % 4 == 0 else { failed = true; return }
+        var position = 0
+        while position < data.count {
+            if current == nil {
+                let next = String(filename.dropLast(4)) + String(format: "-%04d.wav", sequence)
+                guard let writer = WavWriter(directory: directory, filename: next) else { failed = true; return }
+                current = writer
+                guard appendBridgeFile(writer.url.path, sequence: sequence, offsetFrames: offset, segmentMs: maxFrames / 48),
+                      writeState(recording: true, title: title, path: writer.url.path, sequence: sequence, offsetFrames: offset, segmentMs: maxFrames / 48) else {
+                    failed = true; return
+                }
+            }
+            let count = Self.writableFrames(offered: (data.count - position) / 4,
+                                            current: frames, limit: maxFrames) * 4
+            current?.append(data.subdata(in: position..<(position + count)))
+            frames += count / 4; position += count
+            if frames == maxFrames { seal() }
+            if failed { return }
+        }
+    }
+    private func seal() {
+        guard let writer = current else { return }
+        writer.finalize()
+        if frames > 0 {
+            let bridge = readBridge()
+            let document: [String: Any] = ["schema_version": 1, "temporary": true,
+                "session_id": bridge["session_id"] ?? "", "instance_id": bridge["origin_instance_id"] ?? SERVICE_OWNER,
+                "sequence": sequence,
+                "offset_frames": offset, "frame_count": frames, "sample_rate": 48000,
+                "path": writer.url.path]
+            guard let data = try? JSONSerialization.data(withJSONObject: document),
+                  directory.publishDescriptor(named: writer.url.lastPathComponent + ".sealed.json", data: data) else {
+                failed = true; bridgeError = "capture_recovery_state_failed"; return
+            }
+            offset += frames; sequence += 1
+        } else {
+            directory.removeFile(named: writer.url.lastPathComponent)
+            var bridge = readBridge()
+            bridge["files"] = (bridge["files"] as? [String] ?? []).filter { $0 != writer.url.path }
+            saveBridge(bridge)
+        }
+        failed = false; frames = 0; current = nil
+    }
+    func finalize() { seal() }
+}
+
+
 func unixSocketIsReachable(at path: URL) -> Bool {
     guard FileManager.default.fileExists(atPath: path.path) else { return false }
     let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
@@ -2110,6 +2270,13 @@ class SocketServer {
     private(set) var ownsSocketPath = false
     private var boundSocketIdentity: (dev_t, ino_t)?
     private var quitting = false
+    private let startupLock = NSLock()
+    private var startupComplete = false
+    // Publishing a socket is not a ready recording: recovery updates state and bridge first.
+    func finishStartup() { startupLock.lock(); startupComplete = true; startupLock.unlock() }
+    private func isStartupComplete() -> Bool {
+        startupLock.lock(); defer { startupLock.unlock() }; return startupComplete
+    }
     private var singletonLockFD: Int32 = -1
     /// Hooks the daemon uses to start/stop ScreenCaptureKit + microphone capture only
     /// while a recording is in flight, so the macOS menu-bar recording indicator
@@ -2305,6 +2472,7 @@ class SocketServer {
 
     private func handleParsed(_ c: Int32, action: String, json: [String: Any]) {
         var resp: [String: Any]
+        guard isStartupComplete() else { send(c, ["error": "capture_initializing"]); return }
         guard !quitting else { send(c, ["error": "capture_shutting_down"]); return }
         switch action {
         case "start":
@@ -2373,7 +2541,8 @@ class SocketServer {
             } else {
                 outputDir = RECORDING_DIR
             }
-            recorder.configure(silenceSeconds: silenceSeconds, silenceThreshold: silenceThreshold, outputDir: outputDir)
+            recorder.configure(silenceSeconds: silenceSeconds, silenceThreshold: silenceThreshold, outputDir: outputDir,
+                               segmentMs: json["segment_ms"] as? Int ?? 1800000)
             // Start the OS capture sources before creating the WAV/replying. The
             // previous deferred-start design returned "recording" while ProcessTap
             // and AVAudioEngine were still starting, so the first seconds after
@@ -2386,13 +2555,16 @@ class SocketServer {
                 onRecordingStop?()
                 resp = ["error":"mic_capture_not_ready", "sysReady": SYS_READY, "sysError": SYS_ERROR, "micReady": MIC_READY, "micError": MIC_ERROR]
             } else if let p = recorder.start(title: json["title"] as? String ?? "meeting") {
-                guard saveBridge(["session_id": session, "files": [p], "recording": true]) else {
-                    _ = recorder.stop(); onRecordingStop?()
+                guard saveBridge(["session_id": session, "files": [p], "recording": true,
+                                  "origin_instance_id": SERVICE_OWNER, "started_wall_ms": Int(Date().timeIntervalSince1970 * 1000), "current_path": p, "current_sequence": 0, "current_offset_frames": 0,
+                                  "segment_ms": min(1800000, max(60000, json["segment_ms"] as? Int ?? 1800000))]) else {
+                    _ = recorder.stop(); onRecordingStop?(); bridgeError = "capture_recovery_state_failed"
                     send(c, ["error": "capture_recovery_state_failed"]); return
                 }
                 if CommandLine.arguments.contains("--ipc-fixture") {
                     recorder.onSysAudio([Int16](repeating: 512, count: 96000))
                     recorder.onMicAudio([Float](repeating: 0.125, count: 48000))
+                    _ = recorder.currentFilePath // Fixture acknowledgement follows its queued synthetic PCM.
                 }
                 resp = ["status":"recording", "file":p, "session_id": session, "instance_id": SERVICE_OWNER]
             }
@@ -2411,13 +2583,80 @@ class SocketServer {
             // (e.g. client retry after a start_failed) would otherwise log a fake
             // "Sys capture idle" / "Mic idle" while neither was running.
             if wasRecording { onRecordingStop?() }
+            guard bridgeError.isEmpty else { send(c, ["error": "capture_recovery_state_failed"]); return }
             var bridge = readBridge(); bridge["recording"] = false
             guard saveBridge(bridge) else { send(c, ["error": "capture_recovery_state_failed"]); return }
             resp = ["status":"stopped", "file": p ?? "", "duration": d,
-                    "files": bridge["files"] ?? [], "session_id": bridge["session_id"] ?? "",
+                    "paged_segments": true, "session_id": bridge["session_id"] ?? "",
                     "instance_id": SERVICE_OWNER]
         case "status":
-            resp = ["recording": recorder.isRecording, "file": recorder.currentFilePath, "micLevel": recorder.micLevel, "sysReady": SYS_READY, "sysError": SYS_ERROR, "micReady": MIC_READY, "micError": MIC_ERROR, "meetingMicState": recorder.meetingMicState.rawValue, "serviceOwner": SERVICE_OWNER, "pid": ProcessInfo.processInfo.processIdentifier, "productVersion": PRODUCT_VERSION, "bundleVersion": BUNDLE_VERSION, "captureIPCVersion": CAPTURE_IPC_VERSION, "bridgeError": bridgeError, "session_id": readBridge()["session_id"] ?? "", "instance_id": SERVICE_OWNER, "files": readBridge()["files"] ?? []]
+            resp = ["recording": recorder.isRecording, "file": recorder.currentFilePath, "micLevel": recorder.micLevel, "sysReady": SYS_READY, "sysError": SYS_ERROR, "micReady": MIC_READY, "micError": MIC_ERROR, "meetingMicState": recorder.meetingMicState.rawValue, "serviceOwner": SERVICE_OWNER, "pid": ProcessInfo.processInfo.processIdentifier, "productVersion": PRODUCT_VERSION, "bundleVersion": BUNDLE_VERSION, "captureIPCVersion": CAPTURE_IPC_VERSION, "bridgeError": bridgeError, "session_id": readBridge()["session_id"] ?? "", "instance_id": SERVICE_OWNER, "paged_segments": true]
+        case "sealed_segments":
+            guard json["instance_id"] as? String == SERVICE_OWNER else { send(c, ["error": "capture_instance_conflict"]); return }
+            _ = recorder.currentFilePath
+            guard bridgeError.isEmpty else { send(c, ["error": "capture_recovery_state_failed"]); return }
+            let bridge = readBridge()
+            let after = json["after_sequence"] as? Int ?? -1
+            let limit = json["limit"] as? Int ?? 8
+            guard after >= -1, limit > 0, limit <= 8,
+                  json["session_id"] as? String == bridge["session_id"] as? String else { send(c, ["error": "capture_session_conflict"]); return }
+            var page = [[String: Any]](); var more = false
+            let files = bridge["files"] as? [String] ?? []
+            guard after < max(1, files.count) else { send(c, ["error": "capture_cursor_conflict"]); return }
+            let first = after + 1
+            let upper = min(files.count, first + limit + 1)
+            for index in first..<upper {
+                let path = files[index]
+                let url = URL(fileURLWithPath: path)
+                guard let anchor = AnchoredRecordingDirectory(root: RECORDING_DIR, target: url.deletingLastPathComponent()) else { send(c, ["error": "capture_recovery_state_failed"]); return }
+                let name = url.lastPathComponent + ".sealed.json"
+                guard let descriptor = anchor.openExistingFile(named: name) else {
+                    if index == files.count - 1 && (bridge["recording"] as? Bool == true) { break }
+                    if index == files.count - 1, let audio = anchor.openExistingFile(named: url.lastPathComponent) {
+                        defer { try? audio.close() }
+                        if (try? audio.seekToEnd()) == 82 {
+                            try? audio.seek(toOffset: 0)
+                            if let data = try? audio.read(upToCount: 82), data.count == 82 {
+                                let h = [UInt8](data)
+                                if Array(h[0..<4]) == Array("RIFF".utf8), Array(h[8..<12]) == Array("WAVE".utf8),
+                                   Array(h[12..<16]) == Array("fmt ".utf8), h[20] == 1, h[22] == 2,
+                                   Array(h[24..<28]) == [0x80, 0xbb, 0, 0], h[34] == 16,
+                                   Array(h[74..<78]) == Array("data".utf8), h[78..<82].allSatisfy({ $0 == 0 }) { break }
+                            }
+                        }
+                    }
+                    send(c, ["error": "capture_recovery_state_failed"]); return
+                }
+                defer { try? descriptor.close() }
+                guard let bytes = try? descriptor.read(upToCount: 4097), bytes.count <= 4096,
+                      let doc = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+                      doc["sequence"] as? Int == index, doc["path"] as? String == path,
+                      doc["session_id"] as? String == bridge["session_id"] as? String,
+                      doc["instance_id"] as? String == bridge["origin_instance_id"] as? String else { send(c, ["error": "capture_recovery_state_failed"]); return }
+                if page.count == limit { more = true; break }
+                let descriptorHash = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+                let receiptName = name + ".hash.json"
+                var hash = ""
+                if let receipt = anchor.openExistingFile(named: receiptName) {
+                    defer { try? receipt.close() }
+                    guard let data = try? receipt.read(upToCount: 1025), data.count <= 1024,
+                          let saved = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+                          saved["descriptor_sha256"] == descriptorHash, let savedHash = saved["sha256"] else { send(c, ["error": "capture_recovery_state_failed"]); return }
+                    hash = savedHash
+                } else {
+                    // Socket work, not the PCM queue: bound memory and persist one immutable source hash.
+                    guard let audio = anchor.openExistingFile(named: url.lastPathComponent) else { send(c, ["error": "capture_recovery_state_failed"]); return }
+                    defer { try? audio.close() }
+                    var hasher = SHA256()
+                    do { while let block = try audio.read(upToCount: 65536), !block.isEmpty { hasher.update(data: block) } }
+                    catch { send(c, ["error": "capture_recovery_state_failed"]); return }
+                    hash = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+                    guard let data = try? JSONSerialization.data(withJSONObject: ["sha256": hash, "descriptor_sha256": descriptorHash]),
+                          anchor.publishDescriptor(named: receiptName, data: data) else { send(c, ["error": "capture_recovery_state_failed"]); return }
+                }
+                page.append(["document": doc, "sha256": hash, "descriptor_sha256": descriptorHash])
+            }
+            resp = ["instance_id": SERVICE_OWNER, "session_id": bridge["session_id"] ?? "", "origin_instance_id": bridge["origin_instance_id"] ?? "", "segments": page, "has_more": more]
         case "audio_devices":
             resp = listAudioDevices?() ?? ["error": "coreaudio_device_provider_unavailable"]
         case "quit":
@@ -2478,16 +2717,90 @@ func resumeInterruptedRecording(_ rec: AudioRecorder, _ ss: SocketServer) {
            let previous = readStateDict()?["audio_path"] as? String,
            let directory = safeRecordingSubdirectory(URL(fileURLWithPath: previous).deletingLastPathComponent().path),
            let session = readBridge()["session_id"] as? String, UUID(uuidString: session) != nil {
-            rec.configure(silenceSeconds: DEFAULT_SILENCE_SEC, silenceThreshold: DEFAULT_SILENCE_THRESHOLD, outputDir: directory)
+            rec.configure(silenceSeconds: DEFAULT_SILENCE_SEC, silenceThreshold: DEFAULT_SILENCE_THRESHOLD, outputDir: directory,
+                          segmentMs: readBridge()["segment_ms"] as? Int ?? 1800000)
             let startGate = acquireRecordingStartGate()
-            if startGate.state == .available, let p = rec.start(title: title) {
-                appendBridgeFile(p)
+            defer { startGate.release() }
+            guard startGate.state == .available else {
+                log("Interrupted recording resume deferred by application transaction"); return
+            }
+            guard let anchor = AnchoredRecordingDirectory(root: RECORDING_DIR, target: directory) else { return }
+            let priorState = readStateDict() ?? [:]
+            let legacyState = priorState["sequence"] == nil && priorState["offset_frames"] == nil && priorState["segment_ms"] == nil
+            var initialBridge = readBridge()
+            if initialBridge["origin_instance_id"] == nil {
+                guard legacyState, initialBridge["files"] as? [String] == [previous] else { bridgeError = "capture_recovery_state_failed"; return }
+                initialBridge["origin_instance_id"] = SERVICE_OWNER
+                if let started = priorState["started_at"] as? String, let date = ISO8601DateFormatter().date(from: started) {
+                    initialBridge["started_wall_ms"] = Int(date.timeIntervalSince1970 * 1000)
+                }
+                guard saveBridge(initialBridge) else { return }
+            }
+            var sequence = 0; var offset = 0
+            let recoveryFiles = readBridge()["files"] as? [String] ?? []
+            var logicalFiles: [String] = []
+            for path in recoveryFiles {
+                let url = URL(fileURLWithPath: path)
+                guard url.deletingLastPathComponent() == directory else { bridgeError = "capture_recovery_state_failed"; return }
+                let name = url.lastPathComponent + ".sealed.json"
+                if let handle = anchor.openExistingFile(named: name) {
+                    defer { try? handle.close() }
+                    guard let bytes = try? handle.read(upToCount: 4097), bytes.count <= 4096,
+                          let document = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+                          document["schema_version"] as? Int == 1, document["sequence"] as? Int == sequence,
+                          document["offset_frames"] as? Int == offset, document["sample_rate"] as? Int == 48000,
+                          document["path"] as? String == path, document["session_id"] as? String == session,
+                          document["instance_id"] as? String == readBridge()["origin_instance_id"] as? String,
+                          let frames = document["frame_count"] as? Int,
+                          frames > 0, (frames <= 1800 * 48000 || (document["legacy_wav"] as? Bool == true && sequence == 0 && offset == 0 && document["temporary"] as? Bool == false)) else { bridgeError = "capture_recovery_state_failed"; return }
+                    logicalFiles.append(path)
+                    sequence += 1; offset += frames
+                } else {
+                    let bridge = readBridge()
+                    let currentBound = bridge["current_path"] as? String == path && bridge["current_sequence"] as? Int == sequence && bridge["current_offset_frames"] as? Int == offset
+                    // Only an exact, valid empty header is an empty tail. Truncated payloads
+                    // cannot be dropped from the logical manifest merely by rounding to zero.
+                    guard let input = anchor.openExistingFile(named: url.lastPathComponent) else { bridgeError = "capture_recovery_state_failed"; return }
+                    let size = try? input.seekToEnd()
+                    if let size = size, size < 86 {
+                        try? input.seek(toOffset: 78)
+                        guard size == 82, let length = try? input.read(upToCount: 4), length == Data([0,0,0,0]) else {
+                            try? input.close(); bridgeError = "capture_recovery_state_failed"; return
+                        }
+                    }
+                    try? input.close()
+                    guard (path == previous || currentBound), path == (bridge["files"] as? [String])?.last,
+                          let frames = anchor.sealInterruptedWav(named: url.lastPathComponent, legacy: legacyState && sequence == 0 && offset == 0) else {
+                        bridgeError = "capture_recovery_state_failed"; return
+                    }
+                    if frames > 0 {
+                        // Keep interrupted originals: they may predate rolling capture and must not become disposable.
+                        let oldState = readStateDict() ?? [:]
+                        let legacyWav = sequence == 0 && offset == 0 && oldState["sequence"] == nil && oldState["offset_frames"] == nil && oldState["segment_ms"] == nil
+                        let document: [String: Any] = ["schema_version":1,"temporary":false,"legacy_wav":legacyWav,"session_id":session,"instance_id":readBridge()["origin_instance_id"] ?? SERVICE_OWNER,"sequence":sequence,"offset_frames":offset,
+                            "frame_count":frames,"sample_rate":48000,"path":path]
+                        guard let bytes = try? JSONSerialization.data(withJSONObject: document),
+                              anchor.publishDescriptor(named: name, data: bytes) else { bridgeError = "capture_recovery_state_failed"; return }
+                        logicalFiles.append(path)
+                        sequence += 1; offset += frames
+                    }
+                }
+            }
+            // Empty originals stay on disk, but never consume a sealed segment sequence.
+            var recoveredBridge = readBridge()
+            recoveredBridge["files"] = logicalFiles
+            recoveredBridge["current_sequence"] = sequence
+            recoveredBridge["current_offset_frames"] = offset
+            guard saveBridge(recoveredBridge) else { return }
+            let originalFilename = requestedFilename
+            requestedFilename = "resume-\(UUID().uuidString).wav"
+            defer { requestedFilename = originalFilename }
+            if let p = rec.start(title: title, sequence: sequence, offsetFrames: offset) {
+                appendBridgeFile(p, sequence: sequence, offsetFrames: offset, segmentMs: readBridge()["segment_ms"] as? Int ?? 1800000)
                 log("⚠️ Resuming interrupted recording")
                 ss.onRecordingStart?()
-            } else if startGate.state != .available {
-                log("Interrupted recording resume deferred by application transaction")
             }
-            startGate.release()
+
         }
 }
 
@@ -2584,6 +2897,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         try? "\(ProcessInfo.processInfo.processIdentifier)".write(to: PID_PATH, atomically: true, encoding: .utf8)
         resumeInterruptedRecording(rec, ss)
+        ss.finishStartup()
         log("Ready")
     }
 
@@ -2609,6 +2923,67 @@ if CommandLine.arguments.count == 3,
         options: [.sortedKeys]
     )
     FileHandle.standardOutput.write(encoded + Data("\n".utf8))
+    exit(0)
+}
+
+if CommandLine.arguments.contains("--rolling-current-state-self-test") {
+    let directory = RECORDING_DIR.appendingPathComponent("rolling-current")
+    try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let path = directory.appendingPathComponent("segment.wav").path
+    assert(saveBridge(["session_id": UUID().uuidString.lowercased(), "origin_instance_id": SERVICE_OWNER, "files": [path], "recording": true, "segment_ms": 60000]))
+    assert(writeState(recording: true, title: "Synthetic", path: path, segmentMs: 60000))
+    let limit = 60000 * 48
+    let writer = RollingRecordingWriter(directory: AnchoredRecordingDirectory(root: RECORDING_DIR, target: directory)!, filename: "segment.wav", maxFrames: limit)!
+    let data = Data(repeating: 12, count: (2 * limit + 48000) * 4)
+    writer.append(data)
+    let tail = directory.appendingPathComponent("segment-0002.wav")
+    let blocked = URL(fileURLWithPath: tail.path + ".sealed.json")
+    try! FileManager.default.createDirectory(at: blocked, withIntermediateDirectories: false)
+    writer.finalize(); assert(writer.failed)
+    let state = readStateDict()!
+    assert(state["audio_path"] as? String == tail.path)
+    assert(state["sequence"] as? Int == 2 && state["offset_frames"] as? Int == 2 * limit)
+    assert(state["segment_ms"] as? Int == 60000)
+    try! FileManager.default.removeItem(at: blocked)
+    print("rolling-current-state-self-test passed"); exit(0)
+}
+
+if CommandLine.arguments.contains("--rolling-frame-self-test") {
+    let root = requiredDirectory("OMM_TEST_ROOT")
+    let directory = root.appendingPathComponent("rolling-" + UUID().uuidString)
+    try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let anchor = AnchoredRecordingDirectory(root: root, target: directory)!
+    let writer = RollingRecordingWriter(directory: anchor, filename: "segment.wav", maxFrames: 4096)!
+    var samples = [Int16]()
+    for i in 0..<10000 { samples.append(Int16(i)); samples.append(Int16(-i)) }
+    let data = Data(bytes: samples, count: samples.count * 2)
+    writer.append(data.subdata(in: 0..<12000))
+    writer.append(data.subdata(in: 12000..<data.count))
+    writer.finalize()
+    assert(!writer.failed)
+    var payload = Data()
+    var offset = 0
+    for (sequence, name) in ["segment.wav", "segment-0001.wav", "segment-0002.wav"].enumerated() {
+        let path = directory.appendingPathComponent(name)
+        let bytes = try! Data(contentsOf: path)
+        payload.append(bytes.dropFirst(82))
+        let manifest = try! JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path.path + ".sealed.json"))) as! [String: Any]
+        assert(manifest["sequence"] as! Int == sequence)
+        assert(manifest["offset_frames"] as! Int == offset)
+        let count = manifest["frame_count"] as! Int
+        assert(count > 0 && count <= 4096); offset += count
+    }
+    assert(offset == 10000 && payload == data)
+    // Advance the frame clock to the real 30-minute edge, without recording for 30 minutes.
+    let limit = 1800 * 48000
+    assert(RollingRecordingWriter.writableFrames(offered: 5, current: limit - 2, limit: limit) == 2)
+    assert(RollingRecordingWriter.writableFrames(offered: 3, current: 0, limit: limit) == 3)
+    assert(RollingRecordingWriter.writableFrames(offered: 1, current: limit, limit: limit) == 0)
+    assert(RollingRecordingWriter(directory: anchor, filename: "bad.wav", maxFrames: 1800 * 48000 + 1) == nil)
+    let empty = RollingRecordingWriter(directory: anchor, filename: "empty.wav", maxFrames: 1800 * 48000)!
+    empty.finalize(); assert(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("empty.wav").path))
+    print("rolling-frame-self-test passed")
     exit(0)
 }
 
@@ -2759,7 +3134,9 @@ if CommandLine.arguments.contains("--ipc-fixture") {
     if rec.isRecording {
         rec.onSysAudio([Int16](repeating: 512, count: 96000))
         rec.onMicAudio([Float](repeating: 0.125, count: 48000))
+        _ = rec.currentFilePath // barrier: synthetic payload and current state are ready together
     }
+    server.finishStartup()
     dispatchMain()
 }
 

@@ -6,6 +6,7 @@ use std::{fs, path::PathBuf};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppConfig {
+    pub audio: AudioConfig,
     pub version: String,
     pub notifications: super::notifications::NotificationConfig,
     pub asr: AsrConfig,
@@ -25,9 +26,10 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             version: "1".into(),
+            audio: AudioConfig::default(),
             notifications: Default::default(),
             asr: AsrConfig {
-                threads: 2,
+                threads: 3,
                 timeout_ms: 7_200_000,
                 model_version: "sherpa-onnx-1.13.2-fire-red-asr-large-zh_en-2025-02-16-int8".into(),
                 ..Default::default()
@@ -48,7 +50,7 @@ impl Default for AppConfig {
             start_delay_ms: 15_000,
             end_grace_ms: 30_000,
             poll_ms: 2000,
-            segment_ms: 3_600_000,
+            segment_ms: 1_800_000,
         }
     }
 }
@@ -59,7 +61,12 @@ impl AppConfig {
             return Err(OmmError::unavailable("configuration not initialized"));
         }
         validate_private_file(&file)?;
-        Ok(serde_json::from_slice(&fs::read(file)?)?)
+        let mut config: Self = serde_json::from_slice(&fs::read(file)?)?;
+        if config.segment_ms == 3_600_000 {
+            eprintln!("warning: legacy segment_ms=3600000 clamped in memory to 1800000; configuration file unchanged");
+            config.segment_ms = 1_800_000;
+        }
+        Ok(config)
     }
     pub fn save(&self, paths: &Paths) -> Result<()> {
         write_private_replace(
@@ -68,18 +75,25 @@ impl AppConfig {
         )
     }
     pub fn snapshot(&self) -> ConfigSnapshot {
+        let mut asr = self.asr.clone();
+        asr.threads = asr
+            .threads
+            .min(super::resources::CpuBudget::current().asr_threads)
+            .max(1);
         ConfigSnapshot {
+            audio: self.audio.clone(),
             version: self.version.clone(),
-            asr: self.asr.clone(),
+            asr,
             pi: self.pi.clone(),
         }
     }
     pub fn validate_policy(&self) -> Result<()> {
+        self.audio.validate()?;
         if self.start_delay_ms < 0
             || self.end_grace_ms < 0
             || self.poll_ms < 100
             || self.poll_ms > 60_000
-            || !(60_000..=3_600_000).contains(&self.segment_ms)
+            || !(60_000..=1_800_000).contains(&self.segment_ms)
             || (self.auto_record && !self.recording_consent)
         {
             return Err(OmmError::invalid(
@@ -125,6 +139,7 @@ impl AppConfig {
     /// Only typed product fields are editable; never store credentials or grant recording consent here.
     pub fn set(&mut self, key: &str, value: &str) -> Result<()> {
         let allowed = [
+            "audio.opus_bitrate_kbps",
             "notifications.enabled",
             "notifications.events",
             "capture_executable",

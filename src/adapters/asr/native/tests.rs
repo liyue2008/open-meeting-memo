@@ -96,7 +96,7 @@ fn c_api_fixture_decode_and_every_owned_handle_is_released_on_failure() {
         .transcribe_file(&audio, RATE * 8, AudioSource::System, 0)
         .unwrap();
     assert_eq!(result.len(), 10);
-    assert_eq!(unsafe { decodes() } - before, 2);
+    assert_eq!(unsafe { decodes() } - before, 10); // FireRed's decode-streams is serial: publish each span immediately.
     assert!(result.windows(2).all(|s| s[0].start_ms < s[1].start_ms));
     unsafe {
         set_mode(9);

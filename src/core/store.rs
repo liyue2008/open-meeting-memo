@@ -38,11 +38,30 @@ fn conflict() -> OmmError {
     OmmError::new(ErrorCode::Conflict, false, "task lease is stale or expired")
 }
 
+mod archives;
+mod attempt_errors;
+pub use attempt_errors::{StageAttemptError, StageErrorPhase};
+mod segments;
+pub use segments::{ClaimedSegment, SegmentProgress};
+
 pub struct Store {
     conn: Connection,
     paths: Paths,
 }
 impl Store {
+    pub fn open_read_only(paths: &Paths) -> Result<Self> {
+        let db = paths.state.join("state.sqlite");
+        super::paths::validate_private_file(&db)?;
+        let conn = Connection::open_with_flags(
+            &db,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        conn.execute_batch("PRAGMA query_only=ON;")?;
+        Ok(Self {
+            conn,
+            paths: paths.clone(),
+        })
+    }
     pub fn open(paths: &Paths) -> Result<Self> {
         private_dir(&paths.state)?;
         let db = paths.state.join("state.sqlite");
@@ -74,10 +93,13 @@ impl Store {
             CREATE TABLE IF NOT EXISTS commits(task TEXT NOT NULL REFERENCES tasks(id), stage TEXT NOT NULL, lease TEXT NOT NULL,
               staging TEXT NOT NULL, destination TEXT NOT NULL, hash TEXT NOT NULL, metadata TEXT, done INTEGER NOT NULL DEFAULT 0,
               PRIMARY KEY(task,stage));")?;
-        Ok(Self {
+        let store = Self {
             conn,
             paths: paths.clone(),
-        })
+        };
+        store.initialize_segments()?;
+        store.initialize_archives()?;
+        Ok(store)
     }
     pub fn state<T: serde::de::DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
         let doc: Option<String> = self
@@ -96,6 +118,71 @@ impl Store {
         self.conn
             .execute("DELETE FROM settings WHERE key=?1", [key])?;
         Ok(())
+    }
+    fn audio_lock_file(paths: &Paths) -> Result<fs::File> {
+        let path = paths.state.join("audio-readers.lock");
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&path)?;
+        super::paths::validate_private_file(&path)?;
+        Ok(file)
+    }
+    pub fn audio_read_lock(&self) -> Result<fs::File> {
+        let file = Self::audio_lock_file(&self.paths)?;
+        match fs2::FileExt::try_lock_shared(&file) {
+            Ok(()) => Ok(file),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Err(OmmError::new(
+                ErrorCode::Conflict,
+                true,
+                "audio cleanup in progress",
+            )),
+            Err(e) => Err(e.into()),
+        }
+    }
+    /// No blocking flock or detached waiter: dropping this future releases its file immediately.
+    pub async fn audio_read_lock_until(
+        paths: &Paths,
+        deadline: tokio::time::Instant,
+    ) -> Result<fs::File> {
+        let file = Self::audio_lock_file(paths)?;
+        loop {
+            if tokio::time::Instant::now() >= deadline {
+                return Err(OmmError::new(
+                    ErrorCode::Timeout,
+                    true,
+                    "ASR deadline expired waiting for audio maintenance",
+                ));
+            }
+            match fs2::FileExt::try_lock_shared(&file) {
+                Ok(()) => return Ok(file),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(e) => return Err(e.into()),
+            }
+            tokio::time::sleep_until(
+                deadline.min(tokio::time::Instant::now() + std::time::Duration::from_millis(25)),
+            )
+            .await;
+        }
+    }
+    pub fn active_audio_readers(&self) -> Result<bool> {
+        let path = self.paths.state.join("audio-readers.lock");
+        if !path.exists() {
+            return Ok(false);
+        }
+        controlled_file(&self.paths.state, &path)?;
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)?;
+        match fs2::FileExt::try_lock_exclusive(&file) {
+            Ok(()) => Ok(false),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(true),
+            Err(e) => Err(e.into()),
+        }
     }
     pub fn model_read_lock(&self) -> Result<fs::File> {
         let path = self.paths.state.join("models.lock");
@@ -116,6 +203,15 @@ impl Store {
         Ok(file)
     }
     pub fn schedule_retry(&mut self, task: &Task, now_ms: i64) -> Result<bool> {
+        if task.stage == Stage::Transcribe
+            && self.is_segmented_parent(task.id)?
+            && self
+                .segment_progress(task.session_id)?
+                .iter()
+                .any(|s| s.status != "done")
+        {
+            return Ok(false);
+        }
         if task.status != TaskStatus::Failed || !task.error.as_ref().is_some_and(|e| e.retryable) {
             return Ok(false);
         }
@@ -155,6 +251,21 @@ impl Store {
         config: &ConfigSnapshot,
         force: bool,
     ) -> Result<Task> {
+        // The persistent lifecycle, not an epoch timestamp, identifies a live
+        // segmented meeting. Older sealed fixtures/documents legitimately use 0.
+        if self.has_segmented_session(meeting.session_id)?
+            && self.conn.query_row(
+                "SELECT sealed=0 FROM segmented_sessions WHERE session=?1",
+                [meeting.session_id.to_string()],
+                |r| r.get::<_, bool>(0),
+            )?
+        {
+            return Err(OmmError::new(
+                ErrorCode::Conflict,
+                false,
+                "seal recording before whole-meeting processing",
+            ));
+        }
         if meeting.segments.is_empty() || config.version.is_empty() {
             return Err(OmmError::invalid(
                 "sealed audio and configuration version are required",
@@ -171,6 +282,22 @@ impl Store {
             ));
         }
         for segment in &meeting.segments {
+            if !segment.path.exists() && self.has_segmented_session(meeting.session_id)? {
+                let receipt = self
+                    .archive_for_audio(meeting.session_id, segment)?
+                    .ok_or_else(|| OmmError::unavailable("source audio and archive unavailable"))?;
+                for file in receipt.files {
+                    controlled_file(&dir, &file.path)?;
+                    if hash_file(&file.path)? != file.sha256 {
+                        return Err(OmmError::new(
+                            ErrorCode::Corrupt,
+                            false,
+                            "archive changed since commit",
+                        ));
+                    }
+                }
+                continue;
+            }
             controlled_file(&dir, &segment.path)?;
             if segment.duration_ms == 0 || segment.sha256 != hash_file(&segment.path)? {
                 return Err(OmmError::new(
@@ -247,10 +374,7 @@ impl Store {
         )?;
         let mut config: ConfigSnapshot = decode(&config_json)?;
         let segments: Vec<AudioSegment> = decode(&segments_json)?;
-        let duration = segments
-            .iter()
-            .try_fold(0u64, |sum, s| sum.checked_add(s.duration_ms))
-            .ok_or_else(|| OmmError::invalid("audio duration overflow"))?;
+        let duration = self.transcript_duration(&source, &segments)?;
         if source.id != source_id
             || hash_bytes(config_json.as_bytes()) != source.config_hash
             || hash_bytes(segments_json.as_bytes()) != source.input_hash
@@ -336,6 +460,21 @@ impl Store {
         rows.map(|row| decode(&row?)).collect()
     }
     pub fn claim(&mut self, now_ms: i64, lease_ms: i64) -> Result<Option<ClaimedTask>> {
+        self.claim_lane(now_ms, lease_ms, None)
+    }
+    pub fn claim_asr(&mut self, now_ms: i64, lease_ms: i64) -> Result<Option<ClaimedTask>> {
+        self.claim_lane(now_ms, lease_ms, Some(Stage::Transcribe))
+    }
+    pub fn claim_summary(&mut self, now_ms: i64, lease_ms: i64) -> Result<Option<ClaimedTask>> {
+        self.claim_lane(now_ms, lease_ms, Some(Stage::Summary))
+    }
+    fn claim_lane(
+        &mut self,
+        now_ms: i64,
+        lease_ms: i64,
+        lane: Option<Stage>,
+    ) -> Result<Option<ClaimedTask>> {
+        let filter = lane.map(stage_name);
         if lease_ms <= 0 {
             return Err(OmmError::invalid("lease duration must be positive"));
         }
@@ -343,15 +482,21 @@ impl Store {
         let tx = self
             .conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if lane!=Some(Stage::Summary) && super::resources::CpuBudget::current().shared_encoder_slot && tx.query_row("SELECT EXISTS(SELECT 1 FROM segment_archives WHERE lease IS NOT NULL AND expires>?1)",[now_ms],|r|r.get::<_,bool>(0))?{return Ok(None);}
         let running: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM tasks WHERE lease IS NOT NULL AND expires>?1)",
+            "SELECT EXISTS(SELECT 1 FROM tasks WHERE lease IS NOT NULL AND expires>?1 AND (?2 IS NULL OR stage=?2))",
+            params![now_ms,filter],
+            |r| r.get(0),
+        )?;
+        let segment_running: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM segment_jobs WHERE lease IS NOT NULL AND expires>?1)",
             [now_ms],
             |r| r.get(0),
         )?;
-        if running {
+        if running || (lane != Some(Stage::Summary) && segment_running) {
             return Ok(None);
         }
-        let row: Option<(String,String,String,String)> = tx.query_row("SELECT document,directory,config,segments FROM tasks WHERE status IN ('queued','transcript_committed','interrupted') AND NOT EXISTS(SELECT 1 FROM retries WHERE retries.task=tasks.id AND retries.stage=tasks.stage AND retries.next_at>?1) ORDER BY rowid LIMIT 1", [now_ms], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
+        let row: Option<(String,String,String,String)> = tx.query_row("SELECT document,directory,config,segments FROM tasks WHERE status IN ('queued','transcript_committed','interrupted') AND (?2 IS NULL OR tasks.stage=?2) AND NOT EXISTS(SELECT 1 FROM segmented_sessions s WHERE s.parent=tasks.id AND (s.sealed=0 OR EXISTS(SELECT 1 FROM segment_jobs j WHERE j.session=s.session AND j.status!='done'))) AND NOT EXISTS(SELECT 1 FROM retries WHERE retries.task=tasks.id AND retries.stage=tasks.stage AND retries.next_at>?1) ORDER BY rowid LIMIT 1", params![now_ms,filter], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
         let Some((doc, dir, config, segments)) = row else {
             return Ok(None);
         };
@@ -380,7 +525,12 @@ impl Store {
         )?;
         tx.commit()?;
         let meeting_dir = PathBuf::from(dir);
-        let work_dir = self.paths.cache.join("tasks").join(task.id.to_string());
+        let work_dir = self
+            .paths
+            .cache
+            .join("tasks")
+            .join(task.id.to_string())
+            .join(lease.token.to_string());
         private_dir(&work_dir)?;
         let context = TaskContext {
             session_id: task.session_id,
@@ -426,11 +576,7 @@ impl Store {
         if claim.stage != Stage::Transcribe {
             return Err(conflict());
         }
-        let duration = claim
-            .segments
-            .iter()
-            .try_fold(0u64, |v, s| v.checked_add(s.duration_ms))
-            .ok_or_else(|| OmmError::invalid("audio duration overflow"))?;
+        let duration = self.transcript_duration(&claim.task, &claim.segments)?;
         if transcript.schema_version != 1
             || transcript.model_version.is_empty()
             || transcript.model_version != claim.context.config.asr.model_version
@@ -525,6 +671,13 @@ impl Store {
                 "summary.md"
             }))
     }
+    pub fn artifact_committed(&self, id: Uuid, stage: Stage) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM commits WHERE task=?1 AND stage=?2 AND done=1)",
+            params![id.to_string(), stage_name(stage)],
+            |r| r.get(0),
+        )?)
+    }
     pub fn read_artifact(&self, id: Uuid, stage: Stage) -> Result<Vec<u8>> {
         let hash: Option<String> = self
             .conn
@@ -607,6 +760,9 @@ impl Store {
         Ok(())
     }
     pub fn clean_abandoned_cache(&self, now_ms: i64) -> Result<()> {
+        if self.active_audio_readers()? {
+            return Ok(());
+        }
         let cache = self.paths.cache.join("tasks");
         if !cache.exists() {
             return Ok(());

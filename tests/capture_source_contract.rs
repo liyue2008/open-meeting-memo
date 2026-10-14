@@ -5,7 +5,46 @@ fn capture_audio_kernel_matches_reference_source() {
     let source = include_str!("../native/yulu-capture/audio_daemon.swift")
         .replace("org.openmeetingmemo.", "com.yulu.")
         .replace("OMM-SysTap", "Yulu-SysTap")
-        .replace("let fn = requestedFilename ?? ", "let fn = ");
+        .replace("let fn = requestedFilename ?? ", "let fn = ")
+        // Only the outer writer binding/configuration changed. The acquisition,
+        // source pairing, PCM normalization, and underlying WAV writer stay byte-identical.
+        .replace(", offsetFrames: offsetFrames, title: title)", ", offsetFrames: offsetFrames)")
+        .replace("RollingRecordingWriter", "WavWriter")
+        .replace("    private var maxSegmentFrames = 1800 * 48000\n", "")
+        .replace(", segmentMs: Int = 1800000", "")
+        .replace(
+            "            maxSegmentFrames = min(1800000, max(60000, segmentMs)) * 48\n",
+            "",
+        )
+        .replace(
+            "func start(title: String, sequence: Int = 0, offsetFrames: Int = 0)",
+            "func start(title: String)",
+        )
+        .replace(
+            ", maxFrames: maxSegmentFrames,\n                                                sequence: sequence, offsetFrames: offsetFrames",
+            "",
+        )
+        .replace(", maxFrames: maxSegmentFrames", "")
+        // Undo only exact lifecycle/bridge additions; PCM, pairing and WAV kernels remain frozen.
+        .replace("            if !bridgeError.isEmpty { return nil }\n", "")
+        .replace(r#"            guard writeState(recording: true, title: title, path: url.path, sequence: sequence,
+                             offsetFrames: offsetFrames, segmentMs: maxSegmentFrames / 48) else {
+                isRecordingState = false; return nil
+            }"#, "            writeState(recording: true, title: title, path: url.path)")
+        .replace(r#"            guard writer?.failed != true, writeState(recording: false) else {
+                bridgeError = "capture_recovery_state_failed"; return (p, dur)
+            }
+            bridgeError = ""
+"#, "")
+        .replace(r#"            var bridge = readBridge()
+            var gaps = bridge["gaps"] as? [[String: Any]] ?? []
+            let wallTimeMs = Int(now.timeIntervalSince1970 * 1000)
+            let startedWallMs = bridge["started_wall_ms"] as? Int ?? Int((startTime ?? now).timeIntervalSince1970 * 1000)
+            gaps.append(["frame_offset": writer?.framePosition ?? 0, "wall_time_ms": wallTimeMs,
+                         "wall_offset_ms": max(0, wallTimeMs - startedWallMs), "kind": "microphone_route_restart"])
+            bridge["gaps"] = gaps
+            if !saveBridge(bridge) { bridgeError = "capture_recovery_state_failed" }
+"#, "");
     let blocks = [
         (
             "anchored WAV writer and normalization",

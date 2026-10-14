@@ -22,6 +22,7 @@ fn fixture(t: &TempDir) -> (Paths, Store, SealedMeeting, ConfigSnapshot) {
         title: "fixture".into(),
         directory: dir,
         segments: vec![AudioSegment {
+            capture: None,
             path,
             duration_ms: 1000,
             sha256: omm::core::store::hash_bytes(b"synthetic audio, not a personal meeting"),
@@ -30,6 +31,7 @@ fn fixture(t: &TempDir) -> (Paths, Store, SealedMeeting, ConfigSnapshot) {
     };
     let store = Store::open(&paths).unwrap();
     let cfg = ConfigSnapshot {
+        audio: Default::default(),
         asr: AsrConfig {
             model_version: "fixture".into(),
             ..AsrConfig::default()

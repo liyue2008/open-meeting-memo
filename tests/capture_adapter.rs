@@ -58,6 +58,7 @@ impl Fixture {
     }
     fn request(&self) -> CaptureRequest {
         CaptureRequest {
+            segment_ms: 1_800_000,
             output_path: self.meeting.join("segment.wav"),
             context: TaskContext {
                 session_id: self.session,
@@ -485,6 +486,28 @@ async fn capture_native_restart_resumes_session_and_seals_both_segments() {
     );
     let stopped = adapter.stop().await.unwrap();
     assert_eq!(stopped.segments.len(), 2);
+    for (sequence, audio) in stopped.segments.iter().enumerate() {
+        assert_eq!(audio.duration_ms, 1000);
+        let descriptor: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(format!("{}.sealed.json", audio.path.display())).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(descriptor["sequence"], sequence);
+        assert_eq!(descriptor["offset_frames"], sequence * 48000);
+        assert_eq!(descriptor["frame_count"], 48000);
+        assert_eq!(descriptor["temporary"], sequence == 1);
+        let samples: Vec<i16> = hound::WavReader::open(&audio.path)
+            .unwrap()
+            .samples::<i16>()
+            .map(|sample| sample.unwrap())
+            .collect();
+        assert_eq!(samples.len(), 96000);
+        assert!(samples
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .all(|pair| *pair == [9830, 512]));
+    }
     assert_eq!(stopped.segments[0].path, first.path.unwrap());
     assert_eq!(stopped.segments[1].path, current.path.unwrap());
 }
@@ -996,4 +1019,364 @@ async fn capture_shutdown_lock_wait_is_inside_the_total_timeout() {
     assert!(start.elapsed() < Duration::from_millis(250));
     assert_eq!(status.await.unwrap().unwrap_err().code, ErrorCode::Timeout);
     server.abort();
+}
+
+#[test]
+#[ignore = "requires compiled Swift development bundle; only synthetic paired PCM"]
+fn capture_native_rolling_paired_frame_payload_and_maximum_boundary() {
+    let f = Fixture::new();
+    assert!(native_command(&f, "--rolling-frame-self-test")
+        .status()
+        .unwrap()
+        .success());
+}
+
+#[tokio::test]
+#[ignore = "requires compiled Swift development bundle; repeated synthetic recovery only"]
+async fn capture_native_rolling_repeated_restart_keeps_frame_origin_and_payload() {
+    let f = Fixture::new();
+    let adapter = f.adapter(3000);
+    let mut child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
+    for _ in 0..200 {
+        if adapter.status().await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let mut request = f.request();
+    request.segment_ms = 60000;
+    adapter.start(request).await.unwrap();
+    let bridge_path = f.paths.state.join("omm-session.json");
+    let bridge: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&bridge_path).unwrap()).unwrap();
+    assert_eq!(bridge["segment_ms"], 60000);
+    for _ in 0..2 {
+        let previous = adapter.status().await.unwrap().path;
+        drop(child);
+        std::fs::remove_file(adapter.socket_path()).unwrap();
+        child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
+        let mut resumed = false;
+        for _ in 0..200 {
+            if let Ok(status) = adapter.status().await {
+                if status.recording && status.path != previous {
+                    resumed = true;
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(
+            resumed,
+            "helper did not resume the owned synthetic recording"
+        );
+        let bridge: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&bridge_path).unwrap()).unwrap();
+        assert_eq!(bridge["segment_ms"], 60000);
+    }
+    let sealed = adapter.stop().await.unwrap();
+    assert_eq!(sealed.segments.len(), 3);
+    for (sequence, audio) in sealed.segments.iter().enumerate() {
+        let doc: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(format!("{}.sealed.json", audio.path.display())).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(doc["sequence"], sequence);
+        assert_eq!(doc["offset_frames"], sequence * 48000);
+        assert_eq!(doc["frame_count"], 48000);
+        assert_eq!(doc["temporary"], sequence == 2);
+        let samples: Vec<i16> = hound::WavReader::open(&audio.path)
+            .unwrap()
+            .samples::<i16>()
+            .map(|v| v.unwrap())
+            .collect();
+        assert_eq!(samples.len(), 96000);
+        assert!(samples
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .all(|pair| *pair == [9830, 512]));
+    }
+    assert!(!adapter.status().await.unwrap().recording);
+    drop(child);
+}
+
+#[tokio::test]
+#[ignore = "explicit Swift synthetic fixture; descriptor publication failure and retry"]
+async fn capture_native_descriptor_publish_failure_survives_status_and_retry() {
+    let f = Fixture::new();
+    let _child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
+    wait_native(&f).await;
+    let a = f.adapter(10_000);
+    a.start(f.request()).await.unwrap();
+    let blocked = f.meeting.join("segment.wav.sealed.json");
+    std::fs::create_dir(&blocked).unwrap();
+    for _ in 0..2 {
+        let out = native_request(
+            &f,
+            json!({"action":"stop","session_id":f.session,"instance_id":f.instance}),
+        )
+        .await;
+        assert_eq!(out["error"], "capture_recovery_state_failed", "{out}");
+        let status = native_request(&f, json!({"action":"status"})).await;
+        assert_eq!(status["bridgeError"], "capture_recovery_state_failed");
+        assert!(f.meeting.join("segment.wav").is_file());
+    }
+    std::fs::remove_dir(blocked).unwrap();
+    let out = native_request(
+        &f,
+        json!({"action":"stop","session_id":f.session,"instance_id":f.instance}),
+    )
+    .await;
+    assert_eq!(out["status"], "stopped", "{out}");
+    assert!(f.meeting.join("segment.wav.sealed.json").is_file());
+    let mut request = f.request();
+    let second_session = Uuid::new_v4();
+    request.context.session_id = second_session;
+    request.output_path = f.meeting.join("state-failure.wav");
+    a.start(request).await.unwrap();
+    std::fs::set_permissions(&f.paths.state, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let before = std::fs::read(f.paths.state.join(".state.json")).unwrap();
+    let mut responses = Vec::new();
+    for _ in 0..2 {
+        responses.push(
+            native_request(
+                &f,
+                json!({"action":"stop","session_id":second_session,"instance_id":f.instance}),
+            )
+            .await,
+        );
+    }
+    // Restore the private root before assertions so failures cannot strand an unwritable fixture.
+    std::fs::set_permissions(&f.paths.state, std::fs::Permissions::from_mode(0o700)).unwrap();
+    for response in responses {
+        assert_eq!(response["error"], "capture_recovery_state_failed");
+    }
+    assert_eq!(
+        std::fs::read(f.paths.state.join(".state.json")).unwrap(),
+        before
+    );
+    let bridge: Value =
+        serde_json::from_slice(&std::fs::read(f.paths.state.join("omm-session.json")).unwrap())
+            .unwrap();
+    assert_eq!(bridge["recording"], true);
+    assert!(f.meeting.join("state-failure.wav").is_file());
+    a.stop().await.unwrap();
+    assert!(!a.status().await.unwrap().recording);
+}
+
+#[tokio::test]
+#[ignore = "explicit Swift synthetic rolling/current-state/restart fixture"]
+async fn capture_native_multiple_rotations_recover_tail_and_replay_without_duplicates() {
+    let f = Fixture::new();
+    assert!(native_command(&f, "--rolling-current-state-self-test")
+        .status()
+        .unwrap()
+        .success());
+    let bridge_path = f.paths.state.join("omm-session.json");
+    let mut child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
+    wait_native(&f).await;
+    for _ in 0..2 {
+        let a = f.adapter(15_000);
+        let state = a.status().await.unwrap();
+        assert!(state.recording);
+        let bridge: Value = serde_json::from_slice(&std::fs::read(&bridge_path).unwrap()).unwrap();
+        let files = bridge["files"].as_array().unwrap();
+        assert!(files.len() >= 4);
+        let mut frame = 0;
+        for (sequence, file) in files[..files.len() - 1].iter().enumerate() {
+            let descriptor: Value = serde_json::from_slice(
+                &std::fs::read(format!("{}.sealed.json", file.as_str().unwrap())).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(descriptor["sequence"], sequence);
+            assert_eq!(descriptor["offset_frames"], frame);
+            frame += descriptor["frame_count"].as_u64().unwrap();
+        }
+        drop(child);
+        std::fs::remove_file(a.socket_path()).unwrap();
+        child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
+        wait_native(&f).await;
+    }
+    let a = f.adapter(15_000);
+    a.status().await.unwrap();
+    a.stop().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires compiled native helper; generated bounded manifest replay"]
+async fn capture_native_manifest_after_sequence_pages_reject_mutation_and_missing_sequence() {
+    let f = Fixture::new();
+    let session = Uuid::new_v4();
+    let dir = f.paths.media.join("bounded-generated");
+    omm::core::paths::private_dir(&dir).unwrap();
+    let mut files = Vec::new();
+    for sequence in 0..19 {
+        let path = dir.join(format!("{sequence}.wav"));
+        let mut w = hound::WavWriter::create(
+            &path,
+            hound::WavSpec {
+                channels: 2,
+                sample_rate: 48000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        for _ in 0..48 {
+            w.write_sample(sequence as i16).unwrap();
+            w.write_sample(0i16).unwrap();
+        }
+        w.finalize().unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let doc = json!({"schema_version":1,"session_id":session,"instance_id":f.instance,"sequence":sequence,"offset_frames":sequence*48,"frame_count":48,"sample_rate":48000,"path":path,"temporary":true});
+        omm::core::paths::write_private_new(
+            &std::path::PathBuf::from(format!("{}.sealed.json", path.display())),
+            &serde_json::to_vec(&doc).unwrap(),
+        )
+        .unwrap();
+        files.push(path);
+    }
+    let bridge = f.paths.state.join("omm-session.json");
+    omm::core::paths::write_private_new(&bridge,&serde_json::to_vec(&json!({"session_id":session,"origin_instance_id":f.instance,"files":files,"recording":false})).unwrap()).unwrap();
+    let _child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
+    wait_native(&f).await;
+    let mut after = -1;
+    let mut delivered = Vec::new();
+    for (count, more) in [(8, true), (8, true), (3, false)] {
+        let page=native_request(&f,json!({"action":"sealed_segments","instance_id":f.instance,"session_id":session,"after_sequence":after,"limit":8})).await;
+        assert_eq!(page["segments"].as_array().unwrap().len(), count);
+        assert_eq!(page["has_more"], more);
+        assert!(serde_json::to_vec(&page).unwrap().len() < 131072);
+        for row in page["segments"].as_array().unwrap() {
+            let seq = row["document"]["sequence"].as_i64().unwrap();
+            assert_eq!(seq, after + 1);
+            after = seq;
+            delivered.push(seq);
+        }
+    }
+    assert_eq!(delivered, (0..19).collect::<Vec<_>>());
+    let descriptor = std::path::PathBuf::from(format!("{}.sealed.json", files[0].display()));
+    let original = std::fs::read(&descriptor).unwrap();
+    let mut mutated: Value = serde_json::from_slice(&original).unwrap();
+    mutated["offset_frames"] = json!(7);
+    std::fs::write(&descriptor, serde_json::to_vec(&mutated).unwrap()).unwrap();
+    let response=native_request(&f,json!({"action":"sealed_segments","instance_id":f.instance,"session_id":session,"after_sequence":-1,"limit":8})).await;
+    assert_eq!(response["error"], "capture_recovery_state_failed");
+    std::fs::write(&descriptor, &original).unwrap();
+    std::fs::remove_file(format!("{}.sealed.json", files[8].display())).unwrap();
+    let response=native_request(&f,json!({"action":"sealed_segments","instance_id":f.instance,"session_id":session,"after_sequence":7,"limit":8})).await;
+    assert_eq!(response["error"], "capture_recovery_state_failed");
+}
+
+#[tokio::test]
+#[ignore = "explicit Swift synthetic pre-rolling state/bridge compatibility"]
+async fn capture_native_legacy_state_promotes_only_single_original_and_restart_replays() {
+    let f = Fixture::new();
+    let a = f.adapter(15_000);
+    let original_child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
+    wait_native(&f).await;
+    let path = a.start(f.request()).await.unwrap().path.unwrap();
+    drop(original_child);
+    std::fs::remove_file(a.socket_path()).unwrap();
+    omm::core::paths::write_private_replace(&f.paths.state.join(".state.json"), &serde_json::to_vec(&json!({
+        "version":3, "recording":true,"backend":"daemon","title":"Generated legacy fixture", "audio_path":path, "started_at":"2026-01-01T00:00:00Z"
+    })).unwrap()).unwrap();
+    omm::core::paths::write_private_replace(
+        &f.paths.state.join("omm-session.json"),
+        &serde_json::to_vec(&json!({
+            "session_id":f.session,"files":[path],"recording":true
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let mut child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
+    wait_native(&f).await;
+    let a = f.adapter(15_000);
+    for _ in 0..200 {
+        if a.status().await.is_ok_and(|s| s.recording) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(
+        a.status().await.unwrap().recording,
+        "state={} bridge={}",
+        std::fs::read_to_string(f.paths.state.join(".state.json")).unwrap(),
+        std::fs::read_to_string(f.paths.state.join("omm-session.json")).unwrap()
+    );
+    let original = a.sealed_segments().await.unwrap();
+    assert_eq!(original.len(), 1);
+    assert!(original[0].capture.as_ref().unwrap().legacy_wav);
+    assert!(path.exists());
+    drop(child);
+    std::fs::remove_file(a.socket_path()).unwrap();
+    child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
+    wait_native(&f).await;
+    let second = f.adapter(15_000);
+    for _ in 0..200 {
+        if second.status().await.is_ok_and(|s| s.recording) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(second.status().await.unwrap().recording);
+    let stopped = second.stop().await.unwrap();
+    assert_eq!(stopped.segments.len(), 3);
+    assert!(stopped.segments[0].capture.as_ref().unwrap().legacy_wav);
+    assert!(stopped.segments[1..].iter().all(|segment| !segment
+        .capture
+        .as_ref()
+        .unwrap()
+        .legacy_wav));
+    assert!(path.exists());
+    drop(child);
+}
+
+#[tokio::test]
+#[ignore = "explicit Swift synthetic empty-current crash/restart and shutdown"]
+async fn capture_native_zero_frame_current_restarts_twice_without_manifest_holes() {
+    use std::io::{Seek, SeekFrom, Write};
+    let f = Fixture::new();
+    let a = f.adapter(15_000);
+    let mut child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
+    wait_native(&f).await;
+    a.start(f.request()).await.unwrap();
+    let mut originals = Vec::new();
+    for _ in 0..2 {
+        let tail = a.status().await.unwrap().path.unwrap();
+        drop(child);
+        let mut file = std::fs::OpenOptions::new().write(true).open(&tail).unwrap();
+        file.set_len(82).unwrap();
+        file.seek(SeekFrom::Start(4)).unwrap();
+        file.write_all(&74u32.to_le_bytes()).unwrap();
+        file.seek(SeekFrom::Start(78)).unwrap();
+        file.write_all(&0u32.to_le_bytes()).unwrap();
+        file.sync_all().unwrap();
+        originals.push(tail);
+        std::fs::remove_file(a.socket_path()).unwrap();
+        child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
+        wait_native(&f).await;
+        let status = a.status().await.unwrap();
+        assert!(status.recording, "{status:?}");
+        assert!(a.sealed_segments().await.unwrap().is_empty());
+        let bridge: Value =
+            serde_json::from_slice(&std::fs::read(f.paths.state.join("omm-session.json")).unwrap())
+                .unwrap();
+        assert_eq!(bridge["files"].as_array().unwrap().len(), 1);
+        assert_eq!(bridge["current_sequence"], 0);
+        assert_eq!(bridge["current_offset_frames"], 0);
+    }
+    let sealed = a.stop().await.unwrap();
+    assert_eq!(sealed.segments.len(), 1);
+    assert_eq!(sealed.segments[0].capture.as_ref().unwrap().sequence, 0);
+    assert_eq!(
+        sealed.segments[0].capture.as_ref().unwrap().frame_count,
+        48000
+    );
+    for path in originals {
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 82);
+        assert!(!std::path::PathBuf::from(format!("{}.sealed.json", path.display())).exists());
+    }
+    a.shutdown().await.unwrap();
+    wait_native_exit(&mut child).await;
 }

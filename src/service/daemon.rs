@@ -80,6 +80,8 @@ pub struct Recording {
     pub started_at_ms: i64,
     pub segment_started_ms: i64,
     pub segment_index: u32,
+    #[serde(default = "default_segment_ms")]
+    pub segment_ms: u64,
     pub config: ConfigSnapshot,
     pub gaps: Vec<String>,
     // Legacy sessions remain protected; only newly persisted unconfirmed intents
@@ -174,6 +176,7 @@ impl Controller {
             started_at_ms: now,
             segment_started_ms: now,
             segment_index: 0,
+            segment_ms: cfg.segment_ms.min(1_800_000),
             config: cfg.snapshot(),
             gaps: vec![],
             start_confirmed: false,
@@ -265,7 +268,40 @@ impl Controller {
             store.set_state("recording", &record)?;
         }
         let meeting = record.sealed.as_ref().unwrap();
-        let task = store.enqueue(meeting, &record.config, false)?;
+        if meeting.segments.is_empty() {
+            store.clear_state("recording")?;
+            self.lifecycle.reconcile_recording(None);
+            self.notifications
+                .emit(NotificationEvent::RecordingStopped, meeting.session_id, 1);
+            return Ok(json!({"meetingId":meeting.session_id,"recording":false,"empty":true}));
+        }
+        if self.capture.supports_rolling() && !store.has_segmented_session(meeting.session_id)? {
+            store.begin_segmented(
+                &SealedMeeting {
+                    session_id: meeting.session_id,
+                    title: meeting.title.clone(),
+                    directory: meeting.directory.clone(),
+                    segments: vec![],
+                    sealed_at_ms: 0,
+                },
+                &record.config,
+            )?;
+        }
+        let task = if store.has_segmented_session(meeting.session_id)? {
+            let latest = AppConfig::load(&self.paths)?;
+            latest.validate_policy()?;
+            for (sequence, audio) in meeting.segments.iter().enumerate() {
+                store.admit_segment_with_audio_config(
+                    meeting.session_id,
+                    sequence as u32,
+                    audio,
+                    &latest.audio,
+                )?;
+            }
+            store.seal_segmented(meeting)?
+        } else {
+            store.enqueue(meeting, &record.config, false)?
+        };
         write_private_replace(
             &record.directory.join("meeting.json"),
             &serde_json::to_vec_pretty(&record)?,
@@ -354,7 +390,38 @@ impl Controller {
                 "helper and durable session disagree",
             ));
         }
-        let store = Store::open(&self.paths)?;
+        let mut store = Store::open(&self.paths)?;
+        if self.capture.supports_rolling() {
+            self.capture.acknowledge_segments(&record.segments)?;
+            let closed = self.capture.sealed_segments().await?;
+            if !closed.is_empty() && !store.has_segmented_session(record.session_id)? {
+                store.begin_segmented(
+                    &SealedMeeting {
+                        session_id: record.session_id,
+                        title: record.title.clone(),
+                        directory: record.directory.clone(),
+                        segments: vec![],
+                        sealed_at_ms: 0,
+                    },
+                    &record.config,
+                )?;
+            }
+            merge_segments(&mut record.segments, closed.clone());
+            if store.has_segmented_session(record.session_id)? {
+                let latest = AppConfig::load(&self.paths)?;
+                latest.validate_policy()?;
+                for (sequence, audio) in record.segments.iter().enumerate() {
+                    store.admit_segment_with_audio_config(
+                        record.session_id,
+                        sequence as u32,
+                        audio,
+                        &latest.audio,
+                    )?;
+                }
+            }
+            store.set_state("recording", &record)?;
+            self.capture.acknowledge_segments(&closed)?;
+        }
         if !record.start_confirmed {
             record.start_confirmed = true;
             store.set_state("recording", &record)?;
@@ -434,6 +501,9 @@ impl Controller {
         let Some(mut record) = self.recording()? else {
             return Ok(());
         };
+        if self.capture.supports_rolling() {
+            return self.reconcile().await;
+        }
         record.rotation_pending = true;
         Store::open(&self.paths)?.set_state("recording", &record)?;
         let stop = self.capture.stop().await?;
@@ -470,6 +540,7 @@ fn merge_segments(existing: &mut Vec<AudioSegment>, segments: Vec<AudioSegment>)
 }
 fn capture_request(r: &Recording, work: &std::path::Path) -> CaptureRequest {
     CaptureRequest {
+        segment_ms: r.segment_ms.min(1_800_000),
         context: TaskContext {
             session_id: r.session_id,
             task_id: r.session_id,
@@ -644,19 +715,63 @@ pub async fn run_at_with_notifier(
         "pi_cache_recovery",
         &crate::adapters::pi::recover_workspaces(&paths, &store)?,
     )?;
+    let asr: Arc<dyn AsrAdapter> = if cfg.worker_executable.is_absolute() {
+        Arc::new(LocalAsrAdapter::with_paths(
+            cfg.worker_executable.clone(),
+            paths.clone(),
+        )?)
+    } else {
+        Arc::new(crate::adapters::UnavailableAsr)
+    };
+    let worker_asr = asr.clone();
+    let codec = Arc::new(crate::adapters::asr::codec::AudioCodec::from_paths(&paths));
+    let encoder_codec = codec.clone();
+    let encoder_paths = paths.clone();
+    let encoder = tokio::spawn(async move {
+        let mut store = Store::open(&encoder_paths)?;
+        loop {
+            if !crate::core::archive_pipeline::run_one(&mut store, encoder_codec.as_ref(), 60_000)
+                .await?
+            {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+        }
+        #[allow(unreachable_code)]
+        Ok::<(), OmmError>(())
+    });
+    let summary_pi = pi.clone();
+    let summary_asr = asr.clone();
+    let summary_paths = paths.clone();
+    let summary_notifications = notifications.clone();
+    let summary_worker = tokio::spawn(async move {
+        let mut store = Store::open(&summary_paths)?;
+        loop {
+            match pipeline::run_summary_one_notifying(
+                &mut store,
+                summary_asr.as_ref(),
+                summary_pi.as_ref(),
+                60_000,
+                &summary_notifications,
+            )
+            .await?
+            {
+                Some(task) => {
+                    store.schedule_retry(&task, chrono::Utc::now().timestamp_millis())?;
+                }
+                None => tokio::time::sleep(Duration::from_millis(250)).await,
+            }
+        }
+        #[allow(unreachable_code)]
+        Ok::<(), OmmError>(())
+    });
     let worker_pi = pi.clone();
     let worker_paths = paths.clone();
     let worker_notifications = notifications.clone();
     let worker = tokio::spawn(async move {
-        let cfg = AppConfig::load(&worker_paths)?;
-        let asr: Box<dyn AsrAdapter> = if cfg.worker_executable.is_absolute() {
-            Box::new(LocalAsrAdapter::new(cfg.worker_executable)?)
-        } else {
-            Box::new(crate::adapters::UnavailableAsr)
-        };
+        let asr = worker_asr;
         let mut store = Store::open(&worker_paths)?;
         loop {
-            match pipeline::run_one_notifying(
+            match pipeline::run_asr_one_notifying(
                 &mut store,
                 asr.as_ref(),
                 worker_pi.as_ref(),
@@ -666,10 +781,13 @@ pub async fn run_at_with_notifier(
             .await?
             {
                 Some(task) => {
-                    store.schedule_retry(&task, chrono::Utc::now().timestamp_millis())?;
+                    if !store.is_segmented_parent(task.id)? || task.stage == Stage::Summary {
+                        store.schedule_retry(&task, chrono::Utc::now().timestamp_millis())?;
+                    }
                 }
                 None => tokio::time::sleep(Duration::from_millis(250)).await,
             };
+            store.cleanup_archived_sources_for_queue()?;
             store.clean_abandoned_cache(chrono::Utc::now().timestamp_millis())?;
             store.set_state(
                 "pi_cache_recovery",
@@ -702,7 +820,7 @@ pub async fn run_at_with_notifier(
                         if matches!(req.command.as_str(), "record_start"|"record_stop"|"capture_auto_stop"|"shutdown") {control_epoch=control_epoch.wrapping_add(1); }
                         helper.observe_endpoint(&native,&paths)?;
                         let action=match req.command.as_str(){
-                            "status"=>Ok(json!({"running":true,"paths":paths,"runtime":location,"serviceInstanceId":guard.owner.instance_id,"serviceUid":guard.owner.uid,"servicePid":guard.owner.pid,"singleServiceScope":"selected runtime and persistent STATE; explicitly isolated roots may run independently","capture":native.status().await.ok(),"recording":controller.recording()?.map(|r|json!({"sessionId":r.session_id,"sourceId":r.source_id})),"pipelineHealthy":!worker.is_finished(),"piCacheRecovery":Store::open(&paths)?.state::<serde_json::Value>("pi_cache_recovery")?,"lastCaptureError":Store::open(&paths)?.state::<OmmError>("capture_error")?,"lastMeetingObservation":Store::open(&paths)?.state::<serde_json::Value>("meeting_observation")?,"notificationDiagnostic":Store::open(&paths)?.state::<serde_json::Value>("notification_diagnostic")?})),
+                            "status"=>Ok(json!({"running":true,"paths":paths,"runtime":location,"serviceInstanceId":guard.owner.instance_id,"serviceUid":guard.owner.uid,"servicePid":guard.owner.pid,"singleServiceScope":"selected runtime and persistent STATE; explicitly isolated roots may run independently","capture":native.status().await.ok(),"recording":controller.recording()?.map(|r|json!({"sessionId":r.session_id,"sourceId":r.source_id})),"pipelineHealthy":!worker.is_finished()&&!summary_worker.is_finished()&&!encoder.is_finished(),"asrQueueHealthy":!worker.is_finished(),"summaryQueueHealthy":!summary_worker.is_finished(),"archiveQueueHealthy":!encoder.is_finished(),"piCacheRecovery":Store::open(&paths)?.state::<serde_json::Value>("pi_cache_recovery")?,"lastCaptureError":Store::open(&paths)?.state::<OmmError>("capture_error")?,"lastMeetingObservation":Store::open(&paths)?.state::<serde_json::Value>("meeting_observation")?,"notificationDiagnostic":Store::open(&paths)?.state::<serde_json::Value>("notification_diagnostic")?})),
                             "capture_auto_stop"=>controller.callback(&req).await,
                             "record_status"=>native.status().await.map(|s|json!(s)),
                             "record_start"=>{async {if let Err(e)=ensure_helper(&native,&cfg,&socket,&mut helper,&paths).await {controller.recording_failed();return Err(e);}controller.start(req.title.unwrap_or_else(||"Meeting".into()),None).await}.await},
@@ -723,7 +841,7 @@ pub async fn run_at_with_notifier(
                 if let Some(mut record)=controller.recording()? {if native.status().await.is_err(){let store=Store::open(&paths)?;if record.sealed.is_none() && store.state::<Option<Uuid>>("pending_stop")?.flatten()!=Some(record.session_id) {record.rotation_pending=true;record.gaps.push("helper_restart".into());store.set_state("recording",&record)?;}
                     if let Err(e)=ensure_helper(&native,&latest,&socket,&mut helper,&paths).await{controller.recording_failed();store.set_state("capture_error",&e)?;continue;}}}
                 if let Err(e)=controller.reconcile().await {controller.recording_failed();Store::open(&paths)?.set_state("capture_error",&e)?;}
-                if controller.recording()?.is_some_and(|r| now-r.segment_started_ms>=latest.segment_ms as i64){if let Err(e)=controller.rotate().await{controller.recording_failed();Store::open(&paths)?.set_state("capture_error",&e)?;}}
+                if !controller.capture.supports_rolling() && controller.recording()?.is_some_and(|r| now-r.segment_started_ms>=latest.segment_ms.min(1_800_000) as i64){if let Err(e)=controller.rotate().await{controller.recording_failed();Store::open(&paths)?.set_state("capture_error",&e)?;}}
                 if latest.auto_record && observation_job.is_none() {
                     let adapter=LarkAdapter::with_reapers(latest.clone(),native.clone(),observation_reapers.clone());
                     observation_job=Some(ObservationJob{epoch:control_epoch,configuration:serde_json::to_vec(&latest)?,task:tokio::spawn(async move{adapter.observe().await})});
@@ -754,6 +872,15 @@ pub async fn run_at_with_notifier(
     let observation_cleanup = observation_reapers.drain().await;
     worker.abort();
     let _ = worker.await;
+    summary_worker.abort();
+    let _ = summary_worker.await;
+    encoder.abort();
+    let _ = encoder.await;
+    let asr_cleanup = asr.drain().await;
+    let encoder_cleanup = match codec.as_ref() {
+        Ok(codec) => codec.drain().await,
+        Err(_) => Ok(()),
+    };
     let pi_cleanup = pi.drain().await;
     // Only successfully sealed recordings may proceed to helper shutdown. A failed seal
     // retains the original error and the helper/audio for a later reconciliation.
@@ -763,7 +890,13 @@ pub async fn run_at_with_notifier(
         Ok(())
     };
     let mut cleanup_errors = Vec::new();
-    for cleanup in [observation_cleanup, pi_cleanup, capture_cleanup] {
+    for cleanup in [
+        observation_cleanup,
+        asr_cleanup,
+        encoder_cleanup,
+        pi_cleanup,
+        capture_cleanup,
+    ] {
         if let Err(error) = cleanup {
             cleanup_errors.push(error);
         }
