@@ -85,6 +85,18 @@ pub enum Commands {
         #[command(subcommand)]
         command: ModelCommand,
     },
+    Codec {
+        #[command(subcommand)]
+        command: CodecCommand,
+    },
+}
+#[derive(Subcommand)]
+pub enum CodecCommand {
+    Check,
+    Install {
+        #[arg(long)]
+        from: std::path::PathBuf,
+    },
 }
 #[derive(Subcommand)]
 pub enum NotificationCommand {
@@ -132,7 +144,11 @@ pub enum AutoCommand {
 pub enum ConfigCommand {
     Show,
     Validate,
-    Set { key: String, value: String },
+    Set {
+        /// Typed key; audio.opus_bitrate_kbps accepts 32/48/64/96, for newly admitted segments only.
+        key: String,
+        value: String,
+    },
 }
 #[derive(Subcommand)]
 pub enum MeetingCommand {
@@ -279,7 +295,7 @@ fn read_store(paths: &Paths) -> Result<Store> {
     if !paths.state.join("state.sqlite").is_file() {
         return Err(OmmError::unavailable("state database not initialized"));
     }
-    Store::open(paths)
+    Store::open_read_only(paths)
 }
 pub async fn execute(command: &Commands, paths: &Paths, non_interactive: bool) -> Result<Value> {
     let runtime = paths.runtime_location(&std::env::vars().collect());
@@ -313,7 +329,7 @@ pub async fn execute_at(
                 Err(_) => None,
             };
             Ok(
-                json!({"paths":paths,"configurationPresent":cfg.is_some(),"configurationValid":cfg.as_ref().is_some_and(|c|c.validate().is_ok()),"runtimeAvailable":runtime.is_ok(),"runtimeReady":runtime.as_ref().is_ok_and(|r|r.path.is_dir()),"runtime":runtime.as_ref().ok().map(|r| &r.path),"runtimeSource":runtime.as_ref().ok().map(|r| &r.source),"runtimeLifecycle":runtime.as_ref().ok().map(|r| &r.lifecycle),"runtimeError":runtime.as_ref().err(),"captureReady":capture,"asrReady":asr,"serviceReady":status.is_some(),"service":status,"permissions":{"microphone":"unknown","systemAudio":"unknown","accessibility":"unknown"},"piAuthentication":"unknown; authorize dedicated CONFIG/omm/pi through Pi","componentStatus":"native_integrated; real hardware and inference unverified"}),
+                json!({"paths":paths,"configurationPresent":cfg.is_some(),"configurationValid":cfg.as_ref().is_some_and(|c|c.validate().is_ok()),"runtimeAvailable":runtime.is_ok(),"runtimeReady":runtime.as_ref().is_ok_and(|r|r.path.is_dir()),"runtime":runtime.as_ref().ok().map(|r| &r.path),"runtimeSource":runtime.as_ref().ok().map(|r| &r.source),"runtimeLifecycle":runtime.as_ref().ok().map(|r| &r.lifecycle),"runtimeError":runtime.as_ref().err(),"captureReady":capture,"asrReady":asr,"audioCodec":crate::core::audio_toolchain::check(paths),"serviceReady":status.is_some(),"service":status,"permissions":{"microphone":"unknown","systemAudio":"unknown","accessibility":"unknown"},"piAuthentication":"unknown; authorize dedicated CONFIG/omm/pi through Pi","componentStatus":"native_integrated; real hardware and inference unverified"}),
             )
         }
         Commands::Init { check: false } => {
@@ -505,7 +521,7 @@ pub async fn execute_at(
             let mut cfg = AppConfig::load(paths)?;
             match command {
                 ConfigCommand::Show => Ok(
-                    json!({"version":cfg.version,"asrModelVersion":cfg.asr.model_version,"pi":{"provider":cfg.pi.provider,"model":cfg.pi.model,"promptVersion":cfg.pi.prompt_version},"autoEnabled":cfg.auto_record,"notifications":cfg.notifications,"recordingConsent":cfg.recording_consent,"startDelayMs":cfg.start_delay_ms,"endGraceMs":cfg.end_grace_ms}),
+                    json!({"version":cfg.version,"asrModelVersion":cfg.asr.model_version,"pi":{"provider":cfg.pi.provider,"model":cfg.pi.model,"promptVersion":cfg.pi.prompt_version},"autoEnabled":cfg.auto_record,"notifications":cfg.notifications,"recordingConsent":cfg.recording_consent,"startDelayMs":cfg.start_delay_ms,"endGraceMs":cfg.end_grace_ms,"segmentMs":cfg.segment_ms,"audio":cfg.audio}),
                 ),
                 ConfigCommand::Validate => {
                     cfg.validate()?;
@@ -572,7 +588,16 @@ pub async fn execute_at(
                         .find(|m| &m.session_id == id)
                         .ok_or_else(|| OmmError::invalid("meeting not found"))?;
                     let artifacts=store.tasks()?.into_iter().filter(|t|&t.session_id==id).map(|t|json!({"task":t,"transcript":store.artifact_path(t.id,Stage::Transcribe).ok(),"summary":store.artifact_path(t.id,Stage::Summary).ok()})).collect::<Vec<_>>();
-                    Ok(json!({"meeting":m,"artifacts":artifacts}))
+                    let progress = if store.has_segmented_session(*id)? {
+                        Some(
+                            json!({"transcription":store.segment_progress(*id)?,"archives":store.archive_progress(*id)?}),
+                        )
+                    } else {
+                        None
+                    };
+                    Ok(
+                        json!({"meeting":m,"artifacts":artifacts,"segmentProgress":progress,"audio":store.meeting_audio(*id)?}),
+                    )
                 }
                 MeetingCommand::Read { id, artifact } => {
                     let task = store
@@ -581,6 +606,17 @@ pub async fn execute_at(
                         .filter(|t| &t.session_id == id)
                         .max_by_key(|t| t.attempt)
                         .ok_or_else(|| OmmError::invalid("meeting task not found"))?;
+                    if matches!(artifact, Artifact::Transcript)
+                        && store.has_segmented_session(*id)?
+                        && task.attempt == 1
+                        && task.stage == Stage::Transcribe
+                        && !store.artifact_committed(task.id, Stage::Transcribe)?
+                    {
+                        let transcript = store.partial_transcript(*id)?;
+                        return Ok(
+                            json!({"taskId":task.id,"partial":true,"content":serde_json::to_string_pretty(&transcript)?}),
+                        );
+                    }
                     let bytes = store.read_artifact(
                         task.id,
                         match artifact {
@@ -603,14 +639,25 @@ pub async fn execute_at(
             wait,
             timeout,
         } => {
-            let mut store = read_store(paths)?;
+            let _ = read_store(paths)?;
+            let mut store = Store::open(paths)?;
             let task = if let Some(id) = task {
                 if *force {
                     return Err(OmmError::invalid("force requires a meeting id"));
                 }
                 let found = store.task(*id)?;
                 if *retry {
-                    store.retry(*id)?;
+                    if store.has_segmented_session(found.session_id)? {
+                        store.retry_segment_failures(found.session_id)?;
+                        if matches!(
+                            store.task(*id)?.status,
+                            TaskStatus::Failed | TaskStatus::Blocked | TaskStatus::Interrupted
+                        ) {
+                            store.retry(*id)?;
+                        }
+                    } else {
+                        store.retry(*id)?;
+                    }
                 }
                 store.task(found.id)?
             } else {
@@ -622,6 +669,9 @@ pub async fn execute_at(
                     .ok_or_else(|| {
                         OmmError::unavailable("only sealed meetings can be processed")
                     })?;
+                if meeting.sealed_at_ms == 0 {
+                    return Err(OmmError::unavailable("active meeting is processed automatically per segment; final processing waits for stop"));
+                }
                 if matches!(stage, ProcessStage::Summary) {
                     let found = store
                         .tasks()?
@@ -668,10 +718,23 @@ pub async fn execute_at(
                     .filter(|t| status.is_none_or(|s| s == t.status))
                     .collect::<Vec<_>>()))
             }
-            TaskCommand::Show { id } => Ok(json!(read_store(paths)?.task(*id)?)),
+            TaskCommand::Show { id } => {
+                let store = read_store(paths)?;
+                let task = store.task(*id)?;
+                let mut result = json!(task);
+                if store.has_segmented_session(task.session_id)? {
+                    let object = result.as_object_mut().unwrap();
+                    object.insert("segmentProgress".into(),json!({"transcription":store.segment_progress(task.session_id)?,"archives":store.archive_progress(task.session_id)?}));
+                }
+                Ok(result)
+            }
             TaskCommand::Wait { id, timeout } => {
                 wait_task(paths, *id, ProcessStage::All, timeout).await
             }
+        },
+        Commands::Codec { command } => match command {
+            CodecCommand::Check => Ok(crate::core::audio_toolchain::check(paths)),
+            CodecCommand::Install { from } => crate::core::audio_toolchain::install(paths, from),
         },
         Commands::Model { command } => match command {
             ModelCommand::List => Ok(json!(models::assets()?

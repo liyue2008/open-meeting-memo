@@ -88,6 +88,12 @@ struct DecodeState {
     batch: Vec<(usize, usize)>,
     result: Vec<TranscriptSegment>,
     text_bytes: usize,
+    progress: Box<dyn FnMut(usize, usize, u64, u64) -> Result<()>>,
+    cache: Option<std::path::PathBuf>,
+    decoded: usize,
+    vad_spans: usize,
+    speech_samples: u64,
+    started: std::time::Instant,
 }
 pub(super) struct NativeEngine {
     api: Api,
@@ -147,7 +153,7 @@ impl NativeEngine {
             max_speech_duration: 25.0,
         };
         vad_config.sample_rate = RATE as i32;
-        vad_config.num_threads = cfg.threads as i32;
+        vad_config.num_threads = 1;
         vad_config.provider = strings[4].as_ptr();
         let api = unsafe { Api::load(&cfg.library_path)? };
         let recognizer =
@@ -183,6 +189,7 @@ impl NativeEngine {
                 ));
             }
             state.previous_end = end;
+            state.vad_spans += 1;
             drop(speech);
             unsafe {
                 (self.api.vad_pop)(vad);
@@ -195,7 +202,7 @@ impl NativeEngine {
                 state.batch.push((last_start, last_end));
             }
             state.pending = Some((start, end));
-            if state.batch.len() == 8 {
+            if state.batch.len() == 1 {
                 self.decode_batch(state)?;
             }
         }
@@ -203,7 +210,29 @@ impl NativeEngine {
     }
     fn decode_batch(&self, state: &mut DecodeState) -> Result<()> {
         use std::io::{Read, Seek, SeekFrom};
-        let spans = std::mem::take(&mut state.batch);
+        let mut spans = vec![];
+        for (start, end) in std::mem::take(&mut state.batch) {
+            let cached = state
+                .cache
+                .as_ref()
+                .map(|root| super::chunks::read(root, start, end))
+                .transpose()?
+                .flatten();
+            if let Some(text) = cached {
+                Self::append_text(state, start, end, text)?;
+            } else {
+                spans.push((start, end));
+            }
+        }
+        if spans.is_empty() {
+            (state.progress)(
+                state.decoded,
+                state.vad_spans,
+                state.speech_samples,
+                state.started.elapsed().as_millis() as u64,
+            )?;
+            return Ok(());
+        }
         let mut order: Vec<usize> = (0..spans.len()).collect();
         order.sort_by_key(|i| std::cmp::Reverse(spans[*i].1 - spans[*i].0));
         let mut waveforms = vec![];
@@ -238,6 +267,12 @@ impl NativeEngine {
             streams.push(stream);
         }
         let handles: Vec<Handle> = streams.iter().map(Owned::get).collect();
+        (state.progress)(
+            state.decoded,
+            state.vad_spans,
+            state.speech_samples,
+            state.started.elapsed().as_millis() as u64,
+        )?;
         unsafe {
             (self.api.decode)(
                 self.recognizer.as_ptr(),
@@ -259,32 +294,66 @@ impl NativeEngine {
             if text.len() > 1024 * 1024 {
                 return Err(backend("native ASR segment text exceeds resource limit"));
             }
-            state.text_bytes += text.len() + 128;
-            if state.text_bytes > 16 * 1024 * 1024 {
-                return Err(backend(
-                    "native ASR transcript exceeds protocol resource limit",
-                ));
-            }
             texts[index] = text.trim().to_owned();
         }
         for ((start, end), text) in spans.into_iter().zip(texts) {
-            if !text.is_empty() {
-                state.result.push(TranscriptSegment {
-                    source: state.source,
-                    start_ms: state.offset_ms + (start as u64 * 1000 + 8000) / RATE as u64,
-                    end_ms: state.offset_ms + (end as u64 * 1000 + 8000) / RATE as u64,
-                    text,
-                });
+            if let Some(root) = &state.cache {
+                super::chunks::write(root, start, end, &text)?;
             }
+            Self::append_text(state, start, end, text)?;
+        }
+        (state.progress)(
+            state.decoded,
+            state.vad_spans,
+            state.speech_samples,
+            state.started.elapsed().as_millis() as u64,
+        )?;
+        Ok(())
+    }
+    fn append_text(state: &mut DecodeState, start: usize, end: usize, text: String) -> Result<()> {
+        state.text_bytes += text.len() + 128;
+        if state.text_bytes > 16 * 1024 * 1024 {
+            return Err(backend(
+                "native ASR transcript exceeds protocol resource limit",
+            ));
+        }
+        state.decoded += 1;
+        state.speech_samples += (end - start) as u64;
+        if !text.is_empty() {
+            state.result.push(TranscriptSegment {
+                source: state.source,
+                start_ms: state.offset_ms + (start as u64 * 1000 + 8000) / RATE as u64,
+                end_ms: state.offset_ms + (end as u64 * 1000 + 8000) / RATE as u64,
+                text,
+            });
         }
         Ok(())
     }
+    #[cfg(test)]
     pub(super) fn transcribe_file(
         &self,
         path: &Path,
         samples: usize,
         source: AudioSource,
         offset_ms: u64,
+    ) -> Result<Vec<TranscriptSegment>> {
+        self.transcribe_file_progress(
+            path,
+            samples,
+            source,
+            offset_ms,
+            None,
+            Box::new(|_, _, _, _| Ok(())),
+        )
+    }
+    pub(super) fn transcribe_file_progress(
+        &self,
+        path: &Path,
+        samples: usize,
+        source: AudioSource,
+        offset_ms: u64,
+        cache: Option<std::path::PathBuf>,
+        progress: Box<dyn FnMut(usize, usize, u64, u64) -> Result<()>>,
     ) -> Result<Vec<TranscriptSegment>> {
         use std::io::Read;
         let vad = Owned::new(
@@ -303,6 +372,12 @@ impl NativeEngine {
             batch: vec![],
             result: vec![],
             text_bytes: 0,
+            progress,
+            cache,
+            decoded: 0,
+            vad_spans: 0,
+            speech_samples: 0,
+            started: std::time::Instant::now(),
         };
         for position in (0..samples).step_by(512) {
             // This ABI uses signed 32-bit VAD sample timestamps, not an input-duration policy.
@@ -334,6 +409,13 @@ impl NativeEngine {
         if !state.batch.is_empty() {
             self.decode_batch(&mut state)?;
         }
+        (state.progress)(
+            state.decoded,
+            state.vad_spans,
+            state.speech_samples,
+            state.started.elapsed().as_millis() as u64,
+        )?;
+        state.result.sort_by_key(|s| s.start_ms);
         Ok(state.result)
     }
 }

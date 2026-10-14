@@ -157,6 +157,7 @@ impl CaptureAdapter for Capture {
         Ok(CaptureStop {
             session_id: status.session_id,
             segments: vec![AudioSegment {
+                capture: None,
                 path: status.path.clone().unwrap(),
                 duration_ms: 100,
                 sha256: omm::core::store::hash_bytes(b"synthetic"),

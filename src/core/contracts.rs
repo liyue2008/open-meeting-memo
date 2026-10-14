@@ -104,10 +104,24 @@ pub struct AudioDevice {
     pub is_default: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureSegmentIdentity {
+    pub session_id: Uuid,
+    pub instance_id: Uuid,
+    pub sequence: u32,
+    pub offset_frames: u64,
+    pub frame_count: u64,
+    pub sample_rate: u32,
+    pub descriptor_sha256: String,
+    #[serde(default)]
+    pub legacy_wav: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioSegment {
     pub path: PathBuf,
     pub duration_ms: u64,
     pub sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture: Option<CaptureSegmentIdentity>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SealedMeeting {
@@ -146,8 +160,32 @@ pub struct PiConfig {
     pub max_output_bytes: usize,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AudioConfig {
+    pub opus_bitrate_kbps: u32,
+}
+impl Default for AudioConfig {
+    fn default() -> Self {
+        Self {
+            opus_bitrate_kbps: 48,
+        }
+    }
+}
+impl AudioConfig {
+    pub fn validate(&self) -> Result<()> {
+        if ![32, 48, 64, 96].contains(&self.opus_bitrate_kbps) {
+            return Err(OmmError::invalid(
+                "Opus bitrate must be 32, 48, 64 or 96 kbps",
+            ));
+        }
+        Ok(())
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigSnapshot {
+    #[serde(default)]
+    pub audio: AudioConfig,
     pub version: String,
     pub asr: AsrConfig,
     pub pi: PiConfig,
@@ -155,6 +193,7 @@ pub struct ConfigSnapshot {
 impl Default for ConfigSnapshot {
     fn default() -> Self {
         Self {
+            audio: AudioConfig::default(),
             version: "1".into(),
             asr: AsrConfig::default(),
             pi: PiConfig::default(),
@@ -175,6 +214,11 @@ pub struct TaskContext {
 pub struct CaptureRequest {
     pub context: TaskContext,
     pub output_path: PathBuf,
+    #[serde(default = "default_segment_ms")]
+    pub segment_ms: u64,
+}
+pub fn default_segment_ms() -> u64 {
+    1_800_000
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaptureStatus {
@@ -222,10 +266,31 @@ pub struct Transcript {
 pub struct AsrWorkerRequest {
     pub schema_version: u32,
     pub request: AsrRequest,
+    #[serde(default)]
+    pub chunk_checkpoint_dir: Option<PathBuf>,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct AsrStartupTiming {
+    pub validate_audio_ms: u64,
+    pub validate_models_ms: u64,
+    pub load_model_ms: u64,
+    pub prepare_audio_ms: u64,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AsrWorkerEvent {
+    ChunkProgress {
+        schema_version: u32,
+        task_id: Uuid,
+        attempt: u32,
+        source: AudioSource,
+        completed_chunks: usize,
+        vad_spans: usize,
+        speech_samples: u64,
+        processing_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        startup_timing: Option<AsrStartupTiming>,
+    },
     Progress {
         schema_version: u32,
         task_id: Uuid,
@@ -325,12 +390,111 @@ pub trait CaptureAdapter: Send + Sync {
     async fn status(&self) -> Result<CaptureStatus>;
     async fn windows(&self) -> Result<Vec<WindowInfo>>;
     async fn devices(&self) -> Result<Vec<AudioDevice>>;
+    fn supports_rolling(&self) -> bool {
+        false
+    }
+    async fn sealed_segments(&self) -> Result<Vec<AudioSegment>> {
+        Ok(vec![])
+    }
+    /// Called only after descriptors and their jobs are durably saved.
+    fn acknowledge_segments(&self, _segments: &[AudioSegment]) -> Result<()> {
+        Ok(())
+    }
 }
 #[async_trait]
 pub trait AsrAdapter: Send + Sync {
     async fn transcribe(&self, req: AsrRequest) -> Result<Transcript>;
+    async fn drain(&self) -> Result<()> {
+        Ok(())
+    }
 }
 #[async_trait]
 pub trait SummaryAdapter: Send + Sync {
     async fn summarize(&self, req: SummaryRequest) -> Result<Summary>;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpusFile {
+    pub pre_skip: u16,
+    pub tail_padding: u64,
+    pub decoded_frames: u64,
+    pub path: PathBuf,
+    pub sha256: String,
+    pub source: String,
+    pub frames: u64,
+    pub sample_rate: u32,
+    pub channels: u16,
+    pub container: String,
+    pub codec: String,
+    pub bitrate: u32,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArchiveReceipt {
+    /// None on old receipts means unknown, never inferred from current user configuration.
+    #[serde(default)]
+    pub encoder_version: Option<String>,
+    pub schema_version: u32,
+    pub source_sha256: String,
+    pub files: Vec<OpusFile>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArchivedAudio {
+    pub sequence: u32,
+    pub offset_ms: u64,
+    pub file: OpusFile,
+}
+
+/// Rolling audio uses one frame clock; pre-rolling WAV callers retain their millisecond sums.
+pub fn audio_ranges_ms(audio: &[AudioSegment]) -> Result<Vec<(u64, u64)>> {
+    let rolling = audio.iter().any(|a| a.capture.is_some());
+    let mut ranges = Vec::with_capacity(audio.len());
+    let mut end = 0u64;
+    let first = audio.first().and_then(|a| a.capture.as_ref());
+    let epoch = first.map(|c| c.offset_frames).unwrap_or(0);
+    let mut previous_frames = epoch;
+    for (i, a) in audio.iter().enumerate() {
+        let range = if rolling {
+            let c = a
+                .capture
+                .as_ref()
+                .ok_or_else(|| OmmError::invalid("mixed rolling and legacy audio clocks"))?;
+            let first = first.ok_or_else(|| OmmError::invalid("rolling clock has no origin"))?;
+            if c.sample_rate != 48000
+                || c.frame_count == 0
+                || c.offset_frames != previous_frames
+                || c.session_id != first.session_id
+                || c.instance_id != first.instance_id
+                || first.sequence.checked_add(
+                    u32::try_from(i).map_err(|_| OmmError::invalid("segment count overflow"))?,
+                ) != Some(c.sequence)
+                || c.frame_count.checked_mul(1000).map(|f| f / 48000) != Some(a.duration_ms)
+            {
+                return Err(OmmError::invalid(
+                    "rolling frame clock differs from sealed input",
+                ));
+            }
+            previous_frames = c
+                .offset_frames
+                .checked_add(c.frame_count)
+                .ok_or_else(|| OmmError::invalid("audio frame overflow"))?;
+            let start = (c.offset_frames - epoch)
+                .checked_mul(1000)
+                .ok_or_else(|| OmmError::invalid("audio duration overflow"))?
+                / 48000;
+            let end = (previous_frames - epoch)
+                .checked_mul(1000)
+                .ok_or_else(|| OmmError::invalid("audio duration overflow"))?
+                / 48000;
+            (start, end)
+        } else {
+            (
+                end,
+                end.checked_add(a.duration_ms)
+                    .ok_or_else(|| OmmError::invalid("audio duration overflow"))?,
+            )
+        };
+        end = range.1;
+        ranges.push(range);
+    }
+    Ok(ranges)
 }

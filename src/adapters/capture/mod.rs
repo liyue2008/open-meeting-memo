@@ -108,6 +108,7 @@ pub struct MacCaptureAdapter {
     instance_id: Uuid,
     timeout: Duration,
     operation: Mutex<()>,
+    sealed_seen: std::sync::Mutex<std::collections::BTreeMap<PathBuf, AudioSegment>>,
     shutdown_confirmed: std::sync::atomic::AtomicBool,
 }
 impl MacCaptureAdapter {
@@ -122,6 +123,7 @@ impl MacCaptureAdapter {
             instance_id,
             timeout,
             operation: Mutex::new(()),
+            sealed_seen: Default::default(),
             shutdown_confirmed: std::sync::atomic::AtomicBool::new(false),
         })
     }
@@ -367,6 +369,65 @@ impl MacCaptureAdapter {
     async fn status_inner(&self) -> Result<CaptureStatus> {
         self.decode_status(self.exchange(json!({"action": "status"})).await?)
     }
+    fn sealed_cursor(&self) -> Result<Option<u32>> {
+        let seen = self.sealed_seen.lock().map_err(|_| conflict())?;
+        Ok(seen.values().filter_map(|a|a.capture.as_ref().map(|c|c.sequence)).max())
+    }
+    async fn all_sealed(&self, session: Uuid) -> Result<Vec<AudioSegment>> {
+        // Final seal replays the immutable manifest; live admission uses the acknowledged cursor.
+        let mut result: Vec<AudioSegment> = vec![];
+        let mut cursor = None;
+        loop {
+            let (page,more)=self.sealed_page(session,cursor).await?;
+            if page.is_empty() && more { return Err(conflict()); }
+            if let Some(last)=page.last() { cursor=last.capture.as_ref().map(|c|c.sequence); }
+            result.extend(page);
+            if result.len()>4096 {return Err(OmmError::invalid("too many capture segments"));}
+            if !more {return Ok(result);}
+        }
+    }
+    async fn sealed_page(&self, session: Uuid, cursor: Option<u32>) -> Result<(Vec<AudioSegment>,bool)> {
+        let value=self.exchange(json!({"action":"sealed_segments","instance_id":self.instance_id,"session_id":session,"after_sequence":cursor.map(i64::from).unwrap_or(-1),"limit":8})).await?;
+        self.instance_matches(&value)?;
+        if value.get("session_id").and_then(Value::as_str).and_then(|s|Uuid::parse_str(s).ok())!=Some(session) || serde_json::to_vec(&value)?.len()>131072 {return Err(conflict());}
+        let origin:Uuid=serde_json::from_value(value.get("origin_instance_id").cloned().ok_or_else(conflict)?)?;
+        let page=value.get("segments").and_then(Value::as_array).ok_or_else(conflict)?;
+        if page.len()>8 {return Err(conflict());}
+        let mut result=vec![];let mut expected=cursor.map(|c|c.checked_add(1).ok_or_else(conflict)).transpose()?.unwrap_or(0);
+        for entry in page {
+            let doc=entry.get("document").ok_or_else(conflict)?;
+            let path:PathBuf=serde_json::from_value(doc.get("path").cloned().ok_or_else(conflict)?)?;
+            let descriptor=PathBuf::from(format!("{}.sealed.json",path.display()));
+            controlled_file(&self.paths.media,&descriptor)?;
+            if std::fs::metadata(&descriptor)?.len()>4096 {return Err(conflict());}
+            let bytes=std::fs::read(&descriptor)?;
+            if serde_json::from_slice::<Value>(&bytes)?!=*doc {return Err(conflict());}
+            let digest=hex::encode(Sha256::digest(&bytes));
+            if entry.get("descriptor_sha256").and_then(Value::as_str)!=Some(&digest) {return Err(conflict());}
+            let mut metadata:CaptureSegmentIdentity=serde_json::from_value({let mut v=doc.clone();v["descriptor_sha256"]=json!(digest);v})?;
+            if metadata.session_id!=session || metadata.instance_id!=origin || metadata.sequence!=expected || metadata.sample_rate!=48000 || metadata.frame_count==0 || (metadata.frame_count>1800*48000 && !metadata.legacy_wav) {return Err(conflict());}
+            if metadata.legacy_wav && (metadata.sequence!=0 || metadata.offset_frames!=0 || doc["temporary"]!=false) {return Err(conflict());}
+            let sha=entry.get("sha256").and_then(Value::as_str).filter(|s|s.len()==64&&s.bytes().all(|b|b.is_ascii_hexdigit())).ok_or_else(conflict)?.to_owned();
+            let mut audio=if path.exists() || std::fs::symlink_metadata(&path).is_ok() {
+                let sealed=self.seal_files(&json!({"files":[path]})).await?;
+                let a=sealed.into_iter().next().ok_or_else(conflict)?;
+                let wav=hound::WavReader::open(&a.path).map_err(|_|conflict())?;
+                if a.sha256!=sha || u64::from(wav.duration())!=metadata.frame_count {return Err(conflict());}
+                a
+            } else {
+                // Admission accepts this only when its original immutable DB row already exists.
+                canonical_private(path.parent().ok_or_else(conflict)?)?;
+                AudioSegment{path,sha256:sha,duration_ms:metadata.frame_count*1000/48000,capture:None}
+            };
+            metadata.descriptor_sha256=digest;audio.capture=Some(metadata);
+            let seen=self.sealed_seen.lock().map_err(|_|conflict())?;
+            if let Some(old)=seen.get(&audio.path) {
+                if serde_json::to_value(old)?!=serde_json::to_value(&audio)? { return Err(conflict()); }
+            } else if !audio.path.exists() { return Err(conflict()); }
+            drop(seen);result.push(audio);expected=expected.checked_add(1).ok_or_else(conflict)?;
+        }
+        Ok((result,value.get("has_more").and_then(Value::as_bool).ok_or_else(conflict)?))
+    }
     async fn seal_files(&self, value: &Value) -> Result<Vec<AudioSegment>> {
         let paths: Vec<PathBuf> =
             serde_json::from_value(value.get("files").cloned().ok_or_else(|| {
@@ -400,6 +461,9 @@ impl MacCaptureAdapter {
                     ));
                 }
                 let duration_ms = u64::from(reader.duration()) * 1000 / 48000;
+                if reader.duration() == 0 {
+                    continue;
+                }
                 let declared_bytes = u64::from(reader.len()) * 2;
                 let offset = reader.into_inner().stream_position()?;
                 if std::fs::metadata(&path)?.len() < offset + declared_bytes {
@@ -419,7 +483,7 @@ impl MacCaptureAdapter {
                     }
                     hash.update(&buffer[..n]);
                 }
-                segments.push(AudioSegment {
+                segments.push(AudioSegment { capture: None,
                     path,
                     duration_ms,
                     sha256: hex::encode(hash.finalize()),
@@ -433,6 +497,25 @@ impl MacCaptureAdapter {
 }
 #[async_trait]
 impl CaptureAdapter for MacCaptureAdapter {
+    fn supports_rolling(&self) -> bool {
+        true
+    }
+    async fn sealed_segments(&self) -> Result<Vec<AudioSegment>> {
+        let _guard = self.operation.lock().await;
+        let status = self.status_inner().await?;
+        let session = status.session_id.ok_or_else(conflict)?;
+        let cursor = self.sealed_cursor()?;
+        Ok(self.sealed_page(session, cursor).await?.0)
+    }
+    fn acknowledge_segments(&self, segments: &[AudioSegment]) -> Result<()> {
+        let mut seen = self.sealed_seen.lock().map_err(|_| OmmError::unavailable("capture segment cache unavailable"))?;
+        for audio in segments {
+            if let Some(old) = seen.get(&audio.path) {
+                if serde_json::to_value(old)? != serde_json::to_value(audio)? { return Err(conflict()); }
+            } else { seen.insert(audio.path.clone(),audio.clone()); }
+        }
+        Ok(())
+    }
     async fn start(&self, req: CaptureRequest) -> Result<CaptureStatus> {
         let _guard = self.operation.lock().await;
         self.paths.validate()?;
@@ -457,7 +540,7 @@ impl CaptureAdapter for MacCaptureAdapter {
         }
         let value = self.exchange(json!({"action": "start", "session_id": req.context.session_id,
             "instance_id": self.instance_id, "filename": filename, "output_dir": req.context.meeting_dir,
-            "title": "meeting"})).await?;
+            "title": "meeting", "segment_ms": req.segment_ms.clamp(60_000,1_800_000)})).await?;
         self.instance_matches(&value)?;
         if value.get("status").and_then(Value::as_str) != Some("recording")
             || value.get("file").and_then(Value::as_str) != req.output_path.to_str()
@@ -473,6 +556,7 @@ impl CaptureAdapter for MacCaptureAdapter {
         {
             return Err(conflict());
         }
+        self.sealed_seen.lock().map_err(|_| conflict())?.clear();
         Ok(status)
     }
     async fn stop(&self) -> Result<CaptureStop> {
@@ -496,7 +580,7 @@ impl CaptureAdapter for MacCaptureAdapter {
         {
             return Err(conflict());
         }
-        let segments = self.seal_files(&value).await?;
+        let segments = if value.get("paged_segments").and_then(Value::as_bool) == Some(true) { self.all_sealed(session_id).await? } else { self.seal_files(&value).await? };
         let duration_ms = segments.iter().map(|s| s.duration_ms).sum();
         Ok(CaptureStop {
             session_id: Some(session_id),

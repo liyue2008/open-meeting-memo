@@ -1,5 +1,7 @@
 //! Local-only ASR adapter. All C++/ONNX execution occurs in a separate worker.
 pub mod audio;
+mod chunks;
+pub mod codec;
 mod ffi;
 pub mod models;
 mod native;
@@ -23,8 +25,15 @@ const LINE_LIMIT: usize = 16 * 1024 * 1024;
 
 pub struct LocalAsrAdapter {
     worker: PathBuf,
+    paths: Option<crate::core::paths::Paths>,
+    reapers: crate::core::process::Reapers,
 }
 struct AttemptDirectory(PathBuf);
+struct AttemptResources {
+    _attempt: AttemptDirectory,
+    _decoded: Option<AttemptDirectory>,
+    _reader: Option<std::fs::File>,
+}
 impl AttemptDirectory {
     fn new(work: &Path) -> Result<Self> {
         use std::os::unix::fs::DirBuilderExt;
@@ -44,29 +53,102 @@ impl LocalAsrAdapter {
         if !worker.is_absolute() {
             return Err(OmmError::invalid("ASR worker executable must be absolute"));
         }
-        Ok(Self { worker })
+        Ok(Self {
+            worker,
+            paths: None,
+            reapers: Default::default(),
+        })
+    }
+    pub fn with_paths(worker: PathBuf, paths: crate::core::paths::Paths) -> Result<Self> {
+        let mut adapter = Self::new(worker)?;
+        adapter.paths = Some(paths);
+        Ok(adapter)
+    }
+    pub async fn drain(&self) -> Result<()> {
+        self.reapers.drain().await
     }
 }
 #[async_trait]
 impl AsrAdapter for LocalAsrAdapter {
+    async fn drain(&self) -> Result<()> {
+        self.reapers.drain().await
+    }
     async fn transcribe(&self, req: AsrRequest) -> Result<Transcript> {
-        validate_request(&req)?;
         if req.context.config.asr.timeout_ms == 0 {
             return Err(OmmError::invalid("ASR worker timeout must be positive"));
         }
-        let timeout = req.context.config.asr.timeout_ms;
+        let deadline = tokio::time::Instant::now().checked_add(Duration::from_millis(req.context.config.asr.timeout_ms))
+            .ok_or_else(|| OmmError::invalid("ASR deadline overflow"))?;
+        let reader = match &self.paths {
+            Some(paths) => Some(crate::core::store::Store::audio_read_lock_until(paths, deadline).await?),
+            None => None,
+        };
+        // Maintenance may have removed temporary WAVs while we waited. Select inputs only under the read lock.
+        let mut prepared = req.clone();
+        let mut codec_lineage = vec![None; req.segments.len()];
+        let mut decoded = None;
+        if req.segments.iter().any(|s| !s.path.exists()) {
+            let paths = self.paths.as_ref().ok_or_else(|| {
+                OmmError::unavailable("archived audio requires locked codec and state")
+            })?;
+            let codec = codec::AudioCodec::from_paths(paths)?.with_reapers(self.reapers.clone());
+            let store = crate::core::store::Store::open_read_only(paths)?;
+            let directory = AttemptDirectory::new(&req.context.meeting_dir)?;
+            let mut decode_context = req.context.clone();
+            decode_context.work_dir = directory.0.clone();
+            for (index, audio) in prepared.segments.iter_mut().enumerate() {
+                if !audio.path.exists() {
+                    let receipt = store
+                        .archive_for_audio(req.context.session_id, audio)?
+                        .ok_or_else(|| OmmError::unavailable("audio archive receipt missing"))?;
+                    codec_lineage[index] = Some(receipt.clone());
+                    let duration = audio.duration_ms;
+                    let capture = audio.capture.clone();
+                    let output = tokio::time::timeout_at(deadline, codec.decode_sources(&receipt, &decode_context)).await;
+                    *audio = match output {
+                        Ok(result) => result?,
+                        Err(_) => {
+                            codec.drain().await?;
+                            return Err(OmmError::new(ErrorCode::Timeout, true, "ASR deadline expired decoding audio"));
+                        }
+                    };
+                    audio.duration_ms = duration;
+                    audio.capture = capture;
+                }
+            }
+            codec.drain().await?;
+            decoded = Some(directory);
+        }
+        validate_request(&prepared)?;
+        if let Some(paths) = &self.paths {
+            let store = crate::core::store::Store::open_read_only(paths)?;
+            let source_archives = req.segments.iter().map(|audio| store.archive_for_audio(req.context.session_id, audio)).collect::<Result<Vec<_>>>()?;
+            let inputs: Vec<_> = req.segments.iter().zip(&prepared.segments).zip(&codec_lineage).zip(&source_archives).map(|(((original,actual),lineage),source_archive)| serde_json::json!({
+                "original_sha256":original.sha256,"actual_sha256":actual.sha256,
+                "capture":original.capture,"codec_lineage":lineage,"source_archive":source_archive,"input_container":"wav","duration_ms":actual.duration_ms
+            })).collect();
+            crate::core::store::Store::open(paths)?.record_asr_inputs(&req.context,&serde_json::json!({
+                "schema_version":1,"checkpoint_version":1,"requested_audio":req.context.config.audio,
+                "config_hash":crate::core::store::hash_bytes(&serde_json::to_vec(&req.context.config.asr)?),"inputs":inputs
+            }))?;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(OmmError::new(ErrorCode::Timeout, true, "ASR deadline expired preparing audio"));
+        }
         // Parent owns disposable cache lifetime even if the native worker aborts.
         let attempt = AttemptDirectory::new(&req.context.work_dir)?;
-        let mut worker_request = req.clone();
+        let mut worker_request = prepared;
         worker_request.context.work_dir = attempt.0.clone();
         let input = serde_json::to_vec(&AsrWorkerRequest {
             schema_version: 1,
             request: worker_request,
+            chunk_checkpoint_dir: req.context.work_dir.parent().map(|p| p.join(".chunks")),
         })?;
         if input.len() > REQUEST_LIMIT {
             return Err(OmmError::invalid("ASR request exceeds protocol limit"));
         }
-        let mut child = Command::new(&self.worker)
+        let mut command = Command::new(&self.worker);
+        command
             .args(["--protocol", "1"])
             .current_dir(&attempt.0)
             .env_clear()
@@ -74,9 +156,22 @@ impl AsrAdapter for LocalAsrAdapter {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
+            .kill_on_drop(true);
+        if let Some(lock) = reader.as_ref() {
+            crate::core::process::inherit_audio_reader(&mut command, lock);
+        }
+        let child = command
             .spawn()
             .map_err(|_| OmmError::unavailable("configured ASR worker could not start"))?;
+        let mut child = crate::core::process::OwnedChild::new(
+            child,
+            self.reapers.clone(),
+            Some(std::sync::Arc::new(AttemptResources {
+                _attempt: attempt,
+                _decoded: decoded,
+                _reader: reader,
+            })),
+        );
         let mut stdin = child
             .stdin
             .take()
@@ -98,7 +193,7 @@ impl AsrAdapter for LocalAsrAdapter {
             };
             let ((), output, _) = tokio::try_join!(
                 send,
-                bounded_read(stdout, OUTPUT_LIMIT),
+                event_read(stdout, &req, self.paths.as_ref()),
                 bounded_read(stderr, 64 * 1024)
             )?;
             let status = child.wait().await?;
@@ -125,15 +220,17 @@ impl AsrAdapter for LocalAsrAdapter {
             }
             parsed
         };
-        match tokio::time::timeout(Duration::from_millis(timeout), operation).await {
+        match tokio::time::timeout_at(deadline, operation).await {
             Ok(result) => {
                 if result.is_err() {
                     let _ = child.kill().await;
+                    let _ = child.wait().await;
                 }
                 result
             }
             Err(_) => {
                 let _ = child.kill().await;
+                let _ = child.wait().await;
                 Err(OmmError::new(
                     ErrorCode::Timeout,
                     true,
@@ -142,6 +239,115 @@ impl AsrAdapter for LocalAsrAdapter {
             }
         }
     }
+}
+async fn event_read(
+    mut reader: impl AsyncRead + Unpin,
+    req: &AsrRequest,
+    paths: Option<&crate::core::paths::Paths>,
+) -> Result<Vec<u8>> {
+    let mut output = vec![];
+    let mut line = vec![];
+    let mut chunk = [0u8; 8192];
+    let mut terminal = false;
+    let mut previous = 0;
+    loop {
+        let n = reader.read(&mut chunk).await?;
+        if n == 0 {
+            break;
+        }
+        if output.len().saturating_add(n) > OUTPUT_LIMIT {
+            return Err(resource_limit(
+                "ASR worker output exceeded protocol resource limit",
+            ));
+        }
+        output.extend_from_slice(&chunk[..n]);
+        for &byte in &chunk[..n] {
+            if byte == b'\n' {
+                if line.is_empty() {
+                    continue;
+                }
+                if terminal {
+                    return Err(audio::corrupt("invalid ASR worker event ordering"));
+                }
+                let event: AsrWorkerEvent = serde_json::from_slice(&line)?;
+                line.clear();
+                let (schema, task, attempt) = match &event {
+                    AsrWorkerEvent::Progress {
+                        schema_version,
+                        task_id,
+                        attempt,
+                        ..
+                    }
+                    | AsrWorkerEvent::ChunkProgress {
+                        schema_version,
+                        task_id,
+                        attempt,
+                        ..
+                    }
+                    | AsrWorkerEvent::Result {
+                        schema_version,
+                        task_id,
+                        attempt,
+                        ..
+                    }
+                    | AsrWorkerEvent::Error {
+                        schema_version,
+                        task_id,
+                        attempt,
+                        ..
+                    } => (*schema_version, *task_id, *attempt),
+                };
+                if schema != 1 || task != req.context.task_id || attempt != req.context.attempt {
+                    return Err(audio::corrupt("ASR worker event identity mismatch"));
+                }
+                match &event {
+                    AsrWorkerEvent::Progress {
+                        completed_segments,
+                        total_segments,
+                        ..
+                    } => {
+                        if *total_segments != req.segments.len()
+                            || *completed_segments < previous
+                            || completed_segments > total_segments
+                        {
+                            return Err(audio::corrupt("invalid ASR worker progress"));
+                        }
+                        previous = *completed_segments;
+                    }
+                    AsrWorkerEvent::ChunkProgress {
+                        completed_chunks,
+                        vad_spans,
+                        ..
+                    } => {
+                        if completed_chunks > vad_spans {
+                            return Err(audio::corrupt("invalid ASR chunk progress"));
+                        }
+                    }
+                    _ => terminal = true,
+                }
+                if matches!(
+                    event,
+                    AsrWorkerEvent::ChunkProgress { .. } | AsrWorkerEvent::Progress { .. }
+                ) {
+                    if let Some(paths) = paths {
+                        crate::core::store::Store::open(paths)?
+                            .record_segment_progress(&req.context, &event)?;
+                    }
+                }
+            } else {
+                line.push(byte);
+                if line.len() > LINE_LIMIT {
+                    return Err(resource_limit(
+                        "ASR worker event exceeds protocol line resource limit",
+                    ));
+                }
+            }
+        }
+    }
+    if !line.is_empty() {
+        return Err(audio::corrupt("ASR worker event missing newline"));
+    }
+    Ok(output)
 }
 async fn bounded_read(mut reader: impl AsyncRead + Unpin, limit: usize) -> Result<Vec<u8>> {
     let mut bytes = vec![];
@@ -175,7 +381,13 @@ fn parse_events(bytes: &[u8], req: &AsrRequest) -> Result<Transcript> {
         }
         let event: AsrWorkerEvent = serde_json::from_slice(line)?;
         let (schema, task, attempt) = match &event {
-            AsrWorkerEvent::Progress {
+            AsrWorkerEvent::ChunkProgress {
+                schema_version,
+                task_id,
+                attempt,
+                ..
+            }
+            | AsrWorkerEvent::Progress {
                 schema_version,
                 task_id,
                 attempt,
@@ -198,6 +410,15 @@ fn parse_events(bytes: &[u8], req: &AsrRequest) -> Result<Transcript> {
             return Err(audio::corrupt("ASR worker event identity mismatch"));
         }
         match event {
+            AsrWorkerEvent::ChunkProgress {
+                completed_chunks,
+                vad_spans,
+                ..
+            } => {
+                if completed_chunks > vad_spans {
+                    return Err(audio::corrupt("invalid ASR chunk progress"));
+                }
+            }
             AsrWorkerEvent::Progress {
                 completed_segments,
                 total_segments,
@@ -259,7 +480,7 @@ fn validate_request(req: &AsrRequest) -> Result<()> {
             "ASR task lease expired",
         ));
     }
-    let mut total = 0u64;
+    audio_ranges_ms(&req.segments)?;
     for segment in &req.segments {
         if !canonical(&segment.path)?.starts_with(&root)
             || !segment.path.is_file()
@@ -269,9 +490,12 @@ fn validate_request(req: &AsrRequest) -> Result<()> {
                 "sealed ASR audio must be a file inside the meeting directory",
             ));
         }
-        total = total
-            .checked_add(segment.duration_ms)
-            .ok_or_else(|| OmmError::invalid("sealed duration overflow"))?;
+        if let Some(capture) = &segment.capture {
+            let reader = hound::WavReader::open(&segment.path).map_err(|_| audio::corrupt("rolling input is not a WAV"))?;
+            if capture.session_id != req.context.session_id || u64::from(reader.duration()) != capture.frame_count || reader.spec().sample_rate != capture.sample_rate {
+                return Err(audio::corrupt("rolling input frames differ from capture clock"));
+            }
+        }
         if segment.sha256.len() != 64 || models::sha256(&segment.path)? != segment.sha256 {
             return Err(audio::corrupt("sealed audio SHA256 mismatch"));
         }
@@ -281,7 +505,7 @@ fn validate_request(req: &AsrRequest) -> Result<()> {
 fn validate_transcript(t: &Transcript, req: &AsrRequest) -> Result<()> {
     if t.schema_version != 1
         || t.model_version != req.context.config.asr.model_version
-        || t.duration_ms != req.segments.iter().map(|s| s.duration_ms).sum::<u64>()
+        || t.duration_ms != audio_ranges_ms(&req.segments)?.last().map(|r| r.1).unwrap_or(0)
     {
         return Err(audio::corrupt("ASR transcript metadata mismatch"));
     }
@@ -329,7 +553,7 @@ pub fn worker_main() -> Result<()> {
     let input: AsrWorkerRequest = serde_json::from_slice(&bytes)?;
     let req = input.request;
     let result = if input.schema_version == 1 {
-        transcribe_local(&req)
+        transcribe_local(&req, input.chunk_checkpoint_dir.as_deref())
     } else {
         Err(OmmError::invalid("unsupported ASR worker schema"))
     };
@@ -354,32 +578,81 @@ pub fn worker_main() -> Result<()> {
         }
     }
 }
-fn transcribe_local(req: &AsrRequest) -> Result<Transcript> {
+fn transcribe_local(req: &AsrRequest, checkpoint: Option<&Path>) -> Result<Transcript> {
+    let start = std::time::Instant::now();
     validate_request(req)?;
+    let validate_audio_ms = start.elapsed().as_millis() as u64;
+    if let Some(root) = checkpoint {
+        let expected = req
+            .context
+            .work_dir
+            .parent()
+            .and_then(Path::parent)
+            .map(|p| p.join(".chunks"));
+        if expected.as_deref() != Some(root) {
+            return Err(OmmError::invalid(
+                "chunk checkpoint root differs from owned workspace",
+            ));
+        }
+        crate::core::paths::private_dir(root)?;
+    }
     let cfg = &req.context.config.asr;
     if !cfg.library_path.is_absolute() || !cfg.library_path.is_file() {
         return Err(OmmError::unavailable(
             "explicit absolute sherpa-onnx library file is required",
         ));
     }
+    let start = std::time::Instant::now();
     models::verify_models(cfg)?;
+    let validate_models_ms = start.elapsed().as_millis() as u64;
+    let start = std::time::Instant::now();
     let engine = native::NativeEngine::new(cfg)?;
-    let mut offset = 0;
+    let load_model_ms = start.elapsed().as_millis() as u64;
+    let ranges = audio_ranges_ms(&req.segments)?;
     let mut segments = vec![];
     let mut output_bytes = 0;
     for (i, sealed) in req.segments.iter().enumerate() {
+        let (offset, sealed_end) = ranges[i];
+        let start = std::time::Instant::now();
         let prepared =
             audio::prepare_sources(&sealed.path, sealed.duration_ms, &req.context.work_dir)?;
+        let startup_timing = Some(AsrStartupTiming { validate_audio_ms, validate_models_ms, load_model_ms,
+            prepare_audio_ms: start.elapsed().as_millis() as u64 });
         for (channel, path) in prepared.paths.iter().enumerate() {
             let source = if channel == 0 {
                 AudioSource::Mic
             } else {
                 AudioSource::System
             };
-            let mut part = engine.transcribe_file(path, prepared.samples, source, offset)?;
+            let (task_id, attempt) = (req.context.task_id, req.context.attempt);
+            let cache = checkpoint
+                .map(|root| chunks::directory(root, path, cfg, source))
+                .transpose()?;
+            let mut part = engine.transcribe_file_progress(
+                path,
+                prepared.samples,
+                source,
+                offset,
+                cache,
+                Box::new(
+                    move |completed_chunks, vad_spans, speech_samples, processing_ms| {
+                        emit(&AsrWorkerEvent::ChunkProgress {
+                            schema_version: 1,
+                            task_id,
+                            attempt,
+                            source,
+                            completed_chunks,
+                            vad_spans,
+                            speech_samples,
+                            processing_ms,
+                            startup_timing,
+                        })
+                    },
+                ),
+            )?;
             // Rounded VAD milliseconds may exceed the sealed duration by one tick.
             for segment in &mut part {
-                segment.end_ms = segment.end_ms.min(offset + sealed.duration_ms);
+                segment.end_ms = segment.end_ms.min(sealed_end);
             }
             output_bytes += serde_json::to_vec(&part)?.len();
             if output_bytes > LINE_LIMIT - 1024 {
@@ -389,7 +662,6 @@ fn transcribe_local(req: &AsrRequest) -> Result<Transcript> {
             }
             segments.extend(part);
         }
-        offset += sealed.duration_ms;
         emit(&AsrWorkerEvent::Progress {
             schema_version: 1,
             task_id: req.context.task_id,
@@ -401,7 +673,7 @@ fn transcribe_local(req: &AsrRequest) -> Result<Transcript> {
     let transcript = Transcript {
         schema_version: 1,
         model_version: cfg.model_version.clone(),
-        duration_ms: offset,
+        duration_ms: ranges.last().map(|r| r.1).unwrap_or(0),
         segments: audio::deduplicate(segments),
     };
     validate_transcript(&transcript, req)?;

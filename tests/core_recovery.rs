@@ -24,6 +24,7 @@ fn prepared_commit_survives_restart_before_or_after_atomic_rename() {
             directory: dir,
             sealed_at_ms: 1,
             segments: vec![AudioSegment {
+                capture: None,
                 path,
                 duration_ms: 1000,
                 sha256: hash_bytes(b"synthetic"),
@@ -89,6 +90,7 @@ fn malformed_timestamps_and_audio_hashes_are_rejected() {
         directory: dir,
         sealed_at_ms: 1,
         segments: vec![AudioSegment {
+            capture: None,
             path,
             duration_ms: 1000,
             sha256: "bad".into(),
@@ -149,6 +151,7 @@ fn imported_summary_attempt_retains_asr_provenance_and_recovers_each_commit_wind
             directory,
             sealed_at_ms: 1,
             segments: vec![AudioSegment {
+                capture: None,
                 path: audio,
                 duration_ms: 1000,
                 sha256: hash_bytes(b"synthetic"),

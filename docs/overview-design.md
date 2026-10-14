@@ -4,14 +4,14 @@
 - **新增已确定**：用户目录遵循 XDG Base Directory Specification v0.8，macOS 同样遵循其默认值。
 - **源码事实**：Yulu 在 macOS 13–14.3 用 ScreenCaptureKit，14.4＋用 Core Audio process tap；麦克风用 AVAudioEngine。
 - **已确认**：Rust 主服务与 CLI＋照搬的 Swift 录音＋Rust 转写 worker 经 sherpa-onnx 原生 C 接口调用本地模型（路线 B）＋SQLite；首版不分发 Python 转写运行时，也不自动回退到路线 A。
-- **已确认**：首版 CLI 功能清单；核心、录音与原生转写已接线，集成代码已通过受控测试及独立复审，真实会议验证另列。
+- **已确认**：首版 CLI 功能清单；旧基线已通过受控测试及独立复审，新的分段版本待独立复审与部署，真实会议验证另列。
 - **首版目标基线**：macOS 13＋/Apple Silicon；录音 helper 按此编译，但当前官方1.13.2原生ASR包依赖的ONNX Runtime1.24.4最低为macOS15.5，较旧系统完整兼容仍需同版库构建及实测。Intel 待验证，不改变最终跨平台目标，不将未测试平台标为已兼容。
 - **已确认**：逐字稿生成后直接调用已配置的 Pi 模型生成纪要，不再设置文本外发二次确认或授权阻塞步骤。
 - **实施状态**：用户已要求继续首版实施；飞书检测配置及启停参数按下述建议实现并验证。真实系统授权、后台服务安装、模型下载及录音仍由显式运行操作触发，开发与测试不自动执行这些操作或调用付费模型。
 
 ## 一、范围、录音与检测事实
 
-**PRD 确定事项**：自动感知会议启停、获取信息、录音、会后转写及纪要；后台运行；产物本地存储；无需管理员权限；录音实现务必照搬 Yulu。首版不做 MCP/WebUI，不能删除最终 Windows/Ubuntu、多会议软件与多模型接口目标。用户现已确定目录须遵循 XDG，此项不再列入批准清单。
+**PRD 确定事项**：自动感知会议启停、获取信息、录音、封存片段后转写及会后聚合纪要；后台运行；产物本地存储；无需管理员权限；录音实现务必照搬 Yulu。首版不做 MCP/WebUI，不能删除最终 Windows/Ubuntu、多会议软件与多模型接口目标。用户现已确定目录须遵循 XDG，此项不再列入批准清单。
 
 **源码事实**：Yulu 输出源分离的 48 kHz/16-bit 双声道 WAV，左为麦克风、右为系统音频，保留其 PCM 处理、双轨同步、WAV 标记、路径防护、定期修补文件头与恢复逻辑。14.4＋使用全系统 process tap 和运行时私有 aggregate device，**不是安装虚拟声卡/驱动**；13–14.3 用显示器关联的 ScreenCaptureKit 流，仅接收音频输出。系统轨不限定飞书，其他应用声音也可能进入。
 
@@ -34,7 +34,7 @@ Yulu 检测组合窗口标题、会议子进程及可选 `lark-cli`：查询活�
 
 路线 B 对固定版本 C 头文件作最窄 safe wrapper，约束指针生命周期、创建/销毁、线程与错误处理，并用独立 worker 隔离原生崩溃。以 Yulu 的现有实现为一致性参考，保留重采样、VAD padding、批量解码、时间戳和双源去重契约。**原生接口存在是源码事实，OMM 的 FFI/模型/打包组合未实测；不把 Rust 第三方绑定宣称为成熟现成方案。** 实施中先验证同样本结果与原生库打包，再建立性能基线；路线 A 不进入首版实现、分发或自动回退。若路线 B 验证失败，报告具体阻碍，不擅自改回 Python。
 
-最低 macOS 13、首发 arm64 仍为建议：依据是 Yulu 录音 helper 的现有编译目标；选择路线 B 后，不再以原 Python runtime 的 cp313/arm64 包作为 OMM 转写架构限制。Rust 与原生推理库的目标架构组合仍须验证，不能据此承诺 Intel 已兼容或断言不能实现。FireRedASR 权重约 1.74 GB，不等于实际内存需求。首版中英、会后离线转写，不做实时字幕/翻译/说话人识别。
+最低 macOS 13、首发 arm64 仍为建议：依据是 Yulu 录音 helper 的现有编译目标；选择路线 B 后，不再以原 Python runtime 的 cp313/arm64 包作为 OMM 转写架构限制。Rust 与原生推理库的目标架构组合仍须验证，不能据此承诺 Intel 已兼容或断言不能实现。FireRedASR 权重约 1.74 GB，不等于实际内存需求。首版中英、封存片段的后台本地转写，不做实时字幕/翻译/说话人识别。
 
 ## 三、架构与“照抄”边界
 
@@ -42,10 +42,11 @@ Yulu 检测组合窗口标题、会议子进程及可选 `lark-cli`：查询活�
 Rust CLI ── 私有 Unix socket ── Rust 用户级服务
                                 ├─ MeetingAdapter(Lark)：观察/信息/置信度
                                 ├─ 生命周期协调器 ── CaptureAdapter(macOS)
-                                │                    └─ Yulu Swift helper → WAV
-                                └─ SQLite 持久任务
-                                      → ASRAdapter(Rust worker) → 转写提交
-                                      → SummaryAdapter(Pi CLI) → 纪要提交
+                                │                    └─ Yulu Swift helper → 帧级滚动内部WAV
+                                └─ SQLite 会议与独立段任务
+                                      ├→ ASRAdapter(Rust worker) → 段/语音块检查点与部分转写
+                                      ├→ 单线程编码 → 三份单声道 Ogg/Opus 与归档收据
+                                      └→ 会议封存且段齐全 → 最终转写 → Pi一次会议纪要
 ```
 
 核心依赖契约，adapter 依赖核心类型，由入口静态注册，不扫描插件目录或执行任意插件。会议观察给 active/inactive/unknown、来源 ID、证据等级和时间；录音给真实路径/状态/错误；ASR 给时间片段与 mic/system 源标签；纪要给文本及模型运行信息。未来平台、会议软件、OpenAI 兼容接口及 MCP/WebUI 只替换边缘 adapter，不把首版扩为通用平台。
@@ -61,7 +62,7 @@ Swift 音频后端/PCM/WAV/恢复逻辑按参考版本直接移植，只改独�
 | 分类 | 变量下的相对路径 | 未设/空时默认位置 |
 |---|---|---|
 | 配置及录音策略 | `$XDG_CONFIG_HOME/omm/config.json` | `~/.config/omm/config.json` |
-| 原始音频/元数据 | `$XDG_DATA_HOME/omm/meetings/<日期>/<UUID>/` | `~/.local/share/omm/meetings/…`，原 WAV 段、meeting.json |
+| 原始音频/元数据 | `$XDG_DATA_HOME/omm/meetings/<日期>/<UUID>/` | `~/.local/share/omm/meetings/…`，公开混音 .opus、内部声源归档/临时WAV、meeting.json |
 | 转写/纪要 | 同会议 DATA 目录 | transcript.json/md、summary.md；保留版本及 hash |
 | 本地 ASR 权重 | `$XDG_DATA_HOME/omm/models/` | `~/.local/share/omm/models/` |
 | 任务 DB/重启状态/领取及恢复记录 | `$XDG_STATE_HOME/omm/` | `~/.local/state/omm/state.sqlite`、capture/ 等 |
@@ -93,7 +94,13 @@ CLI/service/helper 使用同一根；连接验证 UID、服务实例、进程存
 
 同会议短暂重连保留 session，helper 已停则追加 segment 并记录真实缺口；超过宽限后关闭，再加入形成关联的新 session。不同强来源 ID 按现有稳定确认时间形成新候选，先成功封存旧会议再建立独立 session；短抖动和 unknown 不切换，手动录制不因自动观察改身份。睡眠前尽力封存、唤醒重查会议与 capture 状态；设备切换沿用原生重建，失败告警/留缺口，不能把静音当成功。手动停止抑制本会议自动重启；首版只允许一个录制 session。元数据记录时间/时区、会议来源、段/缺口、采样格式、hash、ASR/模型/提示版本、批准策略及处理状态。标题不是主键。
 
-SQLite 为任务真源：封存→queued→transcribing→transcript_committed→summarizing→completed；另有 blocked/failed/interrupted。单 worker、事务领取租约、有限退避；按 session、输入hash、阶段与配置版本幂等。重启回收过期领取并恢复对账；录音未封存不交 ASR。临时产物校验后原子提交，DB/文件之间用提交记录恢复。纪要失败只重试纪要；显式重新处理创建 attempt 保留旧产物，不能因重试删除原音频。缺模型/Pi认证、损坏或磁盘满需具体 blocked/failed，不无限重试。
+SQLite 为任务真源：会议保留一个session/父task，首个有效片段封存后创建任务；录制未结束也可处理封存段。`segmented_sessions`记录父任务/结束状态，`segment_jobs`记录不可变序号、原始帧位置/帧数、输入hash、独立租约/失败/检查点，`segment_archives`记录独立编码租约/收据。逐段queued→running→completed，失败有限退避后等待显式重试；会议封存且全部检查点齐全才领取最终转写，再transcript_committed→summarizing→completed。ASR、编码、Pi各一条独立执行队列，事务控制单ASR/单编码并发，小核机器共享重计算槽；按输入、配置、模型与版本幂等。重启回收过期领取并恢复提交journal；活动尾段不交ASR。临时产物校验后原子提交，DB/文件之间用提交记录恢复。纪要失败只重试纪要；显式重新处理创建 attempt 保留旧产物，不能因重试删除原音频。缺模型/Pi认证、损坏或磁盘满需具体 blocked/failed，不无限重试。
+
+正常分段按 `1800*48000` 帧（公开配置 `segment_ms`：60000–1800000毫秒，即1–30分钟）在已配对PCM流上切文件，不stop/start、不清源buffer或重置时钟。最终时长由累计帧数一次换算，段偏移来自原始帧位置，不累加各段取整毫秒。停止/卸载封存尾段，空段不入队；重连/睡眠/崩溃由既有恢复外围记录真实中断，不能宣称硬件无丢音。每段独立检查点及原生25秒语音活动块缓存校验hash/模型/配置/版本，失效租约不可提交；worker stdout增量解析无正文的声源/块数/语音秒数/处理时长。
+
+最终48kHz单声道 Ogg/Opus采用默认48kbps；`audio.opus_bitrate_kbps`只接受32/48/64/96，每段入队冻结，配置变化只作用于随后新段。旧归档/检查点不重写；force仅重新转写，输入记录区分当前请求和旧归档实际码率/编码器版本/hash，公开混音、内部两声源各一份；归档独立进行，不让三份编码阻塞采集或ASR入队。编码器固定绝对可信路径、argv与受控环境，nice10、threads/filter_threads各1、取消kill+wait。容器及解码帧数、预跳过/尾填充/hash验证后，fsync/rename和SQLite收据原子发布；归档失败保留WAV。新临时WAV还须有正常rolling封存的`temporary:true`凭证，归档与段检查点完成且全局音频读者锁空闲才可清理；中断恢复原件和旧WAV不清理。合法零帧空尾保留但排除逻辑manifest，非空/截断异常仍须验证；socket启动就绪门在恢复/state/bridge与fixture PCM同步后才开放控制响应。恢复descriptor严格接纳布尔`legacy_wav`并核验来源；单个清理错误持久标记归档失败后隔离，不终止后台队列。旧JSON字段兼容；只读命令不迁移旧数据库，写操作才添加新表。段/归档重试用 `process --task <父task> --retry`，不会重新做有效检查点或重复纪要。
+
+CPU使用静态槽/线程预算，新配置默认ASR3、旧显式2线程保持原值；最大按半机核数预留采集/服务和编码槽后限制1–3；不采样动态调整。整机口径为所属服务/capture/encoder/ASR的 `%CPU` 总和÷逻辑核数（macOS100%是一个核），约50%为目标而非硬配额；基准、未覆盖硬件与速度取舍见[性能记录](segment-benchmark.md)。
 
 Rust 源码建议 `src/core`、`src/adapters`、`src/service`、`src/cli`，辅以 `native/yulu-capture`、`workers/local-asr`、`packaging`；不因换语言搭通用框架。
 

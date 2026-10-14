@@ -92,3 +92,17 @@ impl Drop for OwnedChild {
         }
     }
 }
+/// Keep the advisory audio reader lock in an owned child across a service crash.
+/// The descriptor carries no credentials and remains locked until the child exits.
+pub fn inherit_audio_reader(command: &mut tokio::process::Command, file: &std::fs::File) {
+    use std::os::fd::AsRawFd;
+    let fd = file.as_raw_fd();
+    unsafe {
+        command.pre_exec(move || {
+            if libc::fcntl(fd, libc::F_SETFD, 0) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}

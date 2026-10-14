@@ -44,6 +44,7 @@ fn request(root: &Path) -> AsrRequest {
             meeting_dir: root.to_owned(),
             work_dir: work,
             config: ConfigSnapshot {
+                audio: Default::default(),
                 asr: AsrConfig {
                     model_version: MODEL_VERSION.into(),
                     threads: 2,
@@ -54,6 +55,7 @@ fn request(root: &Path) -> AsrRequest {
             },
         },
         segments: vec![AudioSegment {
+            capture: None,
             sha256: models::sha256(&audio).unwrap(),
             path: audio,
             duration_ms: 10,
@@ -143,6 +145,7 @@ fn invoke_real_worker(req: &AsrRequest) -> (std::process::ExitStatus, Vec<u8>, V
         .spawn()
         .unwrap();
     let input = serde_json::to_vec(&AsrWorkerRequest {
+        chunk_checkpoint_dir: None,
         schema_version: 1,
         request: req.clone(),
     })
@@ -220,5 +223,115 @@ async fn expired_lease_and_path_escape_are_rejected_before_worker_start() {
     assert_eq!(
         adapter.transcribe(req).await.unwrap_err().code,
         ErrorCode::InvalidInput
+    );
+}
+
+#[test]
+fn worker_chunk_startup_timing_is_additive_and_old_progress_remains_readable() {
+    use omm::core::contracts::{AsrStartupTiming, AsrWorkerEvent};
+    let old = serde_json::json!({"type":"chunk_progress","schema_version":1,"task_id":uuid::Uuid::nil(),"attempt":1,"source":"mic","completed_chunks":0,"vad_spans":3,"speech_samples":0,"processing_ms":0});
+    let event: AsrWorkerEvent = serde_json::from_value(old.clone()).unwrap();
+    assert!(matches!(
+        event,
+        AsrWorkerEvent::ChunkProgress {
+            startup_timing: None,
+            ..
+        }
+    ));
+    let mut new = old;
+    new["startup_timing"] = serde_json::to_value(AsrStartupTiming {
+        validate_audio_ms: 1,
+        validate_models_ms: 2,
+        load_model_ms: 3,
+        prepare_audio_ms: 4,
+    })
+    .unwrap();
+    let event: AsrWorkerEvent = serde_json::from_value(new).unwrap();
+    assert!(matches!(
+        event,
+        AsrWorkerEvent::ChunkProgress {
+            startup_timing: Some(AsrStartupTiming {
+                prepare_audio_ms: 4,
+                ..
+            }),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn asr_default_uses_release_benchmark_three_threads_and_static_budget_still_caps_small_hosts() {
+    assert_eq!(omm::core::config::AppConfig::default().asr.threads, 3);
+    assert_eq!(
+        omm::core::resources::CpuBudget::for_cores(10).asr_threads,
+        3
+    );
+    assert_eq!(omm::core::resources::CpuBudget::for_cores(4).asr_threads, 1);
+}
+
+#[tokio::test]
+async fn rolling_force_worker_frame_clock_100_4801_frames_is_10002_not_10000() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().canonicalize().unwrap();
+    let mut req = request(&root);
+    // This clock fixture validates/hashes 100 WAVs before spawning the fake worker.
+    // Give that synthetic I/O headroom under default parallelism; timeout tests stay at 30ms.
+    req.context.config.asr.timeout_ms = 15_000;
+    req.segments.clear();
+    let origin = uuid::Uuid::new_v4();
+    for i in 0..100 {
+        let path = req.context.meeting_dir.join(format!("frame-{i}.wav"));
+        let mut w = hound::WavWriter::create(
+            &path,
+            hound::WavSpec {
+                channels: 2,
+                sample_rate: 48000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        for _ in 0..4801 {
+            w.write_sample(i as i16).unwrap();
+            w.write_sample(0i16).unwrap();
+        }
+        w.finalize().unwrap();
+        req.segments.push(AudioSegment {
+            path: path.clone(),
+            sha256: omm::core::store::hash_file(&path).unwrap(),
+            duration_ms: 100,
+            capture: Some(CaptureSegmentIdentity {
+                session_id: req.context.session_id,
+                instance_id: origin,
+                sequence: i,
+                offset_frames: u64::from(i) * 4801,
+                frame_count: 4801,
+                sample_rate: 48000,
+                descriptor_sha256: "a".repeat(64),
+                legacy_wav: false,
+            }),
+        });
+    }
+    let mut event: AsrWorkerEvent = serde_json::from_str(&result(&req)).unwrap();
+    if let AsrWorkerEvent::Result {
+        ref mut transcript, ..
+    } = event
+    {
+        transcript.duration_ms = 10002;
+    }
+    let path = script(
+        &root,
+        &format!(
+            "printf '%s\\n' '{}'",
+            serde_json::to_string(&event).unwrap()
+        ),
+    );
+    let adapter = LocalAsrAdapter::new(path).unwrap();
+    let output = adapter.transcribe(req.clone()).await.unwrap();
+    assert_eq!(output.duration_ms, 10002);
+    req.segments[1].capture.as_mut().unwrap().offset_frames += 1;
+    assert!(
+        adapter.transcribe(req).await.is_err(),
+        "invalid frame origin was accepted"
     );
 }

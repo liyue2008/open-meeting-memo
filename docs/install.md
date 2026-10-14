@@ -52,6 +52,32 @@ tar -xjf "$ARCHIVE" -C "$NATIVE"
 
 sherpa-onnx 使用 [Apache-2.0](https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.2/LICENSE)，ONNX Runtime 使用 [MIT](https://github.com/microsoft/onnxruntime/blob/main/LICENSE)。本项目不分发这些二进制；如重分发须携带其许可及第三方 notices。
 
+## 2a. 分段录音的 Ogg/Opus 编码工具
+
+最终音频不是改名的WAV。需要已有 `clang`、`make`、`pkg-config`、`curl`、`tar` 和Xcode签名工具；不要用sudo、全局brew安装或复用启用了GPL的本机FFmpeg。脚本只在仓库 `target/audio-toolchain` 构建，显式下载以下官方源码并逐个校验：
+
+|源码|SHA-256|许可|
+|---|---|---|
+|[FFmpeg 8.1.2](https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz)|`464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c`|LGPL-2.1-or-later|
+|[libopus 1.5.2](https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz)|`65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1`|BSD-3-Clause|
+
+关闭GPL、version3、网络与自动探测，只启用本地WAV/Ogg、Opus/PCM及所需过滤器；编译后开发签名并记录binary hash。完整源码包、许可、清单和重建脚本伴随安装，用于用户修改/重建，不将本机GPL shared binary作为可再分发包。
+
+```sh
+bash packaging/audio/build-dev.sh
+# 安装/升级前正常停止服务；在途录音先封存、已拥有子进程先等待退出
+omm service stop --json
+omm codec install --from "$(pwd -P)/target/audio-toolchain" --json
+omm codec check --json
+omm service start --json
+```
+
+安装到 `DATA/omm/audio-toolchain`，不更改用户配置/认证，不启动录音或申请桌面权限。CLI校验整个包的版本、官方源码hash、binary hash、许可、当前用户及路径/权限，私有原子安装；读者/工作仍在途则拒绝替换。服务启动时加载编码工具，因此安装后需重启。`codec check` 和 `doctor.audioCodec` 的ready只表示依赖验证成功，不表示录音权限或可见通知已就绪。
+
+如需从已安装源码重建，将保留的 `build-dev.sh` / `sources.json` 放进一个空目录的 `packaging/audio/`，将两份源码包放进该空目录的 `target/audio-toolchain/sources/`，再显式执行 `bash packaging/audio/build-dev.sh`；脚本优先使用已有校验包，可离线重建。重分发保留这些源码、脚本、许可与配置参数。
+
+缺工具或编码失败时保留内部WAV，转写队列独立继续；`meeting show` / `task show` 的 `segmentProgress.archives` 显示归档状态/错误。修复依赖并重启后，失败段/归档使用 `omm process --task <父task-id> --retry`；有效段检查点不重做，已完成会议不会再调用Pi。公开 `audio` 只列混音 `.opus`，内部麦克风/系统声源供后续重转使用。
+
 ## 3. 模型与明确路径配置
 
 模型 manifest 在 [packaging/asr/models.json](../packaging/asr/models.json)，约 1.74GB 已安装权重。下载不修改配置；包及各文件均校验后才安装。模型只在本地推理，不以其他模型代替下载失败。
@@ -120,6 +146,24 @@ omm record auto disable
 ```
 
 自动录制要求新鲜、相互匹配的会议/本人参会/本地 RTC 强信号，进程/窗口不足。不要为了检测测试查询个人会议或整段飞书聊天记录。候选确认/结束宽限可能漏录开头或延长结尾。服务正常 stop 会封存并确认 helper 退出，Pi 子进程取消后等待回收；SIGKILL 不能保证同样清理。
+
+### 分段、进度与CPU
+
+`segment_ms` 默认1800000，单位整数毫秒，可设置60000–1800000；旧默认3600000只在加载时内存裁剪并告警，不自动改写配置；其他越界值拒绝。边界按帧切PCM写入，不stop/start采集。首个非空封存段即入持久队列，后续段可在会议录制中转写；最后尾段在停止/卸载时封存。重连/睡眠/崩溃的硬件连续性仍待实测。
+
+```sh
+omm config set segment_ms 1800000
+omm config set asr.threads 3
+omm meeting show <meeting-id> --json
+omm task show <父task-id> --json
+omm meeting read <meeting-id> --artifact transcript --json
+```
+
+码率默认48kbps，公开配置只接受32/48/64/96：`omm config set audio.opus_bitrate_kbps 64`，`omm config show` 查看当前值。每段入队时冻结；改值不重编码已入队/已归档音频，重启和重试沿用冻结值。`process --force` 只重新转写，优先使用仍保留的原WAV；否则从原归档解码，记录请求码率与原归档实际码率/编码器版本/hash。
+
+部分转写标记 `partial:true`；进度只含声源/语音块数/语音秒数/处理时间，不含正文。结束后按原始帧位置聚合一份完整转写和一次纪要，不每段刷启停通知。每段及已识别语音块绑定输入/模型/配置/版本检查点；超时、失败、重启补做未完成部分。旧WAV/旧任务仍能恢复，只读命令不迁移旧数据库；显式写操作添加兼容表。新临时WAV还须有正常rolling封存的`temporary:true`凭证，归档/检查点均校验且无读者后才清理；中断恢复原件（包括合法零帧空尾）保留；零帧尾不算会议片段，截断/异常尾仍报错。恢复descriptor的`legacy_wav`须为布尔值且与来源一致；非temporary或legacy源不清理。单个归档清理失败持久标记该归档失败，后台队列继续后续任务；不能当成已清理成功。避免把升级前录音当成临时文件。旧用户录音永不自动清理。不要删除WAV来“修复”归档失败。
+
+新配置默认单ASR worker、3线程，已保存的2线程配置保持原值；按半机逻辑核预算限制最多1–3；单编码器 nice10、threads/filter_threads各1，小核机器共享ASR/编码槽。没有动态CPU控制。macOS `ps` 的100%代表一个核，整机目标计算是**所属服务/capture/encoder/ASR进程CPU总和÷逻辑核数**，不是只看worker，也不包含无关应用负载；约低于50%为静态目标。可用活动监视器或 `ps -p <已确认所属PID列表> -o pid=,%cpu=` 采样求和，未知PID不要杀。短样本结果和速度取舍见[性能记录](segment-benchmark.md)，没有证实长会质量或硬件采集CPU。
 
 ## 6. 卸载与常见故障
 

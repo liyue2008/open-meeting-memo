@@ -48,12 +48,14 @@ fn setup(script: &str) -> (TempDir, Paths, Store, Task) {
         directory: dir,
         sealed_at_ms: 1,
         segments: vec![AudioSegment {
+            capture: None,
             path: audio,
             duration_ms: 1000,
             sha256: hash_bytes(b"synthetic"),
         }],
     };
     let cfg = ConfigSnapshot {
+        audio: Default::default(),
         asr: AsrConfig {
             model_version: "fixture-asr".into(),
             ..AsrConfig::default()
