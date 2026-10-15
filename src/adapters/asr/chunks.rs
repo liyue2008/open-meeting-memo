@@ -1,4 +1,4 @@
-//! Disposable, input/configuration-bound VAD chunk cache. Final artifacts belong to Store.
+//! Persistent, input/configuration-bound speech checkpoints; final artifacts belong to Store.
 use crate::core::{
     contracts::*,
     paths::{controlled_file, private_dir, validate_private_dir},
@@ -19,18 +19,25 @@ struct Chunk {
     text: String,
     sha256: String,
 }
-pub(super) fn directory(
+#[cfg(test)]
+pub(super) fn directory(root: &Path, input: &Path, config: &AsrConfig, source: AudioSource) -> Result<PathBuf> {
+    directory_with_source(root,input,config,source,&crate::core::store::hash_file(input)?)
+}
+pub(super) fn directory_with_source(
     root: &Path,
     input: &Path,
     config: &AsrConfig,
     source: AudioSource,
+    source_hash: &str,
 ) -> Result<PathBuf> {
     validate_private_dir(root)?;
     if root.canonicalize()? != root {
         return Err(OmmError::invalid("chunk workspace path is not canonical"));
     }
     let key = hash_bytes(&serde_json::to_vec(&(
+        2u32, // Decoder window/padding segmentation version.
         crate::core::store::hash_file(input)?,
+        source_hash,
         config,
         source,
     ))?);
@@ -56,7 +63,7 @@ pub(super) fn read(root: &Path, start: usize, end: usize) -> Result<Option<Strin
     let Ok(c) = serde_json::from_slice::<Chunk>(&fs::read(p)?) else {
         return Ok(None);
     };
-    if c.version != 1
+    if c.version != 2
         || c.start != start
         || c.end != end
         || c.text.len() > 1024 * 1024
@@ -78,7 +85,7 @@ pub(super) fn write(root: &Path, start: usize, end: usize, text: &str) -> Result
         .mode(0o600)
         .open(&temp)?;
     let c = Chunk {
-        version: 1,
+        version: 2,
         start,
         end,
         text: text.into(),

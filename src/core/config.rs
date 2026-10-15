@@ -141,6 +141,7 @@ impl AppConfig {
         let allowed = [
             "audio.opus_bitrate_kbps",
             "notifications.enabled",
+            "notifications.show_meeting_title",
             "notifications.events",
             "capture_executable",
             "worker_executable",

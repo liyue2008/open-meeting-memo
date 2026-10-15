@@ -320,6 +320,9 @@ impl Store {
         context: &TaskContext,
         event: &AsrWorkerEvent,
     ) -> Result<()> {
+        if !self.is_segmented_parent(context.task_id)? {
+            return self.record_legacy_progress(context, event);
+        }
         self.conn.execute("INSERT INTO segment_activity SELECT ?1,?2 WHERE EXISTS(SELECT 1 FROM segment_jobs WHERE lease=?1 AND expires>?3 AND status='running') ON CONFLICT(lease) DO UPDATE SET document=excluded.document",params![context.lease.token.to_string(),encode(event)?,chrono::Utc::now().timestamp_millis()])?;
         Ok(())
     }

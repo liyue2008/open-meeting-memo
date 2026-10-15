@@ -83,6 +83,11 @@ async fn run_one_lane(
             drop(operation);
             drop(model_lock);
             let now = chrono::Utc::now().timestamp_millis();
+            let failure_phase = if result.is_ok() {
+                StageErrorPhase::Commit
+            } else {
+                StageErrorPhase::Adapter
+            };
             let result = match result {
                 Err(e) => {
                     record_stage_error_best_effort(
@@ -122,7 +127,22 @@ async fn run_one_lane(
                 Ok(()) => {}
                 Err(e) => {
                     store.fail_segment(&segment, &e, now)?;
-                    notifications.emit(NotificationEvent::AsrFailed, segment.context.task_id, 1);
+                    let retry = store
+                        .notification_retry_state(
+                            segment.context.task_id,
+                            Stage::Transcribe,
+                            Some(segment.sequence),
+                            e.retryable,
+                        )
+                        .ok();
+                    notifications.emit_failure(
+                        NotificationEvent::AsrFailed,
+                        &segment.context,
+                        Some(segment.sequence),
+                        &e,
+                        failure_phase,
+                        retry,
+                    );
                 }
             }
             asr.drain().await?;
@@ -211,6 +231,11 @@ async fn run_one_lane(
             ),
         );
     }
+    let failure_phase = if result.is_ok() {
+        StageErrorPhase::Commit
+    } else {
+        StageErrorPhase::Adapter
+    };
     let result = result.and_then(|out| match out {
         Output::Transcript(t) => {
             let result = store.commit_transcript(&claim, &t, chrono::Utc::now().timestamp_millis());
@@ -251,21 +276,29 @@ async fn run_one_lane(
     });
     if let Err(e) = result {
         store.fail(&claim, &e, chrono::Utc::now().timestamp_millis())?;
-        notifications.emit(
+        // Daemon lanes settle their one bounded retry before freezing this failed lease's notice.
+        // Manual run_one leaves retry pending, as it does not own an automatic retry loop.
+        if lane.is_some() {
+            let failed = store.task(claim.task.id)?;
+            store.schedule_retry(&failed, chrono::Utc::now().timestamp_millis())?;
+        }
+        let retry = store
+            .notification_retry_state(claim.task.id, stage, None, e.retryable)
+            .ok();
+        notifications.emit_failure(
             if stage == Stage::Transcribe {
                 NotificationEvent::AsrFailed
             } else {
                 NotificationEvent::SummaryFailed
             },
-            claim.task.id,
-            claim.context.attempt,
+            &claim.context,
+            None,
+            &e,
+            failure_phase,
+            retry,
         );
     } else if stage == Stage::Summary {
-        notifications.emit(
-            NotificationEvent::SummaryReady,
-            claim.task.id,
-            claim.context.attempt,
-        );
+        notifications.emit_task(NotificationEvent::SummaryReady, &claim.context);
     }
     // Completed disposable work is removed only after owned ASR children exited.
     if stage == Stage::Transcribe {

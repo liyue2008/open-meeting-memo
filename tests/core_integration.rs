@@ -1840,6 +1840,23 @@ impl omm::core::notifications::NotificationAdapter for DaemonNotifier {
         }
         Ok(())
     }
+    async fn send_payload(
+        &self,
+        payload: &omm::core::notifications::NotificationPayload,
+    ) -> Result<()> {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut log = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .mode(0o600)
+            .open(self.root.join("payloads.jsonl"))?;
+        writeln!(
+            log,
+            "{}",
+            serde_json::json!({"event":payload.event,"message":payload.message()})
+        )?;
+        self.send(payload.event).await
+    }
     async fn drain(&self) -> Result<()> {
         self.reapers.drain().await?;
         write_private_replace(
@@ -1880,6 +1897,9 @@ impl Fixture {
         config.notifications.enabled = true;
         config.save(&self.paths).unwrap();
         self.start_proxy();
+        let log = self._temp.path().join("notifying-daemon-output");
+        write_private_replace(&log, b"").unwrap();
+        let stderr = fs::OpenOptions::new().append(true).open(log).unwrap();
         let mut child = ChildGuard(
             Command::new(std::env::current_exe().unwrap())
                 .args([
@@ -1896,7 +1916,7 @@ impl Fixture {
                 .env("XDG_RUNTIME_DIR", &self.runtime)
                 .env("OMM_TEST_NOTIFIER_MODE", mode)
                 .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::inherit())
+                .stderr(stderr)
                 .spawn()
                 .unwrap(),
         );
@@ -2028,7 +2048,7 @@ exit 1
         };
         fs::write(f._temp.path().join(executable), script).unwrap();
         let mut daemon = f.daemon_notifying("ok");
-        f.ok(&["record", "start", "--title", "SECRET_TITLE"]);
+        f.ok(&["record", "start", "--title", "Planning \"alpha\" project"]);
         f.ok(&["record", "stop"]);
         f.await_notice(event);
         let failure = f
@@ -2048,6 +2068,52 @@ exit 1
             .pop()
             .unwrap();
         assert_eq!(task.stage, stage);
+        let store = Store::open(&f.paths).unwrap();
+        let mut history = vec![];
+        for _ in 0..100 {
+            history = store
+                .notification_history(Some(task.session_id), 20)
+                .unwrap();
+            if history.iter().any(|r| {
+                r.event
+                    == if stage == Stage::Transcribe {
+                        omm::core::notifications::NotificationEvent::AsrFailed
+                    } else {
+                        omm::core::notifications::NotificationEvent::SummaryFailed
+                    }
+                    && r.status == "sent"
+            }) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        let record = history
+            .iter()
+            .find(|r| r.task_id == Some(task.id) && r.stage == Some(stage))
+            .unwrap();
+        assert_eq!(record.status, "sent");
+        assert_eq!(record.visibility, "unknown");
+        assert!(record.lease.is_some());
+        assert!(record.phase.is_some());
+        assert!(record.identity.contains("Planning"));
+        assert!(record.safe_reason.is_some());
+        assert_eq!(record.retry_status, "not_retryable");
+        let payloads = fs::read_to_string(f._temp.path().join("payloads.jsonl")).unwrap();
+        assert!(payloads.contains("Planning"));
+        assert!(!payloads.contains(&task.id.to_string()));
+        assert!(!payloads.contains("SECRET_ASR_ERROR"));
+        assert!(!payloads.contains("SECRET_PI_ERROR"));
+        let cli = f.ok(&[
+            "notifications",
+            "history",
+            "--meeting",
+            &task.session_id.to_string(),
+        ]);
+        assert!(cli
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["task_id"] == task.id.to_string()));
         assert!(!f.notices().iter().any(|n| n["event"] == "summary_ready"));
         assert!(!serde_json::to_string(&f.notices())
             .unwrap()
@@ -2454,4 +2520,249 @@ fi"#);
         assert!(evidence.retryable);
         assert_eq!(evidence.input_hashes.len(), 1);
     }
+}
+
+#[test]
+fn notification_history_write_failure_real_daemon_completes_next_meeting() {
+    let f = Fixture::new();
+    drop(Store::open(&f.paths).unwrap());
+    let conn = rusqlite::Connection::open(f.paths.state.join("state.sqlite")).unwrap();
+    conn.execute_batch("CREATE TRIGGER reject_notification_history BEFORE INSERT ON settings WHEN NEW.key LIKE 'notification-event:%' BEGIN SELECT RAISE(FAIL,'PRIVATE_HISTORY_BODY'); END;").unwrap();
+    drop(conn);
+    let mut daemon = f.daemon_notifying("ok");
+    for title in ["First generated meeting", "Second generated meeting"] {
+        f.ok(&["record", "start", "--title", title]);
+        let stopped = f.ok(&["record", "stop"]);
+        let task = stopped["task"]["id"].as_str().unwrap();
+        let result = f.ok(&["task", "wait", task, "--timeout", "20s"]);
+        assert_eq!(result["status"], "completed");
+    }
+    f.ok(&["service", "stop"]);
+    wait_success(&mut daemon);
+    let store = Store::open(&f.paths).unwrap();
+    assert_eq!(
+        store
+            .tasks()
+            .unwrap()
+            .iter()
+            .filter(|t| t.status == TaskStatus::Completed)
+            .count(),
+        2
+    );
+    assert!(store.notification_history(None, 20).unwrap().is_empty());
+    assert_eq!(
+        f.notices()
+            .iter()
+            .filter(|n| n["event"] == "summary_ready")
+            .count(),
+        2
+    );
+    let log = fs::read_to_string(f._temp.path().join("notifying-daemon-output")).unwrap();
+    assert!(log.contains("history_unavailable"));
+    assert!(!log.contains("PRIVATE_HISTORY_BODY"));
+}
+
+#[test]
+fn rn1_real_daemon_retry_snapshots_match_legacy_segment_and_summary_scheduling() {
+    for lane in ["legacy", "segment", "summary"] {
+        let f = Fixture::new();
+        let executable = if lane == "summary" {
+            "fake-pi"
+        } else {
+            "fake-worker"
+        };
+        let path = f._temp.path().join(executable);
+        let original = fs::read_to_string(&path).unwrap();
+        let guard = r#"
+if [ ! -f "${0%/*}/retry-exhausted" ]; then
+  printf x >> "${0%/*}/retry-errors"
+  n=$(/usr/bin/wc -c < "${0%/*}/retry-errors")
+  if [ "$n" -ge 4 ]; then printf x > "${0%/*}/retry-exhausted"; fi
+  printf '{"type":"error","schema_version":1,"task_id":"%s","attempt":%s,"error":{"code":"timeout","retryable":true,"message":"PRIVATE_RETRY_BODY"}}\n' "$id" "$attempt"
+  exit 0
+fi
+"#;
+        let script = if lane == "summary" {
+            original.replacen("#!/bin/sh", "#!/bin/sh\nif [ ! -f \"${0%/*}/retry-exhausted\" ]; then printf x >> \"${0%/*}/retry-errors\"; n=$(/usr/bin/wc -c < \"${0%/*}/retry-errors\"); if [ \"$n\" -ge 4 ]; then printf x > \"${0%/*}/retry-exhausted\"; fi; /bin/cat >/dev/null; exit 1; fi\n",1)
+        } else {
+            original.replace(
+                "printf 'parsed\\n' >> \"${0%/*}/worker-phases\"",
+                &format!("printf 'parsed\\n' >> \"${{0%/*}}/worker-phases\"\n{guard}"),
+            )
+        };
+        assert!(script.contains("retry-exhausted"));
+        fs::write(path, script).unwrap();
+        let mut daemon = f.daemon_notifying("ok");
+        let task = if lane == "legacy" {
+            let session = Uuid::new_v4();
+            let dir = f.paths.data.join("meetings").join(session.to_string());
+            private_dir(&dir).unwrap();
+            let audio = dir.join("legacy.wav");
+            let spec = hound::WavSpec {
+                channels: 1,
+                sample_rate: 48000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            };
+            let mut writer = hound::WavWriter::create(&audio, spec).unwrap();
+            for _ in 0..4800 {
+                writer.write_sample(0i16).unwrap();
+            }
+            writer.finalize().unwrap();
+            fs::set_permissions(&audio, fs::Permissions::from_mode(0o600)).unwrap();
+            let m = SealedMeeting {
+                session_id: session,
+                title: "Generated legacy retry".into(),
+                directory: dir,
+                segments: vec![AudioSegment {
+                    capture: None,
+                    sha256: omm::core::store::hash_file(&audio).unwrap(),
+                    path: audio,
+                    duration_ms: 100,
+                }],
+                sealed_at_ms: chrono::Utc::now().timestamp_millis(),
+            };
+            Store::open(&f.paths)
+                .unwrap()
+                .enqueue(&m, &AppConfig::load(&f.paths).unwrap().snapshot(), false)
+                .unwrap()
+        } else {
+            f.ok(&["record", "start", "--title", "Generated retry"]);
+            serde_json::from_value(f.ok(&["record", "stop"])["task"].clone()).unwrap()
+        };
+        let deadline = std::time::Instant::now() + Duration::from_secs(22);
+        let history = loop {
+            let history = Store::open(&f.paths)
+                .unwrap()
+                .notification_history(Some(task.session_id), 20)
+                .unwrap();
+            if history.iter().any(|r| r.retry_status == "exhausted") {
+                break history;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{lane}: retry history did not reach exhaustion"
+            );
+            thread::sleep(Duration::from_millis(30));
+        };
+        let failures = history
+            .iter()
+            .filter(|r| {
+                matches!(
+                    r.event,
+                    omm::core::notifications::NotificationEvent::AsrFailed
+                        | omm::core::notifications::NotificationEvent::SummaryFailed
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(failures.len(), 4, "{lane}");
+        for count in 1..=3 {
+            let r = failures
+                .iter()
+                .find(|r| r.retry_status == "queued" && r.retry_count == count)
+                .unwrap();
+            assert!(r.retry_next_at_ms.unwrap() >= r.first_error_at_ms.unwrap());
+        }
+        let exhausted = failures
+            .iter()
+            .find(|r| r.retry_status == "exhausted")
+            .unwrap();
+        assert_eq!(exhausted.retry_count, 3);
+        assert!(exhausted.retry_next_at_ms.is_none());
+        assert_eq!(
+            failures
+                .iter()
+                .map(|r| r.lease.as_ref().unwrap().token)
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            4
+        );
+        let store = Store::open(&f.paths).unwrap();
+        for r in failures {
+            assert_eq!(r.task_id, Some(task.id));
+            let first: omm::core::store::StageAttemptError = store
+                .state(&format!("stage-error:{}", r.lease.as_ref().unwrap().token))
+                .unwrap()
+                .unwrap();
+            assert_eq!(r.first_error_at_ms, first.observed_at_ms);
+            assert_eq!(
+                serde_json::to_value(&r.phase).unwrap(),
+                serde_json::to_value(Some(first.phase)).unwrap()
+            );
+        }
+        assert_eq!(store.task(task.id).unwrap().status, TaskStatus::Failed);
+        if lane != "segment" {
+            let db = rusqlite::Connection::open(f.paths.state.join("state.sqlite")).unwrap();
+            let count: u32 = db
+                .query_row(
+                    "SELECT count FROM retries WHERE task=?1",
+                    [task.id.to_string()],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 3);
+        }
+        f.ok(&["record", "start", "--title", "Generated next meeting"]);
+        let next = f.ok(&["record", "stop"]);
+        assert_eq!(
+            f.ok(&[
+                "task",
+                "wait",
+                next["task"]["id"].as_str().unwrap(),
+                "--timeout",
+                "20s"
+            ])["status"],
+            "completed"
+        );
+        f.ok(&["service", "stop"]);
+        wait_success(&mut daemon);
+    }
+}
+
+#[test]
+fn rn1_real_daemon_helper_failure_without_recording_does_not_invent_a_meeting() {
+    let f = Fixture::new();
+    f.state.lock().unwrap().deny = true;
+    let mut daemon = f.daemon_notifying("ok");
+    assert_eq!(
+        f.error(
+            &["record", "start", "--title", "Private requested title"],
+            3
+        )["code"],
+        "permission"
+    );
+    f.await_notice("recording_failed");
+    let store = Store::open(&f.paths).unwrap();
+    let history = store.notification_history(None, 20).unwrap();
+    let r = history
+        .iter()
+        .find(|r| r.event == omm::core::notifications::NotificationEvent::RecordingFailed)
+        .unwrap();
+    assert!(r.session_id.is_none());
+    assert!(r.meeting_started_at_ms.is_none());
+    assert!(r.identity.contains("会议时间未知"));
+    assert!(!r.identity.contains("开始的会议"));
+    assert!(store.state::<Value>("recording").unwrap().is_none());
+    let payloads = fs::read_to_string(f._temp.path().join("payloads.jsonl")).unwrap();
+    assert!(payloads.contains("录音启动失败"));
+    assert!(!payloads.contains("Private requested title"));
+    assert!(!payloads.contains(&f.instance.to_string()));
+    let template = f.command(&[]);
+    let human = Command::new(env!("CARGO_BIN_EXE_omm"))
+        .envs(
+            template
+                .get_envs()
+                .filter_map(|(key, value)| value.map(|v| (key, v))),
+        )
+        .args(["notifications", "history", "--non-interactive"])
+        .output()
+        .unwrap();
+    assert!(human.status.success());
+    let human = String::from_utf8(human.stdout).unwrap();
+    assert!(human.contains("会议时间未知"));
+    assert!(human.contains("通知发生于"));
+    assert!(!human.contains(&f.instance.to_string()));
+    f.state.lock().unwrap().deny = false;
+    f.ok(&["service", "stop"]);
+    wait_success(&mut daemon);
 }

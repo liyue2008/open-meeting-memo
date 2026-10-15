@@ -330,8 +330,12 @@ async fn event_read(
                     AsrWorkerEvent::ChunkProgress { .. } | AsrWorkerEvent::Progress { .. }
                 ) {
                     if let Some(paths) = paths {
-                        crate::core::store::Store::open(paths)?
-                            .record_segment_progress(&req.context, &event)?;
+                        if let Err(error) = crate::core::store::Store::open(paths)
+                            .and_then(|store| store.record_segment_progress(&req.context, &event))
+                        {
+                            use std::io::Write;
+                            let _ = writeln!(std::io::stderr().lock(), "warning: ASR progress unavailable code={:?}", error.code);
+                        }
                     }
                 }
             } else {
@@ -626,7 +630,7 @@ fn transcribe_local(req: &AsrRequest, checkpoint: Option<&Path>) -> Result<Trans
             };
             let (task_id, attempt) = (req.context.task_id, req.context.attempt);
             let cache = checkpoint
-                .map(|root| chunks::directory(root, path, cfg, source))
+                .map(|root| chunks::directory_with_source(root, path, cfg, source, &sealed.sha256))
                 .transpose()?;
             let mut part = engine.transcribe_file_progress(
                 path,

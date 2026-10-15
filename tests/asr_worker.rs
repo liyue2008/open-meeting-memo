@@ -335,3 +335,44 @@ async fn rolling_force_worker_frame_clock_100_4801_frames_is_10002_not_10000() {
         "invalid frame origin was accepted"
     );
 }
+
+#[tokio::test]
+async fn cancelled_owned_worker_is_reaped_without_deleting_committed_chunk_checkpoint() {
+    use omm::core::{
+        paths::{private_dir, write_private_new},
+        store::hash_bytes,
+    };
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().canonicalize().unwrap();
+    let mut req = request(&root);
+    let owner = root.join("cache").join(req.context.task_id.to_string());
+    let chunks = owner.join(".chunks");
+    private_dir(&chunks).unwrap();
+    req.context.work_dir = owner
+        .join("attempts")
+        .join(req.context.lease.token.to_string());
+    private_dir(&req.context.work_dir).unwrap();
+    req.context.config.asr.timeout_ms = 10000;
+    let chunk = chunks.join("committed.json");
+    let bytes=serde_json::to_vec(&serde_json::json!({"version":2,"start":0,"end":160,"text":"generated","sha256":hash_bytes(b"generated")})).unwrap();
+    write_private_new(&chunk, &bytes).unwrap();
+    let pidfile = root.join("owned-pid");
+    let worker = script(
+        &root,
+        &format!(
+            "printf '%s' $$ > '{}'; exec /bin/sleep 30",
+            pidfile.display()
+        ),
+    );
+    let adapter = LocalAsrAdapter::new(worker).unwrap();
+    let mut future = Box::pin(adapter.transcribe(req));
+    tokio::select! { result=&mut future=>panic!("worker exited before cancellation: {result:?}"), _=async {for _ in 0..200 {if pidfile.exists(){return;}tokio::time::sleep(std::time::Duration::from_millis(25)).await;}panic!("owned worker never became ready");}=>{} }
+    let pid = std::fs::read_to_string(pidfile)
+        .unwrap()
+        .parse::<i32>()
+        .unwrap();
+    drop(future);
+    adapter.drain().await.unwrap();
+    assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
+    assert_eq!(std::fs::read(chunk).unwrap(), bytes);
+}

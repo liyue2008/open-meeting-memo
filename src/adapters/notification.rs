@@ -1,13 +1,13 @@
 //! macOS system script-host notifications, not an independently authorized OMM app.
 use crate::core::{
     contracts::*,
-    notifications::{NotificationAdapter, NotificationEvent},
+    notifications::{NotificationAdapter, NotificationEvent, NotificationPayload},
     process::{OwnedChild, Reapers},
 };
 use async_trait::async_trait;
 use std::{path::PathBuf, process::Stdio};
 
-// A constant script plus a typed, static argv message: never interpolate user text into AppleScript.
+// A constant script plus a separate bounded argv payload: never interpolate identifiers into AppleScript.
 const SCRIPT: &str =
     "on run argv\n display notification (item 1 of argv) with title \"Open Meeting Memo\"\nend run";
 #[derive(Default)]
@@ -21,6 +21,11 @@ impl MacNotificationAdapter {
     pub fn notification_command(event: NotificationEvent) -> tokio::process::Command {
         let mut command = Self::isolated_command(PathBuf::from("/usr/bin/osascript"));
         command.args(["-e", SCRIPT, "--", event.message()]);
+        command
+    }
+    pub fn notification_payload_command(payload: &NotificationPayload) -> tokio::process::Command {
+        let mut command = Self::isolated_command(PathBuf::from("/usr/bin/osascript"));
+        command.args(["-e", SCRIPT, "--", &payload.message()]);
         command
     }
     fn isolated_command(executable: PathBuf) -> tokio::process::Command {
@@ -66,6 +71,14 @@ impl NotificationAdapter for MacNotificationAdapter {
             ));
         }
         self.call(Self::notification_command(event)).await
+    }
+    async fn send_payload(&self, payload: &NotificationPayload) -> Result<()> {
+        if !Self::available() {
+            return Err(OmmError::unavailable(
+                "macOS notification channel unavailable",
+            ));
+        }
+        self.call(Self::notification_payload_command(payload)).await
     }
     async fn drain(&self) -> Result<()> {
         let cleanup = self.reapers.drain();

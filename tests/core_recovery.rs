@@ -222,3 +222,147 @@ fn imported_summary_attempt_retains_asr_provenance_and_recovers_each_commit_wind
         assert!(recovered.read_artifact(source.id, Stage::Summary).is_ok());
     }
 }
+
+#[test]
+fn retry_cleanup_preserves_chunks_but_reclaims_only_dead_attempts_across_restart() {
+    let t = TempDir::new().unwrap();
+    let root = t.path().canonicalize().unwrap();
+    let paths = Paths::resolve(&root.join("home"), &BTreeMap::new()).unwrap();
+    paths.create_private_dirs().unwrap();
+    let session_id = uuid::Uuid::new_v4();
+    let directory = paths.data.join("meetings").join(session_id.to_string());
+    private_dir(&directory).unwrap();
+    let audio = directory.join("audio.wav");
+    write_private_new(&audio, b"generated").unwrap();
+    let meeting = SealedMeeting {
+        session_id,
+        title: "generated".into(),
+        directory,
+        sealed_at_ms: 1,
+        segments: vec![AudioSegment {
+            capture: None,
+            path: audio,
+            sha256: hash_bytes(b"generated"),
+            duration_ms: 1000,
+        }],
+    };
+    let mut store = Store::open(&paths).unwrap();
+    let task = store
+        .enqueue(&meeting, &ConfigSnapshot::default(), false)
+        .unwrap();
+    let claim = store.claim(10, 100).unwrap().unwrap();
+    let owner = claim.context.work_dir.parent().unwrap();
+    let chunks = owner.join(".chunks");
+    private_dir(&chunks).unwrap();
+    write_private_new(&chunks.join("committed"), b"generated checkpoint").unwrap();
+    write_private_new(&claim.context.work_dir.join("temporary"), b"disposable").unwrap();
+    store
+        .fail(
+            &claim,
+            &OmmError::new(ErrorCode::Timeout, true, "generated timeout"),
+            11,
+        )
+        .unwrap();
+    assert!(store
+        .schedule_retry(&store.task(task.id).unwrap(), 12)
+        .unwrap());
+    store.clean_abandoned_cache(200).unwrap();
+    assert!(
+        chunks.join("committed").exists(),
+        "retry lost durable chunks"
+    );
+    assert!(
+        !claim.context.work_dir.exists(),
+        "dead lease workspace retained"
+    );
+    drop(store);
+    let mut store = Store::open(&paths).unwrap();
+    store.recover(2000).unwrap();
+    store.clean_abandoned_cache(2000).unwrap();
+    assert!(chunks.join("committed").exists());
+    let retry = store.claim(2000, 100).unwrap().unwrap();
+    assert_eq!(retry.task.id, task.id);
+    assert_eq!(retry.context.work_dir.parent(), Some(owner));
+}
+
+#[test]
+fn legacy_progress_and_first_error_wall_time_persist_without_private_message() {
+    use omm::core::store::{StageAttemptError, StageErrorPhase};
+    let t = TempDir::new().unwrap();
+    let root = t.path().canonicalize().unwrap();
+    let paths = Paths::resolve(&root.join("home"), &BTreeMap::new()).unwrap();
+    paths.create_private_dirs().unwrap();
+    let session_id = uuid::Uuid::new_v4();
+    let dir = paths.data.join("meetings").join(session_id.to_string());
+    private_dir(&dir).unwrap();
+    let path = dir.join("audio.wav");
+    write_private_new(&path, b"synthetic").unwrap();
+    let meeting = SealedMeeting {
+        session_id,
+        title: "fixture".into(),
+        directory: dir,
+        sealed_at_ms: 1,
+        segments: vec![AudioSegment {
+            capture: None,
+            path,
+            duration_ms: 1000,
+            sha256: hash_bytes(b"synthetic"),
+        }],
+    };
+    let mut store = Store::open(&paths).unwrap();
+    let task = store
+        .enqueue(&meeting, &ConfigSnapshot::default(), false)
+        .unwrap();
+    let now = chrono::Utc::now().timestamp_millis();
+    let claim = store.claim(now, 60000).unwrap().unwrap();
+    let event = AsrWorkerEvent::ChunkProgress {
+        schema_version: 1,
+        task_id: task.id,
+        attempt: claim.task.attempt,
+        source: AudioSource::System,
+        completed_chunks: 2,
+        vad_spans: 3,
+        speech_samples: 16000,
+        processing_ms: 1234,
+        startup_timing: None,
+    };
+    store
+        .record_segment_progress(&claim.context, &event)
+        .unwrap();
+    let progress = store
+        .state::<serde_json::Value>(&format!("stage-progress:{}", task.id))
+        .unwrap()
+        .unwrap();
+    assert_eq!(progress["event"]["completed_chunks"], 2);
+    assert!(progress["observed_at_ms"].as_i64().unwrap() >= now);
+    let error = StageAttemptError::new(
+        &claim.context,
+        Stage::Transcribe,
+        StageErrorPhase::Adapter,
+        None,
+        vec![hash_bytes(b"synthetic")],
+        1234,
+        &OmmError {
+            code: ErrorCode::Timeout,
+            message: "PRIVATE_AUTH_BODY_PATH".into(),
+            retryable: true,
+        },
+    );
+    let value = serde_json::to_value(&error).unwrap();
+    assert!(value["observed_at_ms"].as_i64().unwrap() >= now);
+    assert!(!value.to_string().contains("PRIVATE_AUTH_BODY_PATH"));
+    store.record_stage_error(&error).unwrap();
+    let mut later = error.clone();
+    later.elapsed_ms = 9000;
+    store.record_stage_error(&later).unwrap();
+    drop(store);
+    let store = Store::open_read_only(&paths).unwrap();
+    assert_eq!(
+        store.stage_error_events(task.id).unwrap()[0].elapsed_ms,
+        1234
+    );
+    assert!(store
+        .state::<serde_json::Value>(&format!("stage-progress:{}", task.id))
+        .unwrap()
+        .is_some());
+}

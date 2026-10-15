@@ -143,4 +143,4 @@ OMM_CAPTURE_TEST_BINARY="$PWD/target/capture/OMMCapture.app/Contents/MacOS/omm-c
 
 ## 桌面状态通知
 
-通知默认开启：真实开始录音、封存并排队转写、纪要提交完成，以及简短阶段错误；不含会议标题或正文，轮换/重连不重复刷屏，失败不影响处理结果。macOS 使用系统 AppleScript 宿主，不新增独立 OMM 通知权限身份。`omm notifications check --json` 报可用机制及 unknown 权限；`omm notifications request` 仅打开设置；`omm notifications test --json` 显式发送一条无敏感测试。可用 `omm config set notifications.enabled false` 关闭。失败按阶段共享60秒持久冷却，同一 task/attempt 重试在冷却结束后可再次提醒；通知拒绝不改变业务结果。队列取消有3秒预算，但确认自有子进程退出可能更久。事件筛选、宿主权限身份和安全部署步骤见[通知说明](docs/install.md#7-桌面状态通知)。调用成功与用户实际看见分别验证；后台可见递送及 macOS 13 全链兼容仍待桌面实测。此变化不默认开启自动录音，也不覆盖已有 auto/consent 配置；运行中的会议或任务不能为通知测试被中断。
+通知默认开启：真实开始录音、封存并排队转写、纪要提交完成，以及简短阶段错误；显示可信标题（可关闭）、开始时间/时长和安全原因，不显示任务ID或正文，轮换/重连不重复刷屏，失败不影响处理结果。macOS 使用系统 AppleScript 宿主，不新增独立 OMM 通知权限身份。`omm notifications check --json` 报可用机制及 unknown 权限；`omm notifications request` 仅打开设置；`omm notifications test --json` 显式发送一条无敏感测试。可用 `omm config set notifications.enabled false` 关闭。失败按阶段共享60秒持久冷却，同一 task/attempt 重试在冷却结束后可再次提醒；通知拒绝不改变业务结果。队列取消有3秒预算，但确认自有子进程退出可能更久。事件筛选、宿主权限身份和安全部署步骤见[通知说明](docs/install.md#7-桌面状态通知)。调用成功与用户实际看见分别验证；后台可见递送及 macOS 13 全链兼容仍待桌面实测。此变化不默认开启自动录音，也不覆盖已有 auto/consent 配置；运行中的会议或任务不能为通知测试被中断。

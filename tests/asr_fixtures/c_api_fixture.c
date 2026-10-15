@@ -3,8 +3,9 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
-static int mode, active[5], accepts, decodes, last_input;
-void FixtureMode(int m) { mode = m; }
+static int mode, active[5], accepts, decodes, last_input, max_input;
+void FixtureMode(int m) { mode = m; max_input=0; }
+int FixtureMaxInput(void) { return max_input; }
 int FixtureActive(int i) { return active[i]; }
 int FixtureLastInput(void) { return last_input; }
 int FixtureAccepts(void) { return accepts; }
@@ -28,7 +29,7 @@ const SherpaOnnxOfflineStream *SherpaOnnxCreateOfflineStream(const SherpaOnnxOff
 }
 void SherpaOnnxDestroyOfflineStream(const SherpaOnnxOfflineStream *s) { --active[1]; free((void*)s); }
 void SherpaOnnxAcceptWaveformOffline(const SherpaOnnxOfflineStream *s, int32_t rate, const float *p, int32_t n) {
- assert(s && p && rate == 16000 && n > 0); ((SherpaOnnxOfflineStream*)s)->n=n; last_input=n; ++accepts;
+ assert(s && p && rate == 16000 && n > 0); ((SherpaOnnxOfflineStream*)s)->n=n; last_input=n; if(n>max_input) max_input=n; ++accepts;
 }
 void SherpaOnnxDecodeMultipleOfflineStreams(const SherpaOnnxOfflineRecognizer *r, const SherpaOnnxOfflineStream **s, int32_t n) {
  assert(r && n > 0 && n <= 8); for (int i=0; i<n; ++i) assert(s[i]->n>0); ++decodes;
@@ -55,7 +56,7 @@ int32_t SherpaOnnxVoiceActivityDetectorEmpty(const SherpaOnnxVoiceActivityDetect
 void SherpaOnnxVoiceActivityDetectorFlush(const SherpaOnnxVoiceActivityDetector *v) { if(mode!=9) ((SherpaOnnxVoiceActivityDetector*)v)->queued=mode==7 ? 10 : 1; }
 const SherpaOnnxSpeechSegment *SherpaOnnxVoiceActivityDetectorFront(const SherpaOnnxVoiceActivityDetector *v) {
  assert(v->queued>v->popped); SherpaOnnxSpeechSegment *s=calloc(1,sizeof(*s));
- s->start=mode==9 ? (v->popped ? 36000 : 32700) : (mode==7 ? 1600+6400*v->popped : 1600); s->n=mode==7 ? 1600 : 3200; s->samples=calloc(s->n,sizeof(float)); ++active[4]; return s;
+ s->start=mode==9 ? (v->popped ? 36000 : 32700) : (mode==7 ? 1600+6400*v->popped : 1600); s->n=mode==7 ? 1600 : 3200; if(mode==10 || mode==11) { s->start=0; s->n=mode==10 ? 438112 : 960000; } s->samples=calloc(s->n,sizeof(float)); ++active[4]; return s;
 }
 void SherpaOnnxDestroySpeechSegment(const SherpaOnnxSpeechSegment *s) { --active[4]; free(s->samples); free((void*)s); }
 void SherpaOnnxVoiceActivityDetectorPop(const SherpaOnnxVoiceActivityDetector *v) { ++((SherpaOnnxVoiceActivityDetector*)v)->popped; }
