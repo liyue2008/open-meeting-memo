@@ -1,0 +1,37 @@
+src/adapters/notification.rs
+  s_88cc65ec23b24c::t_29617a1c3607bc 4,10,26-30,75-82
+src/cli/mod.rs
+  s_88cc65ec23b24c::t_46163b6f832a0f 103-108,289-316,385-406,425-427,783-785
+src/core/notifications.rs
+  s_88cc65ec23b24c::t_58c14bfc247907 1,43,50,65-67,77-78,82-181,189-190,194-198,202-283,288-294,296,330-661,676,679-685,689-695,697-699,701-705,707-709,711-712,717-719,721-750,752
+src/core/pipeline.rs
+  s_88cc65ec23b24c::t_eabe2cc96f7041 86-90,130-145,234-238,279-288,294-298,301
+src/core/store.rs
+  s_88cc65ec23b24c::t_f01909f8189d44 43,781-813
+src/core/store/attempt_errors.rs
+  s_88cc65ec23b24c::t_924e01e80e08ac 21-22,46,52-78
+src/core/store/notification_events.rs
+  s_88cc65ec23b24c::t_91993ea91b6842 1-91
+tests/core_integration.rs
+  s_88cc65ec23b24c::t_a0aa02801c5564 1843-1859,1900-1902,1919,2051,2071-2116,2524-2768
+tests/core_recovery.rs
+  s_88cc65ec23b24c::t_f70b0273caf500 225-368
+tests/notifications.rs
+  s_88cc65ec23b24c::t_68120259debb63 842-1516
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6b709e7e609dea30e904158e8a0c11bfb74b14e8",
+  "prompts": {},
+  "sessions": {
+    "s_88cc65ec23b24c": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a13897-b6bf-702e-9914-d2c2e518800b",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
