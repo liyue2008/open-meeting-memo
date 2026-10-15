@@ -100,6 +100,12 @@ pub enum CodecCommand {
 }
 #[derive(Subcommand)]
 pub enum NotificationCommand {
+    History {
+        #[arg(long)]
+        meeting: Option<Uuid>,
+        #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..=100))]
+        limit: u32,
+    },
     Check,
     Request,
     Test,
@@ -280,6 +286,34 @@ pub async fn run_with_runtime(
             warnings,
         },
     };
+    if !cli.json
+        && matches!(
+            cli.command,
+            Commands::Notifications {
+                command: NotificationCommand::History { .. }
+            }
+        )
+    {
+        if let Some(entries) = response.data.as_ref().and_then(Value::as_array) {
+            for entry in entries {
+                println!(
+                    "{} [通知发生于 {}; {}; visibility={}]",
+                    entry["message"].as_str().unwrap_or("通知记录"),
+                    entry["occurred_at_ms"]
+                        .as_i64()
+                        .and_then(chrono::DateTime::from_timestamp_millis)
+                        .map(|d| d
+                            .with_timezone(&chrono::Local)
+                            .format("%m-%d %H:%M:%S")
+                            .to_string())
+                        .unwrap_or_else(|| "未知".into()),
+                    entry["status"].as_str().unwrap_or("unknown"),
+                    entry["visibility"].as_str().unwrap_or("unknown")
+                );
+            }
+            return code;
+        }
+    }
     println!(
         "{}",
         if cli.json {
@@ -348,6 +382,28 @@ pub async fn execute_at(
                 adapters::notification::MacNotificationAdapter,
                 core::notifications::{NotificationAdapter, NotificationEvent},
             };
+            if let NotificationCommand::History { meeting, limit } = command {
+                let records = read_store(paths)?.notification_history(*meeting, *limit)?;
+                return Ok(json!(records
+                    .into_iter()
+                    .map(|record| {
+                        let message = crate::core::notifications::NotificationPayload {
+                            event: record.event,
+                            identity: record.identity.clone(),
+                            safe_reason: record.safe_reason,
+                            retry_status: record.retry_status.clone(),
+                            retry_count: record.retry_count,
+                        }
+                        .message();
+                        let mut value = json!(record);
+                        value
+                            .as_object_mut()
+                            .unwrap()
+                            .insert("message".into(), json!(message));
+                        value
+                    })
+                    .collect::<Vec<_>>()));
+            }
             let adapter = MacNotificationAdapter::default();
             if matches!(command, NotificationCommand::Check) {
                 let config = AppConfig::load(paths);
@@ -366,7 +422,9 @@ pub async fn execute_at(
                 match command {
                     NotificationCommand::Request => adapter.request_settings().await,
                     NotificationCommand::Test => adapter.send(NotificationEvent::Test).await,
-                    NotificationCommand::Check => unreachable!(),
+                    NotificationCommand::Check | NotificationCommand::History { .. } => {
+                        unreachable!()
+                    }
                 }
             };
             let result = tokio::time::timeout(std::time::Duration::from_secs(3), operation)
@@ -722,6 +780,9 @@ pub async fn execute_at(
                 let store = read_store(paths)?;
                 let task = store.task(*id)?;
                 let mut result = json!(task);
+                let object = result.as_object_mut().unwrap();
+                object.insert("stageProgress".into(), json!(store.stage_progress(*id)?));
+                object.insert("stageErrors".into(), json!(store.stage_error_events(*id)?));
                 if store.has_segmented_session(task.session_id)? {
                     let object = result.as_object_mut().unwrap();
                     object.insert("segmentProgress".into(),json!({"transcription":store.segment_progress(task.session_id)?,"archives":store.archive_progress(task.session_id)?}));

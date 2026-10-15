@@ -112,3 +112,43 @@ fn c_api_fixture_decode_and_every_owned_handle_is_released_on_failure() {
         assert_eq!(unsafe { count(i) }, 0);
     }
 }
+
+#[test]
+fn native_oversized_vad_spans_are_split_before_decode_including_padding() {
+ let temp=tempfile::tempdir().unwrap();let lib=temp.path().join("bounded.dylib");
+ assert!(Command::new("cc").args(["-shared","-fPIC","-std=c11","tests/asr_fixtures/c_api_fixture.c","-o"]).arg(&lib).status().unwrap().success());
+ let probe=unsafe{Library::new(&lib).unwrap()};
+ let mode=unsafe{probe.get::<unsafe extern "C" fn(i32)>(b"FixtureMode\0").unwrap()};
+ let maximum=unsafe{probe.get::<unsafe extern "C" fn()->i32>(b"FixtureMaxInput\0").unwrap()};
+ let audio=temp.path().join("generated.f32");
+ std::fs::write(&audio,(0..RATE*60).flat_map(|_|0.1f32.to_le_bytes()).collect::<Vec<_>>()).unwrap();
+ let cfg=AsrConfig{library_path:lib,threads:2,..Default::default()};
+ for (m,end) in [(10,27382),(11,60000)] {
+  unsafe{mode(m)};let engine=NativeEngine::new(&cfg).unwrap();
+  let segments=engine.transcribe_file(&audio,RATE*60,AudioSource::Mic,1000).unwrap();
+  assert!(unsafe{maximum()}<=400000,"actual padded decoder input exceeds 25 seconds");
+  assert_eq!(segments.first().unwrap().start_ms,1000);
+  assert_eq!(segments.last().unwrap().end_ms,1000+end);
+  assert!(segments.windows(2).all(|s|s[0].end_ms==s[1].start_ms));
+ }
+}
+
+#[test]
+fn native_timeout_checkpoint_survives_queue_cleanup_restart_and_reuses_only_completed_chunk() {
+ use crate::core::{paths::{Paths,private_dir,write_private_new},store::{Store,hash_file}};
+ let t=tempfile::tempdir().unwrap();let root=t.path().canonicalize().unwrap();
+ let paths=Paths::resolve(&root.join("home"),&std::collections::BTreeMap::new()).unwrap();paths.create_private_dirs().unwrap();
+ let lib=root.join("retry.dylib");assert!(Command::new("cc").args(["-shared","-fPIC","-std=c11","tests/asr_fixtures/c_api_fixture.c","-o"]).arg(&lib).status().unwrap().success());
+ let probe=unsafe{Library::new(&lib).unwrap()};let mode=unsafe{probe.get::<unsafe extern "C" fn(i32)>(b"FixtureMode\0").unwrap()};let decodes=unsafe{probe.get::<unsafe extern "C" fn()->i32>(b"FixtureDecodes\0").unwrap()};
+ unsafe{mode(11)};
+ let session=uuid::Uuid::new_v4();let meeting_dir=paths.data.join("meetings").join(session.to_string());private_dir(&meeting_dir).unwrap();let audio=meeting_dir.join("generated.float");write_private_new(&audio,&(0..RATE*60).flat_map(|_|0.1f32.to_le_bytes()).collect::<Vec<_>>()).unwrap();
+ let cfg=AsrConfig{library_path:lib,threads:2,..Default::default()};let meeting=SealedMeeting{session_id:session,title:"generated".into(),directory:meeting_dir,segments:vec![AudioSegment{capture:None,path:audio.clone(),duration_ms:60000,sha256:hash_file(&audio).unwrap()}],sealed_at_ms:1};
+ let mut store=Store::open(&paths).unwrap();let task=store.enqueue(&meeting,&ConfigSnapshot{asr:cfg.clone(),..Default::default()},false).unwrap();let claim=store.claim(10,100).unwrap().unwrap();
+ let owner=claim.context.work_dir.parent().unwrap();let checkpoint=owner.join(".chunks");private_dir(&checkpoint).unwrap();let cache=super::super::chunks::directory(&checkpoint,&audio,&cfg,AudioSource::Mic).unwrap();
+ let engine=NativeEngine::new(&cfg).unwrap();let error=engine.transcribe_file_progress(&audio,RATE*60,AudioSource::Mic,0,Some(cache.clone()),Box::new(|done,_,_,_|if done==1 {Err(OmmError::new(ErrorCode::Timeout,true,"generated timeout"))}else{Ok(())})).unwrap_err();drop(engine);assert_eq!(unsafe{decodes()},1);
+ store.fail(&claim,&error,20).unwrap();store.schedule_retry(&store.task(task.id).unwrap(),20).unwrap();store.clean_abandoned_cache(20).unwrap();assert!(cache.exists());assert!(!claim.context.work_dir.exists());drop(store);
+ let mut store=Store::open(&paths).unwrap();store.recover(2000).unwrap();store.clean_abandoned_cache(2000).unwrap();let retry=store.claim(2000,100).unwrap().unwrap();assert_eq!(retry.task.id,task.id);
+ let engine=NativeEngine::new(&cfg).unwrap();let before=unsafe{decodes()};let result=engine.transcribe_file_progress(&audio,RATE*60,AudioSource::Mic,0,Some(cache.clone()),Box::new(|_,_,_,_|Ok(()))).unwrap();assert_eq!(result.len(),3);assert_eq!(unsafe{decodes()}-before,2);drop(engine);
+ for changed in [AsrConfig{threads:1,..cfg.clone()},AsrConfig{model_version:"changed-model".into(),..cfg.clone()}] {assert_ne!(cache,super::super::chunks::directory(&checkpoint,&audio,&changed,AudioSource::Mic).unwrap());}
+ std::fs::write(&audio,(0..RATE*60).flat_map(|_|0.2f32.to_le_bytes()).collect::<Vec<_>>()).unwrap();assert_ne!(cache,super::super::chunks::directory(&checkpoint,&audio,&cfg,AudioSource::Mic).unwrap());
+}

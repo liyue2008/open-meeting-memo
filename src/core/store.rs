@@ -40,6 +40,7 @@ fn conflict() -> OmmError {
 
 mod archives;
 mod attempt_errors;
+mod notification_events;
 pub use attempt_errors::{StageAttemptError, StageErrorPhase};
 mod segments;
 pub use segments::{ClaimedSegment, SegmentProgress};
@@ -777,10 +778,39 @@ impl Store {
             else {
                 continue;
             };
-            let active: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM tasks WHERE id=?1 AND lease IS NOT NULL AND expires>?2)",params![id.to_string(),now_ms],|r|r.get(0))?;
-            if !active {
-                super::paths::validate_private_dir(&entry.path())?;
-                fs::remove_dir_all(entry.path())?;
+            let status: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT status FROM tasks WHERE id=?1",
+                    [id.to_string()],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            // Unknown ownership is retained, not inferred from a UUID-shaped directory.
+            let Some(status) = status else { continue };
+            let active: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM tasks WHERE id=?1 AND lease IS NOT NULL AND expires>?2) OR EXISTS(SELECT 1 FROM segment_jobs JOIN tasks ON tasks.session=segment_jobs.session WHERE tasks.id=?1 AND segment_jobs.status='running' AND segment_jobs.expires>?2)",params![id.to_string(),now_ms],|r|r.get(0))?;
+            if active {
+                continue;
+            }
+            super::paths::validate_private_dir(&entry.path())?;
+            for child in fs::read_dir(entry.path())? {
+                let child = child?;
+                let name = child.file_name();
+                let chunks = name == ".chunks";
+                // .chunks is durable across queued/failed/blocked/restart. Only lease
+                // UUID directories are disposable; arbitrary entries are never erased.
+                if (chunks && status == "completed")
+                    || name
+                        .to_str()
+                        .and_then(|s| Uuid::parse_str(s).ok())
+                        .is_some()
+                {
+                    super::paths::validate_private_dir(&child.path())?;
+                    fs::remove_dir_all(child.path())?;
+                }
+            }
+            if fs::read_dir(entry.path())?.next().is_none() {
+                fs::remove_dir(entry.path())?;
             }
         }
         Ok(())

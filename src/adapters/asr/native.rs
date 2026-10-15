@@ -8,6 +8,10 @@ use std::{
     ptr::NonNull,
 };
 
+const MAX_DECODE_SAMPLES: usize = RATE * 25;
+const PADDING_SAMPLES: usize = RATE / 5;
+const MAX_CORE_SAMPLES: usize = MAX_DECODE_SAMPLES - 2 * PADDING_SAMPLES;
+
 type Handle = *const c_void;
 macro_rules! api {
     ($($name:ident: $ty:ty => $symbol:literal),+ $(,)?) => {
@@ -189,21 +193,24 @@ impl NativeEngine {
                 ));
             }
             state.previous_end = end;
-            state.vad_spans += 1;
+
             drop(speech);
             unsafe {
                 (self.api.vad_pop)(vad);
             }
-            if let Some((last_start, last_end)) = state.pending {
-                if start.saturating_sub(last_end) < RATE / 5 && end - last_start <= RATE * 25 {
-                    state.pending = Some((last_start, end));
-                    continue;
+            // Disjoint core windows preserve the clock; context padding also fits 25s.
+            for lo in (start..end).step_by(MAX_CORE_SAMPLES) {
+                let hi=(lo+MAX_CORE_SAMPLES).min(end);
+                state.vad_spans += 1;
+                if let Some((last_start,last_end))=state.pending {
+                    if lo.saturating_sub(last_end)<PADDING_SAMPLES && hi-last_start<=MAX_CORE_SAMPLES {
+                        state.pending=Some((last_start,hi));
+                        continue;
+                    }
+                    state.batch.push((last_start,last_end));
                 }
-                state.batch.push((last_start, last_end));
-            }
-            state.pending = Some((start, end));
-            if state.batch.len() == 1 {
-                self.decode_batch(state)?;
+                state.pending=Some((lo,hi));
+                if state.batch.len()==1 { self.decode_batch(state)?; }
             }
         }
         Ok(())
@@ -239,8 +246,9 @@ impl NativeEngine {
         let mut streams = vec![];
         for &index in &order {
             let (start, end) = spans[index];
-            let lo = start.saturating_sub(RATE / 5);
-            let hi = end.saturating_add(RATE / 5).min(state.samples);
+            let lo = start.saturating_sub(PADDING_SAMPLES);
+            let hi = end.saturating_add(PADDING_SAMPLES).min(state.samples);
+            if hi-lo>MAX_DECODE_SAMPLES { return Err(backend("ASR decoder window exceeds 25 seconds")); }
             let mut bytes = vec![0u8; (hi - lo) * 4];
             state.reader.seek(SeekFrom::Start(lo as u64 * 4))?;
             state.reader.read_exact(&mut bytes)?;

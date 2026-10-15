@@ -11,7 +11,8 @@ use crate::{
         contracts::*,
         lifecycle::{Action, Lifecycle},
         notifications::{
-            notification_channel, NotificationAdapter, NotificationEvent, NotificationSink,
+            notification_channel, MeetingIdentity, MeetingTimeSource, NotificationAdapter,
+            NotificationEvent, NotificationSink,
         },
         paths::*,
         pipeline,
@@ -94,6 +95,19 @@ pub struct Recording {
     pub rotation_pending: bool,
     pub sealed: Option<SealedMeeting>,
 }
+impl Recording {
+    fn notification_identity(&self) -> MeetingIdentity {
+        MeetingIdentity {
+            session_id: Some(self.session_id),
+            title: self.title.clone(),
+            started_at_ms: Some(self.started_at_ms),
+            time_source: MeetingTimeSource::Exact,
+            duration_ms: Some(self.segments.iter().fold(0u64, |total, segment| {
+                total.saturating_add(segment.duration_ms)
+            })),
+        }
+    }
+}
 fn confirmed_legacy_start() -> bool {
     true
 }
@@ -124,20 +138,19 @@ impl Controller {
     }
     pub async fn start(&mut self, title: String, source_id: Option<String>) -> Result<Value> {
         let result = self.start_inner(title, source_id).await;
-        if result.is_err() {
-            self.recording_failed();
+        if let Err(ref error) = result {
+            self.recording_failed(error);
         }
         result
     }
-    pub fn recording_failed(&self) {
-        let scope = self
+    pub fn recording_failed(&self, error: &OmmError) {
+        let identity = self
             .recording()
             .ok()
             .flatten()
-            .map(|r| r.session_id)
-            .unwrap_or(self.instance);
-        self.notifications
-            .emit(NotificationEvent::RecordingFailed, scope, 1);
+            .map(|r| r.notification_identity())
+            .unwrap_or_default();
+        self.notifications.emit_recording_failure(identity, error);
     }
     async fn start_inner(&mut self, title: String, source_id: Option<String>) -> Result<Value> {
         let store = Store::open(&self.paths)?;
@@ -203,8 +216,10 @@ impl Controller {
                 store.set_state("recording", &record)?;
                 self.lifecycle.reconcile_recording(source_id);
                 store.clear_state("suppressed_unknown_source")?;
-                self.notifications
-                    .emit(NotificationEvent::RecordingStarted, id, 1);
+                self.notifications.emit_meeting(
+                    NotificationEvent::RecordingStarted,
+                    record.notification_identity(),
+                );
                 Ok(json!(status))
             }
             Err(error) => {
@@ -217,8 +232,8 @@ impl Controller {
     }
     pub async fn seal(&mut self, manual: bool) -> Result<Value> {
         let result = self.seal_inner(manual).await;
-        if result.is_err() {
-            self.recording_failed();
+        if let Err(ref error) = result {
+            self.recording_failed(error);
         }
         result
     }
@@ -271,8 +286,10 @@ impl Controller {
         if meeting.segments.is_empty() {
             store.clear_state("recording")?;
             self.lifecycle.reconcile_recording(None);
-            self.notifications
-                .emit(NotificationEvent::RecordingStopped, meeting.session_id, 1);
+            self.notifications.emit_meeting(
+                NotificationEvent::RecordingStopped,
+                record.notification_identity(),
+            );
             return Ok(json!({"meetingId":meeting.session_id,"recording":false,"empty":true}));
         }
         if self.capture.supports_rolling() && !store.has_segmented_session(meeting.session_id)? {
@@ -314,8 +331,10 @@ impl Controller {
         } else {
             self.lifecycle.reconcile_recording(None);
         }
-        self.notifications
-            .emit(NotificationEvent::RecordingStopped, meeting.session_id, 1);
+        self.notifications.emit_meeting(
+            NotificationEvent::RecordingStopped,
+            record.notification_identity(),
+        );
         Ok(json!({"meetingId":meeting.session_id,"task":task,"recording":false}))
     }
     pub fn observation_action(
@@ -426,8 +445,10 @@ impl Controller {
             record.start_confirmed = true;
             store.set_state("recording", &record)?;
             if status.recording {
-                self.notifications
-                    .emit(NotificationEvent::RecordingStarted, record.session_id, 1);
+                self.notifications.emit_meeting(
+                    NotificationEvent::RecordingStarted,
+                    record.notification_identity(),
+                );
             }
         }
         if record.rotation_pending && !status.recording {
@@ -755,9 +776,7 @@ pub async fn run_at_with_notifier(
             )
             .await?
             {
-                Some(task) => {
-                    store.schedule_retry(&task, chrono::Utc::now().timestamp_millis())?;
-                }
+                Some(_) => {}
                 None => tokio::time::sleep(Duration::from_millis(250)).await,
             }
         }
@@ -780,11 +799,7 @@ pub async fn run_at_with_notifier(
             )
             .await?
             {
-                Some(task) => {
-                    if !store.is_segmented_parent(task.id)? || task.stage == Stage::Summary {
-                        store.schedule_retry(&task, chrono::Utc::now().timestamp_millis())?;
-                    }
-                }
+                Some(_) => {}
                 None => tokio::time::sleep(Duration::from_millis(250)).await,
             };
             store.cleanup_archived_sources_for_queue()?;
@@ -823,7 +838,7 @@ pub async fn run_at_with_notifier(
                             "status"=>Ok(json!({"running":true,"paths":paths,"runtime":location,"serviceInstanceId":guard.owner.instance_id,"serviceUid":guard.owner.uid,"servicePid":guard.owner.pid,"singleServiceScope":"selected runtime and persistent STATE; explicitly isolated roots may run independently","capture":native.status().await.ok(),"recording":controller.recording()?.map(|r|json!({"sessionId":r.session_id,"sourceId":r.source_id})),"pipelineHealthy":!worker.is_finished()&&!summary_worker.is_finished()&&!encoder.is_finished(),"asrQueueHealthy":!worker.is_finished(),"summaryQueueHealthy":!summary_worker.is_finished(),"archiveQueueHealthy":!encoder.is_finished(),"piCacheRecovery":Store::open(&paths)?.state::<serde_json::Value>("pi_cache_recovery")?,"lastCaptureError":Store::open(&paths)?.state::<OmmError>("capture_error")?,"lastMeetingObservation":Store::open(&paths)?.state::<serde_json::Value>("meeting_observation")?,"notificationDiagnostic":Store::open(&paths)?.state::<serde_json::Value>("notification_diagnostic")?})),
                             "capture_auto_stop"=>controller.callback(&req).await,
                             "record_status"=>native.status().await.map(|s|json!(s)),
-                            "record_start"=>{async {if let Err(e)=ensure_helper(&native,&cfg,&socket,&mut helper,&paths).await {controller.recording_failed();return Err(e);}controller.start(req.title.unwrap_or_else(||"Meeting".into()),None).await}.await},
+                            "record_start"=>{async {if let Err(e)=ensure_helper(&native,&cfg,&socket,&mut helper,&paths).await {controller.recording_failed(&e);return Err(e);}controller.start(req.title.unwrap_or_else(||"Meeting".into()),None).await}.await},
                             "record_stop"=>controller.seal(true).await,
                             "shutdown"=>{let sealed=controller.seal(false).await;let stopped=match sealed{Ok(value)=>helper.shutdown(&native,&paths).await.map(|()|value),Err(e)=>Err(e)};if stopped.is_ok(){shutdown_reply=Some(stream);break stopped;}stopped},
                             _=>Err(OmmError::invalid("unsupported service command"))};
@@ -839,9 +854,9 @@ pub async fn run_at_with_notifier(
                 helper.observe_endpoint(&native,&paths)?;
                 helper.reap_exited(&native,&paths)?;
                 if let Some(mut record)=controller.recording()? {if native.status().await.is_err(){let store=Store::open(&paths)?;if record.sealed.is_none() && store.state::<Option<Uuid>>("pending_stop")?.flatten()!=Some(record.session_id) {record.rotation_pending=true;record.gaps.push("helper_restart".into());store.set_state("recording",&record)?;}
-                    if let Err(e)=ensure_helper(&native,&latest,&socket,&mut helper,&paths).await{controller.recording_failed();store.set_state("capture_error",&e)?;continue;}}}
-                if let Err(e)=controller.reconcile().await {controller.recording_failed();Store::open(&paths)?.set_state("capture_error",&e)?;}
-                if !controller.capture.supports_rolling() && controller.recording()?.is_some_and(|r| now-r.segment_started_ms>=latest.segment_ms.min(1_800_000) as i64){if let Err(e)=controller.rotate().await{controller.recording_failed();Store::open(&paths)?.set_state("capture_error",&e)?;}}
+                    if let Err(e)=ensure_helper(&native,&latest,&socket,&mut helper,&paths).await{controller.recording_failed(&e);store.set_state("capture_error",&e)?;continue;}}}
+                if let Err(e)=controller.reconcile().await {controller.recording_failed(&e);Store::open(&paths)?.set_state("capture_error",&e)?;}
+                if !controller.capture.supports_rolling() && controller.recording()?.is_some_and(|r| now-r.segment_started_ms>=latest.segment_ms.min(1_800_000) as i64){if let Err(e)=controller.rotate().await{controller.recording_failed(&e);Store::open(&paths)?.set_state("capture_error",&e)?;}}
                 if latest.auto_record && observation_job.is_none() {
                     let adapter=LarkAdapter::with_reapers(latest.clone(),native.clone(),observation_reapers.clone());
                     observation_job=Some(ObservationJob{epoch:control_epoch,configuration:serde_json::to_vec(&latest)?,task:tokio::spawn(async move{adapter.observe().await})});
@@ -859,7 +874,7 @@ pub async fn run_at_with_notifier(
                 }
                 if matches!(action,Action::Start|Action::Switch) {
                     let start=async {ensure_helper(&native,&latest,&socket,&mut helper,&paths).await?;controller.start(observation.title.unwrap_or_else(||"Lark Meeting".into()),observation.source_id).await}.await;
-                    if let Err(e)=start{controller.recording_failed();controller.lifecycle.reconcile_recording(None);Store::open(&paths)?.set_state("capture_error",&e)?;}
+                    if let Err(e)=start{controller.recording_failed(&e);controller.lifecycle.reconcile_recording(None);Store::open(&paths)?.set_state("capture_error",&e)?;}
                 }
             }
         }
