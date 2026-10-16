@@ -1,0 +1,69 @@
+docs/install.md
+  s_cdf61893996751::t_ef7b938312985a 139-161,188-193
+native/yulu-capture/audio_daemon.swift
+  s_cdf61893996751::t_1e5ce39de78760 719-753,838-841,868-875,897,900-914,923,926-929,931,1184-1368,1535,1598-1606,1645,1904-1908,1990,2058-2062,2066-2069,2075,2077,2092,2111-2303,2305-2308,2310-2314,2400,2457-2463,2558,2600,3033,3035,3064,3070,3077,3398-3458,3668-3671,3689
+src/adapters/asr/native.rs
+  s_a70f37943acc1e::t_63fac9725e94a5 95,102-109,229,231,238,240,242,244,253,297,299-300,308-310,326-330,332-333,336,339-340,347,387,395-400,461
+src/cli/mod.rs
+  s_88cc65ec23b24c::t_ce9fcd7ca55ec5 783-788
+src/core/contracts.rs
+  s_88cc65ec23b24c::t_a61c193bf9c54a 273,280-374,387-391,393-398
+src/core/pipeline.rs
+  s_23cea97a04ec7f::t_d0208eca2bfd86 157-160,173,189,197,308
+src/core/store.rs
+  s_cdf61893996751::t_2e47edacde975b 42,465,468,471-479,486,496,507,510
+src/core/store/segments.rs
+  s_88cc65ec23b24c::t_cbc3fa8692173c 24-60
+src/service/registration.rs
+  s_88cc65ec23b24c::t_59d308af92b66b 8-9,11-12,57-59,64-67,80,97-128,133-156,187-247,254-335,337-341,346-351,357-358,361-369,376,388-389,423
+src/service/registration/files.rs
+  s_88cc65ec23b24c::t_f9bc891da2ea8a 1-259
+tests/asr_measurements.rs
+  s_88cc65ec23b24c::t_cce6c924f266b5 1-668
+tests/segment_pipeline.rs
+  s_88cc65ec23b24c::t_9065d8d7004d53 124,146,156-158,162-189,694,739,771-772,929,943-944,955,959-966
+tests/service_scheduling.rs
+  s_88cc65ec23b24c::t_4a2d9994a655c9 1-818
+tests/today_pipeline.rs
+  s_88cc65ec23b24c::t_62a9651568c49c 1-491
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "226812e46b9f495797e2843fbd5755c08ac0707b",
+  "prompts": {},
+  "sessions": {
+    "s_23cea97a04ec7f": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a13fb0-74f5-75ce-bf64-30bee4cdb18f",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_88cc65ec23b24c": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a13897-b6bf-702e-9914-d2c2e518800b",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_a70f37943acc1e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a13abc-7b4c-7433-a151-a80f5fe495e1",
+        "model": "glm-5.3"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_cdf61893996751": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a13f4d-59f0-7111-a75f-595846184f3d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
