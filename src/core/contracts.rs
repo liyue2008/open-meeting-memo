@@ -270,11 +270,107 @@ pub struct AsrWorkerRequest {
     pub chunk_checkpoint_dir: Option<PathBuf>,
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AsrStartupTiming {
     pub validate_audio_ms: u64,
     pub validate_models_ms: u64,
     pub load_model_ms: u64,
     pub prepare_audio_ms: u64,
+}
+impl AsrStartupTiming {
+    pub fn valid(&self) -> bool {
+        [
+            self.validate_audio_ms,
+            self.validate_models_ms,
+            self.load_model_ms,
+            self.prepare_audio_ms,
+        ]
+        .into_iter()
+        .all(|v| v <= 86_400_000)
+    }
+}
+fn deserialize_startup_timing<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<AsrStartupTiming>, D::Error> {
+    let value = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value::<AsrStartupTiming>(value)
+        .ok()
+        .filter(AsrStartupTiming::valid))
+}
+/// Numeric observer data only. Durations use monotonic clocks; CPU may exceed wall on multiple threads.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AsrChunkTiming {
+    pub phase: AsrChunkPhase,
+    pub input_index: u32,
+    pub window_index: u32,
+    pub core_start_sample: u64,
+    pub decode_start_sample: u64,
+    pub core_samples: u32,
+    pub decode_samples: u32,
+    pub cache_hit: bool,
+    pub cache_lookup_us: u64,
+    pub native_decode_wall_us: u64,
+    pub process_cpu_us: Option<u64>,
+    pub checkpoint_write_us: u64,
+    pub token_count: Option<u32>,
+    pub output_chars: u32,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AsrChunkPhase {
+    CacheHit,
+    NativeDecodeTotal,
+}
+impl AsrChunkTiming {
+    pub fn valid(&self) -> bool {
+        let max_us = 86_400_000_000u64;
+        self.input_index < 4096
+            && self.window_index < 1_000_000
+            && self.core_start_sample <= i32::MAX as u64
+            && self.core_samples > 0
+            && self.core_samples <= 393600
+            && self.decode_start_sample <= self.core_start_sample
+            && self.core_start_sample - self.decode_start_sample <= 3200
+            && self.decode_samples as u64
+                >= self.core_samples as u64 + self.core_start_sample - self.decode_start_sample
+            && self.decode_samples as u64
+                - (self.core_samples as u64 + self.core_start_sample - self.decode_start_sample)
+                <= 3200
+            && self.phase
+                == if self.cache_hit {
+                    AsrChunkPhase::CacheHit
+                } else {
+                    AsrChunkPhase::NativeDecodeTotal
+                }
+            && self.decode_samples >= self.core_samples
+            && self.decode_samples <= 400000
+            && self.cache_lookup_us <= max_us
+            && self.native_decode_wall_us <= max_us
+            && self.checkpoint_write_us <= max_us
+            && self.process_cpu_us.is_none_or(|v| {
+                v <= self
+                    .native_decode_wall_us
+                    .saturating_mul(1024)
+                    .saturating_add(100000)
+            })
+            && self.output_chars <= 1024 * 1024
+            && self.token_count.is_none_or(|v| v <= 1_000_000)
+            && (!self.cache_hit
+                || (self.native_decode_wall_us == 0
+                    && self.process_cpu_us == Some(0)
+                    && self.checkpoint_write_us == 0
+                    && self.token_count.is_none()))
+            && serde_json::to_vec(self).is_ok_and(|b| b.len() <= 1024)
+    }
+}
+fn deserialize_chunk_timing<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<AsrChunkTiming>, D::Error> {
+    let value = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value::<AsrChunkTiming>(value)
+        .ok()
+        .filter(AsrChunkTiming::valid))
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -288,8 +384,18 @@ pub enum AsrWorkerEvent {
         vad_spans: usize,
         speech_samples: u64,
         processing_ms: u64,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(
+            default,
+            deserialize_with = "deserialize_startup_timing",
+            skip_serializing_if = "Option::is_none"
+        )]
         startup_timing: Option<AsrStartupTiming>,
+        #[serde(
+            default,
+            deserialize_with = "deserialize_chunk_timing",
+            skip_serializing_if = "Option::is_none"
+        )]
+        chunk_timing: Option<AsrChunkTiming>,
     },
     Progress {
         schema_version: u32,

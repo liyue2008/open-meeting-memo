@@ -3,7 +3,7 @@ use omm::{
     core::{contracts::*, paths::*},
     service::registration::*,
 };
-use std::{fs, sync::Mutex};
+use std::{fs, os::unix::fs::PermissionsExt, sync::Mutex};
 #[derive(Default)]
 struct Runner {
     calls: Mutex<Vec<Vec<String>>>,
@@ -33,19 +33,21 @@ async fn launchagent_registration_uses_fixed_argv_temp_home_and_never_deletes_da
     p.create_private_dirs().unwrap();
     let exe = root.join("omm&fixture");
     fs::write(&exe, b"synthetic executable").unwrap();
+    fs::set_permissions(&exe, fs::Permissions::from_mode(0o700)).unwrap();
     let r = Runner::default();
     install(&home, &p, &exe, &r).await.unwrap();
     assert_eq!(installed(&home).unwrap().unwrap().paths, p);
     let file = home.join("Library/LaunchAgents/org.openmeetingmemo.service.plist");
     let text = fs::read_to_string(&file).unwrap();
+    assert!(text.contains("<key>ProcessType</key><string>Standard</string>"));
     assert!(text.contains("omm&amp;fixture"));
     assert!(text.contains("<string>service</string><string>run</string>"));
     assert!(!text.contains("XDG_RUNTIME_DIR"));
     assert_eq!(r.calls.lock().unwrap()[0][0], "bootstrap");
-    assert_eq!(
-        install(&home, &p, &exe, &r).await.unwrap_err().code,
-        ErrorCode::Conflict
-    );
+    let before = fs::read(&file).unwrap();
+    install(&home, &p, &exe, &r).await.unwrap();
+    assert_eq!(fs::read(&file).unwrap(), before);
+    assert_eq!(r.calls.lock().unwrap().len(), 1);
     start(&home, &r).await.unwrap();
     assert_eq!(r.calls.lock().unwrap()[1][0], "kickstart");
     let data = p.data.join("original-audio.wav");
@@ -66,6 +68,7 @@ async fn rejected_registration_does_not_leave_false_installed_profile() {
     p.create_private_dirs().unwrap();
     let exe = root.join("omm-fixture");
     fs::write(&exe, b"synthetic").unwrap();
+    fs::set_permissions(&exe, fs::Permissions::from_mode(0o700)).unwrap();
     let r = Runner {
         fail: true,
         ..Default::default()
@@ -96,6 +99,7 @@ async fn installed_explicit_runtime_is_frozen_validated_and_missing_root_can_deg
     let selected = RuntimeLocation::resolve(&env, || panic!("must use explicit root")).unwrap();
     let executable = root.join("omm-fixture-bin");
     fs::write(&executable, b"fixture").unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
     let runner = Runner::default();
     install_at(&home, &paths, &executable, Some(&selected), &runner)
         .await

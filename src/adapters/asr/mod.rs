@@ -240,6 +240,60 @@ impl AsrAdapter for LocalAsrAdapter {
         }
     }
 }
+fn parse_worker_event(line: &[u8]) -> Result<AsrWorkerEvent> {
+    match serde_json::from_slice(line) {
+        Ok(event) => Ok(event),
+        Err(error) => {
+            // Internal-tag buffering rejects numbers such as 1e999 before the optional field visitor.
+            // Retry without diagnostics, preserving strict validation of every business field.
+            let Ok(fields) = serde_json::from_slice::<BusinessEvent<'_>>(line) else {return Err(error.into());};
+            if !fields.had_observer {return Err(error.into());}
+            Ok(serde_json::from_slice(&serde_json::to_vec(&fields)?)?)
+        }
+    }
+}
+// Preserve raw nested business values and top-level order; never let optional diagnostics
+// turn duplicate business keys into last-write-wins protocol data.
+struct BusinessEvent<'a> {
+    fields: Vec<(String, &'a serde_json::value::RawValue)>,
+    had_observer: bool,
+}
+impl<'de> serde::Deserialize<'de> for BusinessEvent<'de> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        struct EventVisitor;
+        impl<'de> serde::de::Visitor<'de> for EventVisitor {
+            type Value = BusinessEvent<'de>;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("an ASR event object")
+            }
+            fn visit_map<M: serde::de::MapAccess<'de>>(self, mut map: M) -> std::result::Result<Self::Value, M::Error> {
+                let mut event = BusinessEvent { fields: vec![], had_observer: false };
+                let mut seen = std::collections::BTreeSet::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    let value = map.next_value::<&'de serde_json::value::RawValue>()?;
+                    if matches!(key.as_str(), "chunk_timing" | "startup_timing") {
+                        event.had_observer = true;
+                    } else {
+                        if !seen.insert(key.clone()) {
+                            return Err(serde::de::Error::custom("duplicate business field"));
+                        }
+                        event.fields.push((key, value));
+                    }
+                }
+                Ok(event)
+            }
+        }
+        deserializer.deserialize_map(EventVisitor)
+    }
+}
+impl serde::Serialize for BusinessEvent<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(self.fields.len()))?;
+        for (key, value) in &self.fields { map.serialize_entry(key, value)?; }
+        map.end()
+    }
+}
 async fn event_read(
     mut reader: impl AsyncRead + Unpin,
     req: &AsrRequest,
@@ -255,12 +309,6 @@ async fn event_read(
         if n == 0 {
             break;
         }
-        if output.len().saturating_add(n) > OUTPUT_LIMIT {
-            return Err(resource_limit(
-                "ASR worker output exceeded protocol resource limit",
-            ));
-        }
-        output.extend_from_slice(&chunk[..n]);
         for &byte in &chunk[..n] {
             if byte == b'\n' {
                 if line.is_empty() {
@@ -269,7 +317,16 @@ async fn event_read(
                 if terminal {
                     return Err(audio::corrupt("invalid ASR worker event ordering"));
                 }
-                let event: AsrWorkerEvent = serde_json::from_slice(&line)?;
+                let mut event = parse_worker_event(&line)?;
+                if let AsrWorkerEvent::ChunkProgress{chunk_timing,..}=&mut event {
+                    if chunk_timing.as_ref().is_some_and(|t|t.input_index as usize>=req.segments.len()) {*chunk_timing=None;}
+                }
+                // Progress is validated/persisted online, not accumulated until a long worker exits.
+                if matches!(event,AsrWorkerEvent::Result{..}|AsrWorkerEvent::Error{..}) {
+                    let terminal_line=serde_json::to_vec(&event)?;
+                    if output.len().saturating_add(terminal_line.len()+1)>OUTPUT_LIMIT{return Err(resource_limit("ASR worker output exceeded protocol resource limit"));}
+                    output.extend_from_slice(&terminal_line);output.push(b'\n');
+                }
                 line.clear();
                 let (schema, task, attempt) = match &event {
                     AsrWorkerEvent::Progress {
@@ -331,7 +388,10 @@ async fn event_read(
                 ) {
                     if let Some(paths) = paths {
                         if let Err(error) = crate::core::store::Store::open(paths)
-                            .and_then(|store| store.record_segment_progress(&req.context, &event))
+                            .and_then(|store| {
+                                store.record_asr_measurement_best_effort(&req.context,&event);
+                                store.record_segment_progress(&req.context, &event)
+                            })
                         {
                             use std::io::Write;
                             let _ = writeln!(std::io::stderr().lock(), "warning: ASR progress unavailable code={:?}", error.code);
@@ -632,14 +692,15 @@ fn transcribe_local(req: &AsrRequest, checkpoint: Option<&Path>) -> Result<Trans
             let cache = checkpoint
                 .map(|root| chunks::directory_with_source(root, path, cfg, source, &sealed.sha256))
                 .transpose()?;
-            let mut part = engine.transcribe_file_progress(
+            let mut part = engine.transcribe_file_measured(
                 path,
                 prepared.samples,
                 source,
                 offset,
                 cache,
                 Box::new(
-                    move |completed_chunks, vad_spans, speech_samples, processing_ms| {
+                    move |completed_chunks, vad_spans, speech_samples, processing_ms, chunk_timing| {
+                        let chunk_timing=chunk_timing.map(|mut t|{t.input_index=i as u32;t});
                         emit(&AsrWorkerEvent::ChunkProgress {
                             schema_version: 1,
                             task_id,
@@ -650,6 +711,7 @@ fn transcribe_local(req: &AsrRequest, checkpoint: Option<&Path>) -> Result<Trans
                             speech_samples,
                             processing_ms,
                             startup_timing,
+                            chunk_timing,
                         })
                     },
                 ),

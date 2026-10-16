@@ -154,7 +154,10 @@ async fn run_one_lane(
     }
     let claimed = match lane {
         Some(Stage::Transcribe) => store.claim_asr(now, lease_ms)?,
-        Some(Stage::Summary) => store.claim_summary(now, lease_ms)?,
+        Some(Stage::Summary) => match store.claim_summary(now, lease_ms)? {
+            some @ Some(_) => some,
+            None => store.claim_ready_aggregate(now, lease_ms)?,
+        },
         None => store.claim(now, lease_ms)?,
     };
     let Some(mut claim) = claimed else {
@@ -167,6 +170,7 @@ async fn run_one_lane(
     } else {
         None
     };
+    let audio_decode = claim.stage == Stage::Transcribe && partial.is_none();
     let input = if claim.stage == Stage::Summary {
         Some(
             store
@@ -182,7 +186,7 @@ async fn run_one_lane(
     }
     let stage = claim.stage;
     let segments = claim.segments.clone();
-    let model_lock = if stage == Stage::Transcribe {
+    let model_lock = if audio_decode {
         Some(store.model_read_lock())
     } else {
         None
@@ -190,7 +194,7 @@ async fn run_one_lane(
     let operation = async move {
         match stage {
             Stage::Transcribe => {
-                let _lock = model_lock.unwrap()?;
+                let _lock = model_lock.transpose()?;
                 Ok(Output::Transcript(match partial {
                     Some(t) => t?,
                     None => asr.transcribe(AsrRequest { context, segments }).await?,
@@ -301,7 +305,7 @@ async fn run_one_lane(
         notifications.emit_task(NotificationEvent::SummaryReady, &claim.context);
     }
     // Completed disposable work is removed only after owned ASR children exited.
-    if stage == Stage::Transcribe {
+    if audio_decode {
         asr.drain().await?;
     }
     if claim.context.work_dir.exists() {

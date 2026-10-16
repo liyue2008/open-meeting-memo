@@ -121,7 +121,7 @@ async fn source_chunk_progress_is_durable_before_worker_result_and_readonly_comm
     use std::os::unix::fs::PermissionsExt;
     let (_t, p, m) = fixture();
     let mut cfg = ConfigSnapshot::default();
-    cfg.asr.timeout_ms = 3000;
+    cfg.asr.timeout_ms = 20_000; // Fixture startup and live-progress watchdogs, not a product deadline change.
     let mut store = Store::open(&p).unwrap();
     store.begin_segmented(&m, &cfg).unwrap();
     let audio = audio(&m, 0);
@@ -143,6 +143,7 @@ async fn source_chunk_progress_is_durable_before_worker_result_and_readonly_comm
             load_model_ms: 3,
             prepare_audio_ms: 4,
         }),
+        chunk_timing: None,
     };
     let terminal = AsrWorkerEvent::Result {
         schema_version: 1,
@@ -152,11 +153,40 @@ async fn source_chunk_progress_is_durable_before_worker_result_and_readonly_comm
     };
     let release = m.directory.join("release");
     let worker = m.directory.join("synthetic-worker");
-    std::fs::write(&worker,format!("#!/bin/sh\n/bin/cat >/dev/null\nprintf '%s\\n' '{}'\nwhile [ ! -f '{}' ]; do /bin/sleep .01; done\nprintf '%s\\n' '{}'\n",serde_json::to_string(&progress).unwrap(),release.display(),serde_json::to_string(&terminal).unwrap())).unwrap();
+    let producer_ready = m.directory.join("producer-ready");
+    let result_written = m.directory.join("result-written");
+    std::fs::write(&worker,format!("#!/bin/sh\n/bin/cat >/dev/null\n/bin/sleep 1.2\nprintf '%s\\n' '{}'\n: > '{}'\n/bin/sleep 0.15\nprintf '%s\\n' $$ > '{}'\nwhile [ ! -f '{}' ]; do /bin/sleep .01; done\nprintf '%s\\n' '{}'\nprintf done > '{}'\n",serde_json::to_string(&progress).unwrap(),producer_ready.display(),producer_ready.display(),release.display(),serde_json::to_string(&terminal).unwrap(),result_written.display())).unwrap();
     std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o700)).unwrap();
     let adapter = LocalAsrAdapter::with_paths(worker, p.clone()).unwrap();
     let observer = async {
-        for _ in 0..100 {
+        let startup = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let pid = loop {
+            if let Ok(line) = std::fs::read_to_string(&producer_ready) {
+                if let Some(pid) = line
+                    .strip_suffix('\n')
+                    .and_then(|s| s.parse::<i32>().ok())
+                    .filter(|p| *p > 0)
+                {
+                    break pid;
+                }
+            }
+            assert!(
+                std::time::Instant::now() < startup,
+                "fixture producer did not flush its live progress event and complete PID frame"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            assert!(
+                !release.exists() && !result_written.exists(),
+                "progress must be durable before result or EOF"
+            );
+            assert_eq!(
+                unsafe { libc::kill(pid, 0) },
+                0,
+                "fixture producer must remain live"
+            );
             let reader = Store::open_read_only(&p).unwrap();
             if let Some(activity) = reader.segment_progress(m.session_id).unwrap()[0]
                 .activity
@@ -661,7 +691,7 @@ async fn maintenance_case(case: MaintenanceCase) {
     cfg.asr.timeout_ms = if matches!(case, MaintenanceCase::Deadline) {
         500
     } else {
-        5000
+        20_000 // Private fake-worker startup under concurrent fixtures; the 500 ms barrier deadline case is unchanged.
     };
     let mut store = Store::open(&p).unwrap();
     let task = store.begin_segmented(&m, &cfg).unwrap();
@@ -706,6 +736,7 @@ async fn maintenance_case(case: MaintenanceCase) {
     let adapter = LocalAsrAdapter::with_paths(worker, p.clone()).unwrap();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let (sink, runner) = notification_channel(p.clone(), Arc::new(Notices(tx)));
+    let started = std::time::Instant::now();
     let mut operation = Box::pin(pipeline::run_asr_one_notifying(
         &mut store, &adapter, &NoSummary, 60000, &sink,
     ));
@@ -737,7 +768,8 @@ async fn maintenance_case(case: MaintenanceCase) {
     }
     let progress = store.segment_progress(m.session_id).unwrap();
     eprintln!(
-        "barrier waited={waited}, error={:?}, notices={notices:?}",
+        "barrier waited={waited}, fixture_elapsed_ms={}, error={:?}, notices={notices:?}",
+        started.elapsed().as_millis(),
         progress[0].error
     );
     assert!(
@@ -894,7 +926,7 @@ async fn audio_maintenance_reader_survives_worker_cancel_until_owned_child_reape
     use std::os::unix::fs::PermissionsExt;
     let (_t, p, m) = fixture();
     let mut cfg = ConfigSnapshot::default();
-    cfg.asr.timeout_ms = 5000;
+    cfg.asr.timeout_ms = 20_000; // Private startup handshake; the post-cancel drain deadline remains two seconds.
     let mut store = Store::open(&p).unwrap();
     store.begin_segmented(&m, &cfg).unwrap();
     let a = audio(&m, 0);
@@ -908,8 +940,8 @@ async fn audio_maintenance_reader_survives_worker_cancel_until_owned_child_reape
     write_private_new(
         &worker,
         format!(
-            "#!/bin/sh\nprintf '%s' $$ > '{}'\nexec /bin/sleep 5\n",
-            marker.display()
+            "#!/bin/sh\numask 077\n: > '{}'\n/bin/sleep 0.15\nprintf '%s\\n' $$ > '{}'\nexec /bin/sleep 30\n",
+            marker.display(), marker.display()
         )
         .as_bytes(),
     )
@@ -920,15 +952,21 @@ async fn audio_maintenance_reader_survives_worker_cancel_until_owned_child_reape
         context: claim.context.clone(),
         segments: vec![a.clone()],
     }));
-    tokio::time::timeout(std::time::Duration::from_secs(2),async {
+    let pid = tokio::time::timeout(std::time::Duration::from_secs(10), async {
         loop {
             tokio::select! {
                 r=&mut op=>panic!("owned worker exited before cancellation: {r:?}"),
-                _=tokio::time::sleep(std::time::Duration::from_millis(10))=>{if marker.exists(){break;}}
+                _=tokio::time::sleep(std::time::Duration::from_millis(10))=>{
+                    // Existence precedes printf completion: wait for one complete PID frame.
+                    if let Ok(line) = std::fs::read_to_string(&marker) {
+                        if let Some(pid) = line.strip_suffix('\n').and_then(|s| s.parse::<i32>().ok()).filter(|p| *p > 0) {
+                            break pid;
+                        }
+                    }
+                }
             }
         }
     }).await.unwrap();
-    let pid: i32 = std::fs::read_to_string(marker).unwrap().parse().unwrap();
     assert!(store.active_audio_readers().unwrap());
     drop(op);
     tokio::time::timeout(std::time::Duration::from_secs(2), adapter.drain())

@@ -780,6 +780,12 @@ pub async fn execute_at(
                 let store = read_store(paths)?;
                 let task = store.task(*id)?;
                 let mut result = json!(task);
+                if let Ok(diagnostics) = store.asr_measurements(task.id) {
+                    result
+                        .as_object_mut()
+                        .unwrap()
+                        .insert("asrMeasurements".into(), diagnostics);
+                }
                 let object = result.as_object_mut().unwrap();
                 object.insert("stageProgress".into(), json!(store.stage_progress(*id)?));
                 object.insert("stageErrors".into(), json!(store.stage_error_events(*id)?));

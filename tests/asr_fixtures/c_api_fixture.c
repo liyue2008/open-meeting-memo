@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 static int mode, active[5], accepts, decodes, last_input, max_input;
 void FixtureMode(int m) { mode = m; max_input=0; }
 int FixtureMaxInput(void) { return max_input; }
@@ -33,11 +34,14 @@ void SherpaOnnxAcceptWaveformOffline(const SherpaOnnxOfflineStream *s, int32_t r
 }
 void SherpaOnnxDecodeMultipleOfflineStreams(const SherpaOnnxOfflineRecognizer *r, const SherpaOnnxOfflineStream **s, int32_t n) {
  assert(r && n > 0 && n <= 8); for (int i=0; i<n; ++i) assert(s[i]->n>0); ++decodes;
+ if(mode==12) {struct timespec t={0,30000000}; nanosleep(&t,NULL);}
+ if(mode==13) {clock_t begin=clock(); while((double)(clock()-begin)/CLOCKS_PER_SEC<0.03) {}}
 }
 const SherpaOnnxOfflineRecognizerResult *SherpaOnnxGetOfflineStreamResult(const SherpaOnnxOfflineStream *s) {
  assert(s); if (mode == 1) return NULL;
  SherpaOnnxOfflineRecognizerResult *r=calloc(1,sizeof(*r)); ++active[3];
- r->text = mode == 4 ? NULL : "测试 meeting"; return r;
+ r->text = mode == 4 ? NULL : "测试 meeting";
+ r->count=mode==12 ? 7 : (mode==14 ? -1 : (mode==15 ? 1000001 : 0)); return r;
 }
 void SherpaOnnxDestroyOfflineRecognizerResult(const SherpaOnnxOfflineRecognizerResult *r) { --active[3]; free((void*)r); }
 const SherpaOnnxVoiceActivityDetector *SherpaOnnxCreateVoiceActivityDetector(const SherpaOnnxVadModelConfig *c, float buffer) {

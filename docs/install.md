@@ -136,7 +136,29 @@ omm task list --json
 omm service stop --json
 ```
 
-LaunchAgent 位于 `~/Library/LaunchAgents/org.openmeetingmemo.service.plist`，不需要管理员。`KeepAlive=false`，服务停止后不会自动重启；下次登录 `RunAtLoad` 会启动。安装固定四个持久 XDG 根；更改这些根前先卸载服务，不能通过切换 shell 环境偷偷启第二套数据库。长期默认 auto 关闭，不录制个人会议；需要时显式启用：
+LaunchAgent 位于 `~/Library/LaunchAgents/org.openmeetingmemo.service.plist`，不需要管理员。`KeepAlive=false`，服务停止后不会自动重启；下次登录 `RunAtLoad` 会启动。安装固定四个持久 XDG 根；更改这些根前先卸载服务，不能通过切换 shell 环境偷偷启第二套数据库。
+
+服务采用 `ProcessType=Standard`。Apple 本机 [launchd.plist(5)](x-man-page://5/launchd.plist) 定义 Standard 等同省略 ProcessType，使用普通的轻度资源限制；Background 会采用更保守的后台限制。服务仍是无窗口的用户 LaunchAgent；单ASR worker、已有显式2线程和静态核数预算不变，编码器仍 nice10、单线程。无需 Interactive、实时优先级或动态CPU控制。Adaptive 依赖XPC活动切换类别，不适合这里的常驻socket服务。受控20秒对照发现同模型/线程的旧Background显著慢于普通进程；真实长会的收益仍需部署后观察。
+
+升级旧Background注册时，按下列顺序操作；stop会封存录音并等待helper/已拥有子进程退出，成功后才替换二进制并install：
+
+```sh
+omm service stop --json      # 失败时停止升级，不强杀或忽略封存错误
+# 仅stop成功后：按第1节检查并替换自有CLI/worker二进制
+omm service install --json   # 验证旧注册；bootout旧job、原子换Standard、bootstrap
+```
+
+同身份Standard重复install不改文件或重启。旧Background只接纳与OMM生成模板逐字一致的注册：同当前用户、canonical普通文件/目录、可信可执行路径、label/固定argv/profile/XDG环境；未知自定义字段（包括额外环境变量）、根/可执行路径变更或不安全文件均拒绝，保留原件。已有服务仍活跃、录音未封存或helper端点残留时拒绝升级。升级仅改变ProcessType，不改auto、同意状态、Lark/Pi认证引用或用户配置；RunAtLoad可能按用户既有auto策略恢复工作。仅编辑plist文件不能改变已加载进程的调度类别。
+
+install/start/unregister/uninstall共用 `~/Library/LaunchAgents/.org.openmeetingmemo.service.registration.lock`（0600，非`.plist`）；文件持久保留，不能删除重建。锁按同一canonical HOME/固定label共享，不随XDG根变化；遇并发立即报Conflict，待原操作结束后显式重试。锁覆盖bootstrap和回滚；runtime锁在bootstrap前释放，daemon不获取注册锁。已有LaunchAgents父目录可为0755，不改其权限，但拒绝非本人所有、symlink或group/other可写目录。
+
+录音封存检查还以只读方式查询独立的 `segmented_sessions.sealed=0`，不能只看录音intent；新注册和旧注册重载均拒绝未封存会话。缺少该表的旧库不迁移、不写状态；损坏数据库/异常seal schema报错。同身份Standard不重载分支仅复核身份，不扰动在录会话。
+
+发布和回滚保留父目录FD并重验目录/目标inode、owner、mode和原字节；写临时0600文件并fsync后，相对该目录原子发布。等待bootout/bootstrap期间外部换文件、symlink、目录或原位修改时保留新文件和旧backup，报错要求检查，不盲目恢复/删除。同用户最后一次检查与rename之间仍是窄竞态窗口，不宣称跨用户提权防护或原子compare-and-swap。
+
+升级保留非秘密旧模板 `~/Library/LaunchAgents/org.openmeetingmemo.service.pre-standard.backup`（0600，非`.plist`，不自动加载），仅含HOME/XDG/profile等已有路径；不备份任意环境秘密或认证文件。bootout失败不替换原注册；新bootstrap失败且目标仍是本次发布的身份/内容时，恢复旧模板并尝试重新注册旧job；目标有变化则不覆盖，恢复失败明确报错并保留backup。任何成功注册都不表示实际就绪。手工恢复也必须先正常封存/停止，再检查并还原自有backup、重新bootstrap；不能对活跃录音强制bootout。
+
+长期默认 auto 关闭，不录制个人会议；需要时显式启用：
 
 ```sh
 omm config set lark_executable '<absolute trusted lark-cli>'
@@ -162,6 +184,12 @@ omm meeting read <meeting-id> --artifact transcript --json
 码率默认48kbps，公开配置只接受32/48/64/96：`omm config set audio.opus_bitrate_kbps 64`，`omm config show` 查看当前值。每段入队时冻结；改值不重编码已入队/已归档音频，重启和重试沿用冻结值。`process --force` 只重新转写，优先使用仍保留的原WAV；否则从原归档解码，记录请求码率与原归档实际码率/编码器版本/hash。
 
 部分转写标记 `partial:true`；进度只含声源/语音块数/语音秒数/处理时间，不含正文。结束后按原始帧位置聚合一份完整转写和一次纪要，不每段刷启停通知。每段及已识别语音块绑定输入/模型/配置/版本检查点；超时、失败、重启补做未完成部分。旧WAV/旧任务仍能恢复，只读命令不迁移旧数据库；显式写操作添加兼容表。新临时WAV还须有正常rolling封存的`temporary:true`凭证，归档/检查点均校验且无读者后才清理；中断恢复原件（包括合法零帧空尾）保留；零帧尾不算会议片段，截断/异常尾仍报错。恢复descriptor的`legacy_wav`须为布尔值且与来源一致；非temporary或legacy源不清理。单个归档清理失败持久标记该归档失败，后台队列继续后续任务；不能当成已清理成功。避免把升级前录音当成临时文件。旧用户录音永不自动清理。不要删除WAV来“修复”归档失败。
+
+已结束且全部片段转写完成的会议由纪要队列先轻量聚合终稿、再生成一次纪要，不等待其他会议的音频转写队列清空；活跃会议、未完成片段及旧整段WAV仍遵循原规则，音频ASR不增加并行。
+
+采集入口用实际源格式和持续的AVAudioConverter适配48kHz，再交给原PCM配对/WAV内核；process tap在非实时build/rebuild读取并验证aggregate输入流格式，IOProc只使用本代不可变快照，不逐包查询HAL。格式监听事件先停用旧代，再在非实时路径重建；已排队的旧回调持有旧context但不能再入队。格式读取/验证或回调布局失败会变为not-ready并返回固定`capture_source_format_*`/`capture_source_buffer_format_invalid`原因，不冒充TCC拒绝；没有任何有效音频时也不返回封存成功。ScreenCaptureKit路径直接校验每个sample buffer的实际格式。停止时排空转换器滤波尾，只裁剪转换器产生的尾部padding，不补静音。44.1kHz合成30分钟测试最终帧误差≤1帧，测试中的流式尾部≤512个48kHz帧（约10.7ms），不作为所有硬件格式的保证。helper的可选`capture_clock`只含源采样率、已接收帧/目标帧、声道数、格式拒绝数、采样率变化数和微秒单调时钟偏移；`writer_started_utc_ms`是WAV建立时刻，不冒充硬件确认时刻。旧descriptor没有这些字段仍可恢复。起止墙钟含检测/启动/停止延迟，不能单凭音长差断言丢音或改写历史录音；修复仅影响后续采集。
+
+`task show --json` 的 `asrMeasurements` 提供最多最近256条数值测量（每条序列化不超过1KiB）和固定大小累计计数。每条绑定原任务attempt/lease、输入序号、mic/system、core及含padding的16k采样坐标；`native_decode_total` 的wall/进程CPU、cache查找与检查点写入使用微秒，UTC只用于关联，已有准备/校验/模型加载字段仍用毫秒。多线程进程CPU可以大于wall；该数字不能分开推断encoder/decoder耗时。`cache_hit` 本次decode/CPU/write为0，不复用旧decode成本；加载模型、校验及读取缓存仍有开销。token_count只读固定C API的结果token条数（未知/越界为null），不是EOS/停止原因；上游6token/秒上限仅是估计，不能据token数单判异常。测量不包含文字、token数组、标题、路径或原始错误，不发逐块通知；拒写、坏诊断或失效租约均不改变业务结果。旧worker/旧数据库可读且只读查询不迁移；v2检查点/key、模型/线程/timeout策略不变。这是取证工具，不代表慢转写已修复。
 
 新配置默认单ASR worker、3线程，已保存的2线程配置保持原值；按半机逻辑核预算限制最多1–3；单编码器 nice10、threads/filter_threads各1，小核机器共享ASR/编码槽。没有动态CPU控制。macOS `ps` 的100%代表一个核，整机目标计算是**所属服务/capture/encoder/ASR进程CPU总和÷逻辑核数**，不是只看worker，也不包含无关应用负载；约低于50%为静态目标。可用活动监视器或 `ps -p <已确认所属PID列表> -o pid=,%cpu=` 采样求和，未知PID不要杀。短样本结果和速度取舍见[性能记录](segment-benchmark.md)，没有证实长会质量或硬件采集CPU。
 
