@@ -152,3 +152,34 @@ fn native_timeout_checkpoint_survives_queue_cleanup_restart_and_reuses_only_comp
  for changed in [AsrConfig{threads:1,..cfg.clone()},AsrConfig{model_version:"changed-model".into(),..cfg.clone()}] {assert_ne!(cache,super::super::chunks::directory(&checkpoint,&audio,&changed,AudioSource::Mic).unwrap());}
  std::fs::write(&audio,(0..RATE*60).flat_map(|_|0.2f32.to_le_bytes()).collect::<Vec<_>>()).unwrap();assert_ne!(cache,super::super::chunks::directory(&checkpoint,&audio,&cfg,AudioSource::Mic).unwrap());
 }
+
+#[test]
+fn native_measurement_delay_cpu_cache_and_token_counts() {
+ let output=Command::new(std::env::current_exe().unwrap()).args(["--exact","adapters::asr::native::tests::native_measurement_clock_fixture_child","--ignored","--nocapture"]).output().unwrap();
+ assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
+}
+#[test]
+#[ignore = "Owned isolated clock fixture, invoked only by its source-named wrapper"]
+fn native_measurement_clock_fixture_child() {
+ use std::{rc::Rc,cell::RefCell};
+ let temp=tempfile::tempdir().unwrap();let root=temp.path().canonicalize().unwrap();let lib=root.join("measurement.dylib");
+ assert!(Command::new("cc").args(["-shared","-fPIC","-std=c11","tests/asr_fixtures/c_api_fixture.c","-o"]).arg(&lib).status().unwrap().success());
+ let probe=unsafe{Library::new(&lib).unwrap()};let mode=unsafe{probe.get::<unsafe extern "C" fn(i32)>(b"FixtureMode\0").unwrap()};let decodes=unsafe{probe.get::<unsafe extern "C" fn()->i32>(b"FixtureDecodes\0").unwrap()};
+ let audio=root.join("generated.f32");std::fs::write(&audio,(0..RATE*8).flat_map(|_|0.1f32.to_le_bytes()).collect::<Vec<_>>()).unwrap();
+ let cfg=AsrConfig{library_path:lib,threads:2,..Default::default()};let cache_root=root.join("checkpoints");crate::core::paths::private_dir(&cache_root).unwrap();let cache=super::super::chunks::directory(&cache_root,&audio,&cfg,AudioSource::Mic).unwrap();
+ let mut cpu=vec![];
+ for (m,tokens) in [(12,Some(7)),(13,Some(0)),(14,None),(15,None)] {
+  unsafe{mode(m)};let engine=NativeEngine::new(&cfg).unwrap();let values=Rc::new(RefCell::new(vec![]));let sink=values.clone();
+  let result=engine.transcribe_file_measured(&audio,RATE*8,AudioSource::Mic,0,if m==12 {Some(cache.clone())}else{None},Box::new(move|_,_,_,_,t|{if let Some(t)=t {sink.borrow_mut().push(t);}Ok(())})).unwrap();
+  let v=values.borrow();assert_eq!(v.len(),1);assert_eq!(v[0].token_count,tokens);assert_eq!(v[0].output_chars,10);assert_eq!(v[0].decode_samples,8000);assert!(v[0].valid());
+  if m==12 || m==13 {assert!(v[0].native_decode_wall_us>=20000);cpu.push(v[0].process_cpu_us.unwrap());}
+  if m==12 {
+   let bytes=std::fs::read_dir(&cache).unwrap().map(|e|{let p=e.unwrap().path();(p.clone(),std::fs::read(p).unwrap())}).collect::<Vec<_>>();
+   let before=unsafe{decodes()};let hits=Rc::new(RefCell::new(vec![]));let sink=hits.clone();let again=engine.transcribe_file_measured(&audio,RATE*8,AudioSource::Mic,0,Some(cache.clone()),Box::new(move|_,_,_,_,t|{if let Some(t)=t {sink.borrow_mut().push(t);}Ok(())})).unwrap();
+   assert_eq!(serde_json::to_vec(&result).unwrap(),serde_json::to_vec(&again).unwrap());assert_eq!(unsafe{decodes()},before);
+   let hits=hits.borrow();assert_eq!(hits.len(),1);assert!(hits[0].cache_hit);assert_eq!(hits[0].native_decode_wall_us,0);assert_eq!(hits[0].process_cpu_us,Some(0));assert_eq!(hits[0].checkpoint_write_us,0);assert_eq!(hits[0].token_count,None);
+   for (path,old) in bytes {assert_eq!(std::fs::read(path).unwrap(),old);}
+  }
+ }
+ assert!(cpu[1]>cpu[0]+15000,"process CPU distinguishes spin from sleep in owned isolated fixture");
+}

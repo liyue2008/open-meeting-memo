@@ -1,8 +1,130 @@
 // Immutable hashes of the cited Yulu source, with only documented naming substitutions undone.
 use sha2::{Digest, Sha256};
+
+// Only the new input-format adapter and its numeric clock observations are outside
+// the imported kernel. Keep every original kernel hash below unchanged.
+fn without_input_format_boundary(mut source: String) -> String {
+    for label in [
+        "state",
+        "validate-build",
+        "listeners-build",
+        "lifecycle-test",
+        "helpers",
+        "context-buffer",
+        "teardown",
+        "sck-validate",
+    ] {
+        let start = format!("// BEGIN input-format {label}");
+        let end = format!("// END input-format {label}");
+        assert_eq!(source.matches(&start).count(), 1);
+        assert_eq!(source.matches(&end).count(), 1);
+        let a = source[..source.find(&start).unwrap()].rfind('\n').unwrap() + 1;
+        let mut b = source.find(&end).unwrap() + end.len() + 1;
+        if matches!(label, "lifecycle-test" | "helpers") {
+            assert_eq!(source.as_bytes()[b], b'\n');
+            b += 1; // separator belonging only to this inserted method block
+        }
+        source.replace_range(a..b, "");
+    }
+    source = source
+        .replace("[weak self, context] (_, inInputData, _, _, _) in", "[weak self] (_, inInputData, _, _, _) in")
+        .replace("self.handleIO(inInputData, context: context)", "self.handleIO(inInputData)")
+        .replace("private func handleIO(_ inInputData: UnsafePointer<AudioBufferList>, context: TapIOFormatContext)", "private func handleIO(_ inInputData: UnsafePointer<AudioBufferList>)")
+        .replace("if probe { return publishInputFormatReady(context) }", "if probe { return true }")
+        .replace("        return publishInputFormatReady(context)\n    }\n\n    /// Read kAudioTapPropertyUID", "        return true\n    }\n\n    /// Read kAudioTapPropertyUID")
+        .replace("        if buildTap(probe: false) {\n            lock.lock()", "        if buildTap(probe: false) {\n            lifecycleLock.unlock()\n            lock.lock()")
+        .replace("            SYS_READY = true; SYS_ERROR = \"\"\n            lifecycleLock.unlock()\n            log(\"🔊 Sys tap capture started\")", "            SYS_READY = true; SYS_ERROR = \"\"\n            log(\"🔊 Sys tap capture started\")");
+    for (start, end, replacement) in [
+        (
+            "    private let micRateAdapter =",
+            "    // Streaming buffers",
+            "\n",
+        ),
+        (
+            "            micRateAdapter.reset();",
+            "            isRecordingState = true",
+            "",
+        ),
+        (
+            "            if let tail = micRateAdapter.finish()",
+            "            flushBuffersOnQueue()",
+            "",
+        ),
+        (
+            "            guard samples.count % 2 == 0, sourceRate.isFinite,",
+            "            self.sysGapMicFallbackLogged",
+            "            self.sysBuf.append(contentsOf: samples)\n",
+        ),
+        (
+            "            guard let normalized = self.micRateAdapter.convert",
+            "            let gain = self.micGainState",
+            "",
+        ),
+        (
+            "        // The process tap's format, not the requested WAV clock,",
+            "        let abl = UnsafeMutableAudioBufferListPointer",
+            "",
+        ),
+    ] {
+        assert_eq!(
+            source.matches(start).count(),
+            1,
+            "ambiguous input adapter seam"
+        );
+        let a = source.find(start).unwrap();
+        let b = a + source[a..].find(end).unwrap();
+        source.replace_range(a..b, replacement);
+    }
+    source
+        .replace(", sourceRate: Double = 48000", "")
+        .replace(
+            "micSamplesForRecording(normalized,",
+            "micSamplesForRecording(samples,",
+        )
+        .replace(
+            "self.recorder.onMicAudio(samples, sourceRate: buf.format.sampleRate)",
+            "self.recorder.onMicAudio(samples)",
+        )
+        .replace(
+            "recorder.onSysAudio(int16s, sourceRate: asbd?.mSampleRate ?? 0)",
+            "recorder.onSysAudio(int16s)",
+        )
+        .replace(
+            "recorder.onSysAudio(int16s, sourceRate: sourceRate)",
+            "recorder.onSysAudio(int16s)",
+        )
+}
+
+#[test]
+fn process_tap_io_uses_generation_snapshot_without_hal_or_control_lock() {
+    let source = include_str!("../native/yulu-capture/audio_daemon.swift");
+    let start = source.find("    private func handleIO(").unwrap();
+    let end = start + source[start..].find("    /// Pitfall 3 recovery").unwrap();
+    let callback = &source[start..end];
+    for forbidden in [
+        "AudioObjectGetPropertyData",
+        "readInputFormat(",
+        "lifecycleLock",
+        "formatControlQueue.sync",
+    ] {
+        assert!(
+            !callback.contains(forbidden),
+            "new realtime query/wait: {forbidden}"
+        );
+    }
+    assert!(
+        callback.contains("context.isActive")
+            && callback.contains("context.format.rate")
+            && callback.contains("context.format.accepts(abl)")
+    );
+    assert!(source.contains("[weak self, context] (_, inInputData"));
+    assert!(source.contains("kAudioDevicePropertyStreamFormat"));
+    assert!(source.contains("guard let actual = asbd, CapturePCMFormat(actual) != nil"));
+}
+
 #[test]
 fn capture_audio_kernel_matches_reference_source() {
-    let source = include_str!("../native/yulu-capture/audio_daemon.swift")
+    let source = without_input_format_boundary(include_str!("../native/yulu-capture/audio_daemon.swift").to_owned())
         .replace("org.openmeetingmemo.", "com.yulu.")
         .replace("OMM-SysTap", "Yulu-SysTap")
         .replace("let fn = requestedFilename ?? ", "let fn = ")

@@ -716,6 +716,41 @@ class AudioRecorder {
     private var micLevelState: Float = 0
     private var meetingMicStateState: MeetingMicState = .unknown
     private var autoStopRequested = false
+    private let micRateAdapter = CaptureInputRateAdapter()
+    private let sysRateAdapter = CaptureInputRateAdapter()
+    private var sourceClocks: [CaptureInputSource: CaptureSourceClock] = [:]
+    private var sourceFormatRejects: UInt64 = 0
+    private var captureStartedUs: UInt64 = 0
+    private var captureStartedUtcMs: Int64 = 0
+
+    var captureClock: [String: Any] {
+        syncState {
+            var result: [String: Any] = ["schema_version": 1, "target_rate_hz": 48000,
+                "writer_started_utc_ms": captureStartedUtcMs, "elapsed_us": captureStartedUs == 0 ? 0 : DispatchTime.now().uptimeNanoseconds / 1000 - captureStartedUs,
+                "format_rejects": sourceFormatRejects]
+            for (source, clock) in sourceClocks {
+                var fields = clock.document(startedUs: captureStartedUs)
+                fields["accepted_channels"] = source == .mic ? 1 : 2
+                result[source.rawValue] = fields
+            }
+            return result
+        }
+    }
+
+    func rejectSourceFormat() {
+        recorderQueue.async { [weak self] in
+            guard let self = self, self.isRecordingState else { return }
+            self.sourceFormatRejects += 1
+        }
+    }
+
+    private func noteInput(_ source: CaptureInputSource, rate: Double, inputFrames: Int, targetFrames: Int) {
+        let now = DispatchTime.now().uptimeNanoseconds / 1000
+        var clock = sourceClocks[source] ?? CaptureSourceClock(rate: rate, firstInputUs: now, lastInputUs: now)
+        if clock.rate != rate { clock.rateChanges += 1; clock.rate = rate }
+        clock.inputFrames += UInt64(inputFrames); clock.targetFrames += UInt64(targetFrames)
+        clock.lastInputUs = now; sourceClocks[source] = clock
+    }
 
     // Streaming buffers
     private var sysBuf: [Int16] = []
@@ -800,6 +835,10 @@ class AudioRecorder {
             }
             let url = w.url
             writer = w
+            micRateAdapter.reset(); sysRateAdapter.reset(); sourceClocks = [:]; sourceFormatRejects = 0
+            captureStartedUs = DispatchTime.now().uptimeNanoseconds / 1000
+            captureStartedUtcMs = Int64(Date().timeIntervalSince1970 * 1000)
+            w.captureClock = { [weak self] in self?.captureClock ?? [:] }
             isRecordingState = true
             startTime = Date()
             lastMicAudioTime = Date()
@@ -826,6 +865,14 @@ class AudioRecorder {
             isRecordingState = false
             stopSilenceMonitorOnQueue()
             let dur = startTime.map { Int(Date().timeIntervalSince($0)) } ?? 0
+            if let tail = micRateAdapter.finish() {
+                micBuf.append(contentsOf: micSamplesForRecording(tail, gain: micGainState, meetingState: meetingMicStateState))
+                sourceClocks[.mic]?.targetFrames += UInt64(tail.count)
+            } else { sourceFormatRejects += 1 }
+            if let tail = sysRateAdapter.finish() {
+                sysBuf.append(contentsOf: tail.map { Int16(max(-1, min(1, $0)) * Float(Int16.max)) })
+                sourceClocks[.system]?.targetFrames += UInt64(tail.count / 2)
+            } else { sourceFormatRejects += 1 }
             flushBuffersOnQueue()
             let p = writer?.url.path
             writer?.finalize()
@@ -847,10 +894,24 @@ class AudioRecorder {
         }
     }
 
-    func onSysAudio(_ samples: [Int16]) {
+    func onSysAudio(_ samples: [Int16], sourceRate: Double = 48000) {
         recorderQueue.async { [weak self] in
             guard let self = self, self.isRecordingState else { return }
-            self.sysBuf.append(contentsOf: samples)
+            guard samples.count % 2 == 0, sourceRate.isFinite, (8000...192000).contains(sourceRate) else {
+                self.sourceFormatRejects += 1; return
+            }
+            let normalized: [Int16]
+            if sourceRate == 48000 {
+                guard let tail = self.sysRateAdapter.finish() else { self.sourceFormatRejects += 1; return }
+                normalized = tail.isEmpty ? samples : tail.map { Int16(max(-1, min(1, $0)) * Float(Int16.max)) } + samples
+            } else {
+                guard let converted = self.sysRateAdapter.convert(samples.map { Float($0) / Float(Int16.max) }, rate: sourceRate, channels: 2) else {
+                    self.sourceFormatRejects += 1; return
+                }
+                normalized = converted.map { Int16(max(-1, min(1, $0)) * Float(Int16.max)) }
+            }
+            self.noteInput(.system, rate: sourceRate, inputFrames: samples.count / 2, targetFrames: normalized.count / 2)
+            self.sysBuf.append(contentsOf: normalized)
             self.sysGapMicFallbackLogged = false
             if self.calcRMS(samples) > self.silenceThresholdState {
                 self.lastSysAudioTime = Date()
@@ -859,11 +920,15 @@ class AudioRecorder {
         }
     }
 
-    func onMicAudio(_ samples: [Float]) {
+    func onMicAudio(_ samples: [Float], sourceRate: Double = 48000) {
         recorderQueue.async { [weak self] in
             guard let self = self, self.isRecordingState else { return }
+            guard let normalized = self.micRateAdapter.convert(samples, rate: sourceRate, channels: 1) else {
+                self.sourceFormatRejects += 1; return
+            }
+            self.noteInput(.mic, rate: sourceRate, inputFrames: samples.count, targetFrames: normalized.count)
             let gain = self.micGainState
-            let ints = micSamplesForRecording(samples, gain: gain, meetingState: self.meetingMicStateState)
+            let ints = micSamplesForRecording(normalized, gain: gain, meetingState: self.meetingMicStateState)
             self.micBuf.append(contentsOf: ints)
             let rms = self.calcRMS(ints)
             self.micLevelState = self.meetingMicStateState == .muted ? 0 : max(rms, self.micLevelState * 0.72)
@@ -1116,6 +1181,191 @@ final class MeetingMuteMonitor {
     }
 }
 
+private enum CaptureInputFormatFault: String, Error {
+    case unavailable = "capture_source_format_unavailable"
+    case invalid = "capture_source_format_invalid"
+    case changed = "capture_source_format_changed"
+    case buffer = "capture_source_buffer_format_invalid"
+    static func startError(_ sourceError: String) -> String {
+        CaptureInputFormatFault(rawValue: sourceError)?.rawValue ?? "sys_capture_not_ready"
+    }
+    static func stopError(_ sourceError: String, clock: [String: Any]) -> String? {
+        let rejected = clock["format_rejects"] as? UInt64 ?? 0
+        guard let fault = CaptureInputFormatFault(rawValue: sourceError) ?? (rejected > 0 ? .buffer : nil) else { return nil }
+        let accepted = ["mic", "system"].contains { (clock[$0] as? [String: Any])?["target_frames"] as? UInt64 ?? 0 > 0 }
+        return accepted ? nil : fault.rawValue
+    }
+}
+
+private struct CapturePCMFormat {
+    let rate: Double
+    let channels: Int
+    let planar: Bool
+
+    init?(_ a: AudioStreamBasicDescription) {
+        let planar = a.mFormatFlags & kAudioFormatFlagIsNonInterleaved != 0
+        let channels = Int(a.mChannelsPerFrame)
+        guard a.mFormatID == kAudioFormatLinearPCM, a.mSampleRate.isFinite,
+              (8000...192000).contains(a.mSampleRate), (1...2).contains(channels),
+              a.mFormatFlags & kAudioFormatFlagIsFloat != 0,
+              a.mFormatFlags & (kAudioFormatFlagIsBigEndian | kAudioFormatFlagIsSignedInteger) == 0,
+              a.mBitsPerChannel == 32, a.mFramesPerPacket == 1,
+              a.mBytesPerFrame == UInt32((planar ? 1 : channels) * 4),
+              a.mBytesPerPacket == a.mBytesPerFrame else { return nil }
+        self.rate = a.mSampleRate; self.channels = channels; self.planar = planar
+    }
+
+    func accepts(_ buffers: UnsafeMutableAudioBufferListPointer) -> Bool {
+        guard buffers.count == (planar ? channels : 1) else { return false }
+        let width = (planar ? 1 : channels) * MemoryLayout<Float>.size
+        let bytes = Int(buffers[0].mDataByteSize)
+        guard bytes % width == 0, bytes / width <= 262144 else { return false }
+        return buffers.allSatisfy {
+            $0.mNumberChannels == UInt32(planar ? 1 : channels)
+                && Int($0.mDataByteSize) == bytes && (bytes == 0 || $0.mData != nil)
+        }
+    }
+}
+
+// The IOProc block retains its own immutable format, never a mutable global tap ID.
+// Only the active bit is shared; Darwin's atomic primitive adds no callback lock.
+private final class TapIOFormatContext {
+    let format: CapturePCMFormat
+    let generation: UInt64
+    private var active: Int32 = 1
+    init(format: CapturePCMFormat, generation: UInt64) {
+        self.format = format; self.generation = generation
+    }
+    var isActive: Bool { OSAtomicAdd32Barrier(0, &active) == 1 }
+    @discardableResult func invalidate() -> Bool { OSAtomicCompareAndSwap32Barrier(1, 0, &active) }
+}
+
+// Owned by the non-realtime lifecycle lock. Provider injection exercises the same
+// validation/generation path as buildTap, without creating a device or requesting TCC.
+private final class TapInputFormatLifecycle {
+    private(set) var current: TapIOFormatContext?
+    private(set) var fault: CaptureInputFormatFault?
+    private(set) var ready = false
+    private var generation: UInt64 = 0
+    func invalidate() { current?.invalidate(); current = nil; ready = false }
+    func didStart(_ context: TapIOFormatContext) -> Bool {
+        guard current === context, context.isActive else { return false }
+        ready = true; fault = nil; return true
+    }
+    func prepare(_ provider: () -> Result<AudioStreamBasicDescription, CaptureInputFormatFault>) -> TapIOFormatContext? {
+        invalidate()
+        let description: AudioStreamBasicDescription
+        switch provider() {
+        case .success(let value): description = value
+        case .failure(let reason): fault = reason; return nil
+        }
+        guard let format = CapturePCMFormat(description) else { fault = .invalid; return nil }
+        generation &+= 1
+        let context = TapIOFormatContext(format: format, generation: generation)
+        current = context; fault = nil
+        return context
+    }
+}
+
+// Adapt the device clock before the imported 48 kHz PCM pairing/WAV kernel.
+final class CaptureInputRateAdapter {
+    private var converter: AVAudioConverter?
+    private var inputRate: Double = 0
+    private var channelCount = 0
+    private var inputFrames: UInt64 = 0
+    private var emittedFrames: UInt64 = 0
+
+    func reset() { converter = nil; inputRate = 0; channelCount = 0; inputFrames = 0; emittedFrames = 0 }
+
+    func convert(_ samples: [Float], rate: Double, channels: Int) -> [Float]? {
+        guard rate.isFinite, (8000...192000).contains(rate), (1...2).contains(channels),
+              samples.count % channels == 0, samples.count / channels <= 262144 else { return nil }
+        if samples.isEmpty { return [] }
+        var previous: [Float] = []
+        if rate != inputRate || channels != channelCount {
+            guard let tail = finish() else { return nil }; previous = tail
+        }
+        if rate == 48000 { return previous.isEmpty ? samples : previous + samples }
+        if converter == nil {
+            guard let input = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate,
+                                            channels: AVAudioChannelCount(channels), interleaved: true),
+                  let output = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000,
+                                             channels: AVAudioChannelCount(channels), interleaved: true),
+                  let next = AVAudioConverter(from: input, to: output) else { return nil }
+            next.primeMethod = .none
+            converter = next; inputRate = rate; channelCount = channels
+        }
+        guard let converter = converter else { return nil }
+        let frames = samples.count / channels
+        inputFrames += UInt64(frames)
+        guard let input = AVAudioPCMBuffer(pcmFormat: converter.inputFormat,
+                                           frameCapacity: AVAudioFrameCount(frames)),
+              let pointer = input.mutableAudioBufferList.pointee.mBuffers.mData else { return nil }
+        input.frameLength = AVAudioFrameCount(frames)
+        samples.withUnsafeBytes { pointer.copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
+        let capacity = AVAudioFrameCount(ceil(Double(frames) * 48000 / rate)) + 256
+        guard let output = AVAudioPCMBuffer(pcmFormat: converter.outputFormat,
+                                            frameCapacity: capacity) else { return nil }
+        var supplied = false
+        var converted: [Float] = previous
+        // noDataNow preserves the converter's fractional phase across callbacks; endOfStream would reset it.
+        for _ in 0..<4 {
+            output.frameLength = 0
+            var error: NSError?
+            let status = converter.convert(to: output, error: &error) { _, state in
+                if supplied { state.pointee = .noDataNow; return nil }
+                supplied = true; state.pointee = .haveData; return input
+            }
+            guard error == nil, status != .error,
+                  let data = output.audioBufferList.pointee.mBuffers.mData else { return nil }
+            emittedFrames += UInt64(output.frameLength)
+            converted.append(contentsOf: UnsafeBufferPointer(start: data.assumingMemoryBound(to: Float.self),
+                                                            count: Int(output.frameLength) * channels))
+            if status != .haveData { return converted }
+        }
+        return nil
+    }
+
+    func finish() -> [Float]? {
+        guard let converter = converter else { return [] }
+        defer { reset() }
+        guard let output = AVAudioPCMBuffer(pcmFormat: converter.outputFormat, frameCapacity: 4096) else { return nil }
+        var result: [Float] = []
+        for _ in 0..<4 {
+            output.frameLength = 0
+            var error: NSError?
+            let status = converter.convert(to: output, error: &error) { _, state in
+                state.pointee = .endOfStream; return nil
+            }
+            guard error == nil, status != .error,
+                  let data = output.audioBufferList.pointee.mBuffers.mData else { return nil }
+            result.append(contentsOf: UnsafeBufferPointer(start: data.assumingMemoryBound(to: Float.self), count: Int(output.frameLength) * channelCount))
+            if status == .endOfStream {
+                // End-of-stream includes filter padding. Keep the real input clock, not that padding.
+                let expected = UInt64((Double(inputFrames) * 48000 / inputRate).rounded())
+                let remaining = expected > emittedFrames ? expected - emittedFrames : 0
+                return Array(result.prefix(Int(remaining) * channelCount))
+            }
+        }
+        return nil
+    }
+}
+
+enum CaptureInputSource: String { case mic, system }
+struct CaptureSourceClock {
+    var rate: Double
+    var inputFrames: UInt64 = 0
+    var targetFrames: UInt64 = 0
+    var rateChanges = 0
+    var firstInputUs: UInt64
+    var lastInputUs: UInt64
+    func document(startedUs: UInt64) -> [String: Any] {
+        ["rate_hz": rate, "input_frames": inputFrames, "target_frames": targetFrames,
+         "rate_changes": rateChanges, "input_elapsed_us": lastInputUs - firstInputUs,
+         "first_accepted_offset_us": firstInputUs - startedUs, "last_accepted_offset_us": lastInputUs - startedUs]
+    }
+}
+
 class MicCapture {
     let recorder: AudioRecorder
     private let lifecycleQueue = DispatchQueue(label: "org.openmeetingmemo.mic-capture.lifecycle")
@@ -1282,7 +1532,7 @@ class MicCapture {
                 let divisor = Float(channels)
                 samples = mixed.map { $0 / divisor }
             }
-            self.recorder.onMicAudio(samples)
+            self.recorder.onMicAudio(samples, sourceRate: buf.format.sampleRate)
         }
 
         do {
@@ -1345,6 +1595,15 @@ class SysAudioOutput: NSObject, SCStreamOutput {
     func stream(_ s: SCStream, didOutputSampleBuffer buf: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .audio else { return }
         let asbd = buf.formatDescription.flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee }
+        // BEGIN input-format sck-validate
+        guard let actual = asbd, CapturePCMFormat(actual) != nil else {
+            SYS_READY = false; SYS_ERROR = CaptureInputFormatFault.invalid.rawValue
+            recorder.rejectSourceFormat(); return
+        }
+        if SYS_ERROR == CaptureInputFormatFault.invalid.rawValue {
+            SYS_READY = true; SYS_ERROR = ""
+        }
+        // END input-format sck-validate
         let flags = asbd?.mFormatFlags ?? 0
         let channels = Int(asbd?.mChannelsPerFrame ?? 2)
         let isFloat = (flags & kAudioFormatFlagIsFloat) != 0
@@ -1383,7 +1642,7 @@ class SysAudioOutput: NSObject, SCStreamOutput {
         }
         guard !stereoFloats.isEmpty else { return }
         let int16s = stereoFloats.map { Int16(max(-1.0, min(1.0, $0)) * Float(Int16.max)) }
-        recorder.onSysAudio(int16s)
+        recorder.onSysAudio(int16s, sourceRate: asbd?.mSampleRate ?? 0)
     }
 }
 
@@ -1642,6 +1901,11 @@ final class ProcessTapBackend: CaptureBackend {
     private var tapID: AudioObjectID = 0
     private var aggID: AudioObjectID = 0
     private var ioProcID: AudioDeviceIOProcID?
+    // BEGIN input-format state
+    private let inputFormats = TapInputFormatLifecycle()
+    private let formatControlQueue = DispatchQueue(label: "org.openmeetingmemo.tap-format")
+    private var formatListeners: [(AudioObjectID, AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
+    // END input-format state
 
     private let lock = NSLock()
     private let lifecycleLock = NSLock()
@@ -1716,7 +1980,6 @@ final class ProcessTapBackend: CaptureBackend {
         teardown()
 
         if buildTap(probe: false) {
-            lifecycleLock.unlock()
             lock.lock()
             running = true
             rebuilding = false
@@ -1724,6 +1987,7 @@ final class ProcessTapBackend: CaptureBackend {
             zeroRecoveryPolicy.resetForRecording()
             lock.unlock()
             SYS_READY = true; SYS_ERROR = ""
+            lifecycleLock.unlock()
             log("🔊 Sys tap capture started")
         } else {
             lifecycleLock.unlock()
@@ -1791,18 +2055,26 @@ final class ProcessTapBackend: CaptureBackend {
         }
         aggID = agg
 
+        // BEGIN input-format validate-build
+        guard let context = prepareInputFormat({ self.readInputFormat(agg) }) else {
+            teardown(); return false
+        }
+        // END input-format validate-build
         // A bare permission probe only needs the tap+aggregate to have been
         // accepted by the HAL (that is what forces the TCC handshake). Skip the
         // IO proc so the probe never streams a single frame.
-        if probe { return true }
+        if probe { return publishInputFormatReady(context) }
+        // BEGIN input-format listeners-build
+        guard installFormatListeners(context) else { teardown(); return false }
+        // END input-format listeners-build
 
         // 5. Install an IO proc that converts Float32 → interleaved Int16 and feeds
         //    the existing sink. The block runs on a realtime CoreAudio thread.
         var proc: AudioDeviceIOProcID?
         let procErr = AudioDeviceCreateIOProcIDWithBlock(&proc, agg, nil) {
-            [weak self] (_, inInputData, _, _, _) in
+            [weak self, context] (_, inInputData, _, _, _) in
             guard let self = self else { return }
-            self.handleIO(inInputData)
+            self.handleIO(inInputData, context: context)
         }
         guard procErr == noErr, let p = proc else {
             _lastError = "AudioDeviceCreateIOProcIDWithBlock failed (OSStatus \(procErr))"
@@ -1817,7 +2089,7 @@ final class ProcessTapBackend: CaptureBackend {
             teardown()
             return false
         }
-        return true
+        return publishInputFormatReady(context)
     }
 
     /// Read kAudioTapPropertyUID off the tap object → its CFString UID.
@@ -1836,9 +2108,210 @@ final class ProcessTapBackend: CaptureBackend {
         return uidCF as String
     }
 
+    // BEGIN input-format lifecycle-test
+    func inputFormatLifecycleSelfTest() {
+        let directory = RECORDING_DIR.appendingPathComponent("format-lifecycle")
+        try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        recorder.configure(silenceSeconds: 3600, silenceThreshold: 0, outputDir: directory)
+        assert(saveBridge(["session_id": UUID().uuidString.lowercased(), "origin_instance_id": SERVICE_OWNER, "files": [], "recording": true]))
+        assert(recorder.start(title: "Synthetic") != nil)
+        var queries = 0
+        func description(_ rate: Double) -> AudioStreamBasicDescription {
+            let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: 2, interleaved: true)!
+            return withExtendedLifetime(format) { format.streamDescription.pointee }
+        }
+        func prepare(_ rate: Double) -> TapIOFormatContext {
+            formatControlQueue.sync {
+                let value = prepareInputFormat { queries += 1; return .success(description(rate)) }!
+                assert(!inputFormats.ready)
+                assert(publishInputFormatReady(value)) // injected successful device activation; no native device is created
+                assert(SYS_READY && SYS_ERROR.isEmpty)
+                return value
+            }
+        }
+        func feed(_ context: TapIOFormatContext, count: Int) {
+            let frames = Int(context.format.rate / 100)
+            let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: context.format.rate, channels: 2, interleaved: true)!
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames))!
+            buffer.frameLength = AVAudioFrameCount(frames)
+            let values = buffer.mutableAudioBufferList.pointee.mBuffers.mData!.assumingMemoryBound(to: Float.self)
+            for i in 0..<(frames * 2) { values[i] = 0.125 }
+            let before = queries
+            for _ in 0..<count { handleIO(buffer.audioBufferList, context: context) }
+            assert(queries == before, "IO callback must never call the format provider")
+        }
+        func notifyFormatChange(_ context: TapIOFormatContext) {
+            formatControlQueue.sync {
+                var address = AudioObjectPropertyAddress(mSelector: kAudioTapPropertyFormat, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+                withUnsafePointer(to: &address) { inputFormatListener(context)(1, $0) }
+            }
+        }
+        var old: TapIOFormatContext? = prepare(44100)
+        weak var retainedOld = old
+        var queuedOld: (() -> Void)? = { [old = old!] in feed(old, count: 1) }
+        feed(old!, count: 100)
+        notifyFormatChange(old!)
+        assert(!SYS_READY && SYS_ERROR == CaptureInputFormatFault.changed.rawValue && !inputFormats.ready)
+        var current = prepare(48000)
+        assert(!old!.isActive && !inputFormats.didStart(old!))
+        let before = recorder.captureClock
+        queuedOld!() // callback retained across destroy: inactive generation cannot enqueue stale format
+        assert((recorder.captureClock["system"] as! [String: Any])["input_frames"] as! UInt64 == (before["system"] as! [String: Any])["input_frames"] as! UInt64)
+        old = nil; assert(retainedOld != nil); queuedOld = nil; assert(retainedOld == nil)
+        feed(current, count: 1000)
+        notifyFormatChange(current)
+        assert(!SYS_READY && !current.isActive)
+        current = prepare(44100); feed(current, count: 100)
+        assert(queries == 3)
+        formatControlQueue.sync {
+            SYS_READY = true; SYS_ERROR = ""
+            assert(prepareInputFormat { queries += 1; return .failure(.unavailable) } == nil)
+            assert(!SYS_READY && SYS_ERROR == CaptureInputFormatFault.unavailable.rawValue && !inputFormats.ready)
+            assert(CaptureInputFormatFault.startError(SYS_ERROR) == CaptureInputFormatFault.unavailable.rawValue)
+            assert(CaptureInputFormatFault.startError("legacy permission failure") == "sys_capture_not_ready")
+            assert(CaptureInputFormatFault.stopError(SYS_ERROR, clock: [:]) == CaptureInputFormatFault.unavailable.rawValue)
+            assert(CaptureInputFormatFault.stopError(SYS_ERROR, clock: recorder.captureClock) == nil)
+            for field in 0..<4 {
+                var invalid = description(44100)
+                if field == 0 { invalid.mSampleRate = .nan }
+                if field == 1 { invalid.mChannelsPerFrame = 3 }
+                if field == 2 { invalid.mBitsPerChannel = 16 }
+                if field == 3 { invalid.mBytesPerFrame = 1 }
+                assert(prepareInputFormat { queries += 1; return .success(invalid) } == nil)
+                assert(!SYS_READY && SYS_ERROR == CaptureInputFormatFault.invalid.rawValue && !inputFormats.ready)
+            }
+        }
+        current = prepare(48000); feed(current, count: 100)
+        // A malformed actual IO buffer takes the production off-RT fault path.
+        var malformed = AudioBufferList(mNumberBuffers: 1, mBuffers: AudioBuffer(mNumberChannels: 1, mDataByteSize: 0, mData: nil))
+        withUnsafePointer(to: &malformed) { handleIO($0, context: current) }
+        formatControlQueue.sync {} // wait only in this non-RT synthetic test
+        assert(!current.isActive && !SYS_READY && SYS_ERROR == CaptureInputFormatFault.buffer.rawValue)
+        current = prepare(44100); feed(current, count: 100)
+        let clock = recorder.captureClock
+        let system = clock["system"] as! [String: Any]
+        assert(system["input_frames"] as! UInt64 > 0 && system["target_frames"] as! UInt64 > 0)
+        assert(system["rate_changes"] as! Int >= 3)
+        assert(clock["format_rejects"] as! UInt64 >= 6)
+        assert(queries == 10)
+        _ = recorder.stop()
+        assert(recorder.start(title: "SyntheticEmpty") != nil)
+        // A stop may race the off-RT rebuild. Hold that queue and verify the IO fault is already observable.
+        let entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+        formatControlQueue.async { entered.signal(); _ = release.wait(timeout: .now() + 5) }
+        assert(entered.wait(timeout: .now() + 5) == .success)
+        withUnsafePointer(to: &malformed) { handleIO($0, context: current) }
+        _ = recorder.stop()
+        assert(CaptureInputFormatFault.stopError("", clock: recorder.captureClock) == CaptureInputFormatFault.buffer.rawValue)
+        release.signal()
+        formatControlQueue.sync { teardown() }
+        assert(!current.isActive)
+        print("input-format-lifecycle-self-test passed; provider_calls=10; actual_IO_callbacks=1400; route_listener_callbacks=2; stale_context_rejected=true; query_failure_and_invalid_format_not_ready=true; safe_recovery=true")
+    }
+    // END input-format lifecycle-test
+
+    // BEGIN input-format helpers
+    private func publishInputFormatReady(_ context: TapIOFormatContext) -> Bool {
+        guard inputFormats.didStart(context) else {
+            _lastError = CaptureInputFormatFault.buffer.rawValue
+            SYS_READY = false; SYS_ERROR = _lastError
+            teardown(); return false
+        }
+        SYS_READY = true; SYS_ERROR = ""; _lastError = ""
+        return true
+    }
+
+    private func readInputFormat(_ aggregate: AudioObjectID) -> Result<AudioStreamBasicDescription, CaptureInputFormatFault> {
+        // Actual aggregate input stream ASBD, never the device's nominal clock.
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreamFormat,
+            mScope: kAudioDevicePropertyScopeInput, mElement: kAudioObjectPropertyElementMain)
+        var description = AudioStreamBasicDescription()
+        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        guard AudioObjectGetPropertyData(aggregate, &address, 0, nil, &size, &description) == noErr,
+              size == UInt32(MemoryLayout<AudioStreamBasicDescription>.size) else { return .failure(.unavailable) }
+        return .success(description)
+    }
+
+    private func prepareInputFormat(_ provider: () -> Result<AudioStreamBasicDescription, CaptureInputFormatFault>) -> TapIOFormatContext? {
+        guard let context = inputFormats.prepare(provider) else {
+            _lastError = (inputFormats.fault ?? .invalid).rawValue
+            SYS_READY = false; SYS_ERROR = _lastError
+            recorder.rejectSourceFormat()
+            return nil
+        }
+        return context
+    }
+
+    private func inputFormatListener(_ context: TapIOFormatContext) -> AudioObjectPropertyListenerBlock {
+        { [weak self, context] _, _ in
+            context.invalidate()
+            self?.rebuildInputFormat(context, reason: .changed)
+        }
+    }
+
+    private func installFormatListeners(_ context: TapIOFormatContext) -> Bool {
+        for (object, selector, scope) in [
+            (tapID, kAudioTapPropertyFormat, kAudioObjectPropertyScopeGlobal),
+            (aggID, kAudioDevicePropertyStreamFormat, kAudioDevicePropertyScopeInput)
+        ] {
+            var address = AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
+            let listener = inputFormatListener(context)
+            guard AudioObjectAddPropertyListenerBlock(object, &address, formatControlQueue, listener) == noErr else {
+                _lastError = CaptureInputFormatFault.unavailable.rawValue
+                return false
+            }
+            formatListeners.append((object, address, listener))
+        }
+        return true
+    }
+
+    private func rejectInputFormat(_ context: TapIOFormatContext, reason: CaptureInputFormatFault) {
+        guard context.invalidate() else { return }
+        // Enqueue the numeric fault before a concurrent stop; never wait for the control queue from IO.
+        recorder.rejectSourceFormat()
+        formatControlQueue.async { [weak self, context] in self?.rebuildInputFormat(context, reason: reason) }
+    }
+
+    private func rebuildInputFormat(_ context: TapIOFormatContext, reason: CaptureInputFormatFault) {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        guard inputFormats.current === context else { return }
+        SYS_READY = false; SYS_ERROR = reason.rawValue; _lastError = reason.rawValue
+        if reason != .buffer { recorder.rejectSourceFormat() }
+        lock.lock(); let restart = running; rebuilding = restart; lock.unlock()
+        teardown() // deactivate before stop/destroy; queued old blocks retain only an inactive context
+        guard restart else { return }
+        var rebuilt = false
+        for delay in [0.0, 0.1, 0.3] {
+            if delay > 0 { Thread.sleep(forTimeInterval: delay) }
+            lock.lock(); let current = running; lock.unlock()
+            guard current else { break }
+            if buildTap(probe: false) { rebuilt = true; break }
+        }
+        lock.lock()
+        let current = running
+        rebuilding = false
+        if rebuilt && current { zeroRecoveryPolicy.rearmAfterRecovery() }
+        lock.unlock()
+        if rebuilt && current { SYS_READY = true; SYS_ERROR = "" }
+        else {
+            teardown()
+            SYS_READY = false; SYS_ERROR = _lastError
+        }
+    }
+    // END input-format helpers
+
     // ── IO callback: Float32 AudioBufferList → interleaved Int16 → sink ──
-    private func handleIO(_ inInputData: UnsafePointer<AudioBufferList>) {
+    private func handleIO(_ inInputData: UnsafePointer<AudioBufferList>, context: TapIOFormatContext) {
+        // The process tap's format, not the requested WAV clock, is bound to this IOProc generation.
+        guard context.isActive else { return }
+        let sourceRate = context.format.rate
         let abl = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inInputData))
+        // BEGIN input-format context-buffer
+        guard context.format.accepts(abl) else {
+            rejectInputFormat(context, reason: .buffer); return
+        }
+        // END input-format context-buffer
         guard abl.count > 0 else { return }
 
         // Gather Float32 samples across the buffer list. A tap aggregate may
@@ -1924,7 +2397,7 @@ final class ProcessTapBackend: CaptureBackend {
         )
         lock.unlock()
         let int16s = stereoFloats.map { Int16(max(-1.0, min(1.0, $0)) * Float(Int16.max)) }
-        recorder.onSysAudio(int16s)
+        recorder.onSysAudio(int16s, sourceRate: sourceRate)
     }
 
     /// Pitfall 3 recovery: full teardown then rebuild of the tap+aggregate stack.
@@ -1981,6 +2454,13 @@ final class ProcessTapBackend: CaptureBackend {
     /// 02-RESEARCH.md:399-403. Safe to call repeatedly (idempotent on zeroed ids)
     /// and from both stopCapture() and the Pitfall-3 rebuild path.
     private func teardown() {
+        // BEGIN input-format teardown
+        inputFormats.invalidate()
+        for (object, var address, listener) in formatListeners {
+            AudioObjectRemovePropertyListenerBlock(object, &address, formatControlQueue, listener)
+        }
+        formatListeners.removeAll()
+        // END input-format teardown
         if let proc = ioProcID {
             if aggID != 0 {
                 AudioDeviceStop(aggID, proc)
@@ -2075,6 +2555,7 @@ final class RollingRecordingWriter {
     private var offset = 0
     private var sequence = 0
     private(set) var failed = false
+    var captureClock: (() -> [String: Any])?
     var url: URL { current?.url ?? directory.targetURL.appendingPathComponent(filename) }
     init?(directory: AnchoredRecordingDirectory, filename: String, maxFrames: Int,
           sequence: Int = 0, offsetFrames: Int = 0, title: String = "meeting") {
@@ -2116,7 +2597,7 @@ final class RollingRecordingWriter {
                 "session_id": bridge["session_id"] ?? "", "instance_id": bridge["origin_instance_id"] ?? SERVICE_OWNER,
                 "sequence": sequence,
                 "offset_frames": offset, "frame_count": frames, "sample_rate": 48000,
-                "path": writer.url.path]
+                "path": writer.url.path, "capture_clock": captureClock?() ?? [:]]
             guard let data = try? JSONSerialization.data(withJSONObject: document),
                   directory.publishDescriptor(named: writer.url.lastPathComponent + ".sealed.json", data: data) else {
                 failed = true; bridgeError = "capture_recovery_state_failed"; return
@@ -2549,8 +3030,9 @@ class SocketServer {
             // a user pressed record could be missing from the file.
             onRecordingStart?()
             if !SYS_READY && !SYS_DISABLED {
+                let sourceError = CaptureInputFormatFault.startError(SYS_ERROR)
                 onRecordingStop?()
-                resp = ["error":"sys_capture_not_ready", "sysReady": SYS_READY, "sysError": SYS_ERROR, "micReady": MIC_READY, "micError": MIC_ERROR]
+                resp = ["error":sourceError, "sysReady": SYS_READY, "sysError": SYS_ERROR, "micReady": MIC_READY, "micError": MIC_ERROR]
             } else if !MIC_READY {
                 onRecordingStop?()
                 resp = ["error":"mic_capture_not_ready", "sysReady": SYS_READY, "sysError": SYS_ERROR, "micReady": MIC_READY, "micError": MIC_ERROR]
@@ -2579,18 +3061,20 @@ class SocketServer {
             }
             let wasRecording = recorder.isRecording
             let (p, d) = recorder.stop()
+            let sourceStopError = CaptureInputFormatFault.stopError(SYS_ERROR, clock: recorder.captureClock)
             // Only tear down capture if we actually started it. A spurious "stop"
             // (e.g. client retry after a start_failed) would otherwise log a fake
             // "Sys capture idle" / "Mic idle" while neither was running.
             if wasRecording { onRecordingStop?() }
             guard bridgeError.isEmpty else { send(c, ["error": "capture_recovery_state_failed"]); return }
+            if let fault = sourceStopError { send(c, ["error": fault]); return }
             var bridge = readBridge(); bridge["recording"] = false
             guard saveBridge(bridge) else { send(c, ["error": "capture_recovery_state_failed"]); return }
             resp = ["status":"stopped", "file": p ?? "", "duration": d,
                     "paged_segments": true, "session_id": bridge["session_id"] ?? "",
                     "instance_id": SERVICE_OWNER]
         case "status":
-            resp = ["recording": recorder.isRecording, "file": recorder.currentFilePath, "micLevel": recorder.micLevel, "sysReady": SYS_READY, "sysError": SYS_ERROR, "micReady": MIC_READY, "micError": MIC_ERROR, "meetingMicState": recorder.meetingMicState.rawValue, "serviceOwner": SERVICE_OWNER, "pid": ProcessInfo.processInfo.processIdentifier, "productVersion": PRODUCT_VERSION, "bundleVersion": BUNDLE_VERSION, "captureIPCVersion": CAPTURE_IPC_VERSION, "bridgeError": bridgeError, "session_id": readBridge()["session_id"] ?? "", "instance_id": SERVICE_OWNER, "paged_segments": true]
+            resp = ["recording": recorder.isRecording, "file": recorder.currentFilePath, "micLevel": recorder.micLevel, "capture_clock": recorder.captureClock, "sysReady": SYS_READY, "sysError": SYS_ERROR, "micReady": MIC_READY, "micError": MIC_ERROR, "meetingMicState": recorder.meetingMicState.rawValue, "serviceOwner": SERVICE_OWNER, "pid": ProcessInfo.processInfo.processIdentifier, "productVersion": PRODUCT_VERSION, "bundleVersion": BUNDLE_VERSION, "captureIPCVersion": CAPTURE_IPC_VERSION, "bridgeError": bridgeError, "session_id": readBridge()["session_id"] ?? "", "instance_id": SERVICE_OWNER, "paged_segments": true]
         case "sealed_segments":
             guard json["instance_id"] as? String == SERVICE_OWNER else { send(c, ["error": "capture_instance_conflict"]); return }
             _ = recorder.currentFilePath
@@ -2911,6 +3395,67 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 // ─── 入口 ──────────────────────────────────────────────
 
+if CommandLine.arguments.contains("--input-format-lifecycle-self-test") {
+    if #available(macOS 14.4, *) {
+        ProcessTapBackend(recorder: AudioRecorder()).inputFormatLifecycleSelfTest()
+        exit(0)
+    }
+    exit(1)
+}
+
+if CommandLine.arguments.contains("--input-format-self-test") {
+    let adapter = CaptureInputRateAdapter()
+    var outputFrames = 0
+    for _ in 0..<100 {
+        let output = adapter.convert([Float](repeating: 0.125, count: 441), rate: 44100, channels: 1)!
+        outputFrames += output.count
+    }
+    assert(abs(outputFrames - 48000) <= 64, "44100 input frames must represent one second at 48000 Hz, got \(outputFrames)")
+    assert(adapter.convert([], rate: 44100, channels: 1) == [])
+    assert(adapter.convert([0], rate: .nan, channels: 1) == nil)
+    assert(adapter.convert([0], rate: 44100, channels: 2) == nil)
+    adapter.reset()
+    let passthrough: [Float] = [0.125, -0.25, 0.375, -0.5]
+    assert(adapter.convert(passthrough, rate: 48000, channels: 2) == passthrough)
+    adapter.reset()
+    var longFrames = 0
+    let chunk = [Float](repeating: 0.125, count: 4410)
+    for _ in 0..<18000 { longFrames += adapter.convert(chunk, rate: 44100, channels: 1)!.count }
+    // Apple buffers a bounded filter tail; flush it once, never reset per callback.
+    assert(abs(longFrames - 1800 * 48000) <= 512, "30-minute streaming tail exceeds 512 frames: \(longFrames)")
+    longFrames += adapter.finish()!.count
+    assert(abs(longFrames - 1800 * 48000) <= 1, "30-minute finalized clock drift: \(longFrames)")
+    assert(adapter.finish() == [])
+    adapter.reset()
+    let restartedFrames = adapter.convert(chunk, rate: 44100, channels: 1)!.count
+    assert(abs(restartedFrames - 4800) <= 512)
+    for (micRate, sysRate) in [(44100.0, 48000.0), (48000.0, 44100.0), (48000.0, 48000.0)] {
+        let recorder = AudioRecorder()
+        let directory = RECORDING_DIR.appendingPathComponent(UUID().uuidString)
+        try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        recorder.configure(silenceSeconds: 3600, silenceThreshold: 0, outputDir: directory)
+        assert(saveBridge(["session_id": UUID().uuidString.lowercased(), "origin_instance_id": SERVICE_OWNER, "files": [], "recording": true]))
+        let path = recorder.start(title: "Synthetic")!
+        for _ in 0..<100 {
+            recorder.onMicAudio([Float](repeating: 0.125, count: Int(micRate / 100)), sourceRate: micRate)
+            recorder.onSysAudio([Int16](repeating: 2000, count: Int(sysRate / 100) * 2), sourceRate: sysRate)
+        }
+        _ = recorder.stop()
+        let wave = try! Data(contentsOf: URL(fileURLWithPath: path))
+        let frames = (wave.count - 82) / 4
+        assert(abs(frames - 48000) <= 64, "paired stream clock drift: \(frames)")
+        func sample(_ index: Int) -> Int16 { Int16(bitPattern: UInt16(wave[82 + index * 2]) | UInt16(wave[83 + index * 2]) << 8) }
+        assert(sample(2000) > 0 && abs(Int(sample(2001)) - 2000) <= 2, "mic/system pairing changed")
+        let descriptor = try! JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path + ".sealed.json"))) as! [String: Any]
+        let clock = descriptor["capture_clock"] as! [String: Any]
+        assert(clock["target_rate_hz"] as! Int == 48000 && clock["format_rejects"] as! Int == 0)
+        assert((clock["mic"] as! [String: Any])["rate_hz"] as! Double == micRate)
+        assert((clock["system"] as! [String: Any])["rate_hz"] as! Double == sysRate)
+        assert((descriptor["frame_count"] as! Int) == frames)
+    }
+    print("input-format-self-test passed; virtual30min=\(longFrames) frames; streamingLatencyBound=512 target frames; finalizedErrorBound=1 frame"); exit(0)
+}
+
 if CommandLine.arguments.count == 3,
    CommandLine.arguments[1] == "--inspect-recording-start-gate" {
     let gate = acquireRecordingStartGate(
@@ -3120,6 +3665,10 @@ if CommandLine.arguments.contains("--self-test") {
 }
 
 if CommandLine.arguments.contains("--callback-self-test") {
+    let marker = requiredDirectory("OMM_TEST_ROOT").appendingPathComponent("callback-ready")
+    let fd = open(marker.path, O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, 0o600)
+    guard fd >= 0 else { exit(2) }; close(fd)
+    print("callback fixture reached producer start utc_ms=\(Int(Date().timeIntervalSince1970 * 1000))"); fflush(stdout)
     exit(launchMeetingSilencePrompt() ? 0 : 1)
 }
 if CommandLine.arguments.contains("--ipc-fixture") {
@@ -3137,6 +3686,7 @@ if CommandLine.arguments.contains("--ipc-fixture") {
         _ = rec.currentFilePath // barrier: synthetic payload and current state are ready together
     }
     server.finishStartup()
+    print("IPC fixture endpoint ready utc_ms=\(Int(Date().timeIntervalSince1970 * 1000))"); fflush(stdout)
     dispatchMain()
 }
 

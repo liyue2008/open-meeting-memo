@@ -21,6 +21,43 @@ pub struct SegmentProgress {
     pub activity: Option<AsrWorkerEvent>,
 }
 impl Store {
+    /// Read-only registration gate; a pre-segmentation database needs no migration.
+    pub fn has_unsealed_segmented_sessions(&self) -> Result<bool> {
+        let kind: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT type FROM sqlite_master WHERE name='segmented_sessions'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(kind) = kind else { return Ok(false) };
+        if kind != "table" {
+            return Err(OmmError::invalid("segmented session schema is invalid"));
+        }
+        let seal_column: Option<(String, i64)> = self.conn.query_row(
+            "SELECT type, \"notnull\" FROM pragma_table_info('segmented_sessions') WHERE name='sealed'",
+            [], |r| Ok((r.get(0)?,r.get(1)?))
+        ).optional()?;
+        if !seal_column
+            .is_some_and(|(kind, required)| kind.eq_ignore_ascii_case("INTEGER") && required == 1)
+        {
+            return Err(OmmError::invalid(
+                "segmented session seal schema is invalid",
+            ));
+        }
+        let invalid: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM segmented_sessions WHERE sealed IS NULL OR typeof(sealed)!='integer' OR sealed NOT IN(0,1))", [], |r| r.get(0)
+        )?;
+        if invalid {
+            return Err(OmmError::invalid("segmented session seal state is invalid"));
+        }
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM segmented_sessions WHERE sealed=0)",
+            [],
+            |r| r.get(0),
+        )?)
+    }
     pub(super) fn initialize_segments(&self) -> Result<()> {
         self.conn.execute_batch("CREATE TABLE IF NOT EXISTS segmented_sessions(session TEXT PRIMARY KEY REFERENCES meetings(id),parent TEXT NOT NULL REFERENCES tasks(id),sealed INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS segment_jobs(session TEXT NOT NULL REFERENCES segmented_sessions(session),sequence INTEGER NOT NULL,offset_frames INTEGER NOT NULL,frames INTEGER NOT NULL,audio TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'queued',lease TEXT,expires INTEGER,retries INTEGER NOT NULL DEFAULT 0,next_at INTEGER NOT NULL DEFAULT 0,error TEXT,staging TEXT,destination TEXT,hash TEXT,PRIMARY KEY(session,sequence));

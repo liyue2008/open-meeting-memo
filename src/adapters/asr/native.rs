@@ -92,12 +92,20 @@ struct DecodeState {
     batch: Vec<(usize, usize)>,
     result: Vec<TranscriptSegment>,
     text_bytes: usize,
-    progress: Box<dyn FnMut(usize, usize, u64, u64) -> Result<()>>,
+    progress: MeasuredProgress,
     cache: Option<std::path::PathBuf>,
     decoded: usize,
     vad_spans: usize,
     speech_samples: u64,
     started: std::time::Instant,
+}
+type MeasuredProgress = Box<dyn FnMut(usize, usize, u64, u64, Option<AsrChunkTiming>) -> Result<()>>;
+fn elapsed_us(start: std::time::Instant) -> u64 {start.elapsed().as_micros().min(u64::MAX as u128) as u64}
+fn process_cpu_us() -> Option<u64> {
+    let mut r:libc::rusage=unsafe{std::mem::zeroed()};
+    if unsafe{libc::getrusage(libc::RUSAGE_SELF,&mut r)}!=0{return None;}
+    let us=|t:libc::timeval|u64::try_from(t.tv_sec).ok()?.checked_mul(1_000_000)?.checked_add(u64::try_from(t.tv_usec).ok()?);
+    us(r.ru_utime)?.checked_add(us(r.ru_stime)?)
 }
 pub(super) struct NativeEngine {
     api: Api,
@@ -218,17 +226,22 @@ impl NativeEngine {
     fn decode_batch(&self, state: &mut DecodeState) -> Result<()> {
         use std::io::{Read, Seek, SeekFrom};
         let mut spans = vec![];
+        let mut timings=vec![];
         for (start, end) in std::mem::take(&mut state.batch) {
+            let lookup=std::time::Instant::now();
             let cached = state
                 .cache
                 .as_ref()
                 .map(|root| super::chunks::read(root, start, end))
                 .transpose()?
                 .flatten();
+            let mut timing=AsrChunkTiming{phase:if cached.is_some(){AsrChunkPhase::CacheHit}else{AsrChunkPhase::NativeDecodeTotal},input_index:0,window_index:state.decoded as u32,core_start_sample:start as u64,decode_start_sample:start.saturating_sub(PADDING_SAMPLES) as u64,core_samples:(end-start) as u32,decode_samples:(end.saturating_add(PADDING_SAMPLES).min(state.samples)-start.saturating_sub(PADDING_SAMPLES)) as u32,cache_hit:cached.is_some(),cache_lookup_us:elapsed_us(lookup),native_decode_wall_us:0,process_cpu_us:Some(0),checkpoint_write_us:0,token_count:None,output_chars:0};
             if let Some(text) = cached {
+                timing.output_chars=text.chars().count() as u32;
                 Self::append_text(state, start, end, text)?;
+                (state.progress)(state.decoded,state.vad_spans,state.speech_samples,state.started.elapsed().as_millis() as u64,Some(timing))?;
             } else {
-                spans.push((start, end));
+                spans.push((start, end));timings.push(timing);
             }
         }
         if spans.is_empty() {
@@ -237,6 +250,7 @@ impl NativeEngine {
                 state.vad_spans,
                 state.speech_samples,
                 state.started.elapsed().as_millis() as u64,
+                None,
             )?;
             return Ok(());
         }
@@ -280,7 +294,10 @@ impl NativeEngine {
             state.vad_spans,
             state.speech_samples,
             state.started.elapsed().as_millis() as u64,
+            None,
         )?;
+        let decode_start=std::time::Instant::now();
+        let cpu_before=process_cpu_us();
         unsafe {
             (self.api.decode)(
                 self.recognizer.as_ptr(),
@@ -288,6 +305,9 @@ impl NativeEngine {
                 handles.len() as i32,
             );
         }
+        let decode_wall=elapsed_us(decode_start);
+        let cpu_delta=cpu_before.zip(process_cpu_us()).and_then(|(a,b)|b.checked_sub(a));
+        debug_assert_eq!(spans.len(),1);
         let mut texts = vec![String::new(); spans.len()];
         for (&index, stream) in order.iter().zip(&streams) {
             let pointer = unsafe { (self.api.result)(stream.get()) };
@@ -303,18 +323,28 @@ impl NativeEngine {
                 return Err(backend("native ASR segment text exceeds resource limit"));
             }
             texts[index] = text.trim().to_owned();
+            timings[index].native_decode_wall_us=decode_wall;
+            timings[index].process_cpu_us=cpu_delta;
+            // Pinned C API copies result.tokens.size(); FireRed excludes EOS before pushing tokens.
+            timings[index].token_count=u32::try_from(unsafe{(*pointer).count}).ok().filter(|n|*n<=1_000_000);
+            timings[index].output_chars=texts[index].chars().count() as u32;
         }
-        for ((start, end), text) in spans.into_iter().zip(texts) {
+        for (((start, end), text),mut timing) in spans.into_iter().zip(texts).zip(timings) {
+            let write_start=std::time::Instant::now();
             if let Some(root) = &state.cache {
                 super::chunks::write(root, start, end, &text)?;
+                timing.checkpoint_write_us=elapsed_us(write_start);
             }
             Self::append_text(state, start, end, text)?;
+            let timing=timing.valid().then_some(timing);
+            (state.progress)(state.decoded,state.vad_spans,state.speech_samples,state.started.elapsed().as_millis() as u64,timing)?;
         }
         (state.progress)(
             state.decoded,
             state.vad_spans,
             state.speech_samples,
             state.started.elapsed().as_millis() as u64,
+            None,
         )?;
         Ok(())
     }
@@ -354,6 +384,7 @@ impl NativeEngine {
             Box::new(|_, _, _, _| Ok(())),
         )
     }
+    #[cfg(test)]
     pub(super) fn transcribe_file_progress(
         &self,
         path: &Path,
@@ -361,7 +392,12 @@ impl NativeEngine {
         source: AudioSource,
         offset_ms: u64,
         cache: Option<std::path::PathBuf>,
-        progress: Box<dyn FnMut(usize, usize, u64, u64) -> Result<()>>,
+        mut progress: Box<dyn FnMut(usize, usize, u64, u64) -> Result<()>>,
+    ) -> Result<Vec<TranscriptSegment>> {
+        self.transcribe_file_measured(path,samples,source,offset_ms,cache,Box::new(move|a,b,c,d,_|progress(a,b,c,d)))
+    }
+    pub(super) fn transcribe_file_measured(
+        &self,path:&Path,samples:usize,source:AudioSource,offset_ms:u64,cache:Option<std::path::PathBuf>,progress:MeasuredProgress,
     ) -> Result<Vec<TranscriptSegment>> {
         use std::io::Read;
         let vad = Owned::new(
@@ -422,6 +458,7 @@ impl NativeEngine {
             state.vad_spans,
             state.speech_samples,
             state.started.elapsed().as_millis() as u64,
+            None,
         )?;
         state.result.sort_by_key(|s| s.start_ms);
         Ok(state.result)

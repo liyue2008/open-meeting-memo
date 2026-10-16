@@ -39,6 +39,7 @@ fn conflict() -> OmmError {
 }
 
 mod archives;
+mod asr_measurements;
 mod attempt_errors;
 mod notification_events;
 pub use attempt_errors::{StageAttemptError, StageErrorPhase};
@@ -461,19 +462,28 @@ impl Store {
         rows.map(|row| decode(&row?)).collect()
     }
     pub fn claim(&mut self, now_ms: i64, lease_ms: i64) -> Result<Option<ClaimedTask>> {
-        self.claim_lane(now_ms, lease_ms, None)
+        self.claim_lane(now_ms, lease_ms, None, false)
     }
     pub fn claim_asr(&mut self, now_ms: i64, lease_ms: i64) -> Result<Option<ClaimedTask>> {
-        self.claim_lane(now_ms, lease_ms, Some(Stage::Transcribe))
+        self.claim_lane(now_ms, lease_ms, Some(Stage::Transcribe), false)
     }
     pub fn claim_summary(&mut self, now_ms: i64, lease_ms: i64) -> Result<Option<ClaimedTask>> {
-        self.claim_lane(now_ms, lease_ms, Some(Stage::Summary))
+        self.claim_lane(now_ms, lease_ms, Some(Stage::Summary), false)
+    }
+    /// Only sealed, fully checkpointed parents: this path never owns an audio decoder.
+    pub fn claim_ready_aggregate(
+        &mut self,
+        now_ms: i64,
+        lease_ms: i64,
+    ) -> Result<Option<ClaimedTask>> {
+        self.claim_lane(now_ms, lease_ms, Some(Stage::Transcribe), true)
     }
     fn claim_lane(
         &mut self,
         now_ms: i64,
         lease_ms: i64,
         lane: Option<Stage>,
+        aggregate_only: bool,
     ) -> Result<Option<ClaimedTask>> {
         let filter = lane.map(stage_name);
         if lease_ms <= 0 {
@@ -483,7 +493,7 @@ impl Store {
         let tx = self
             .conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        if lane!=Some(Stage::Summary) && super::resources::CpuBudget::current().shared_encoder_slot && tx.query_row("SELECT EXISTS(SELECT 1 FROM segment_archives WHERE lease IS NOT NULL AND expires>?1)",[now_ms],|r|r.get::<_,bool>(0))?{return Ok(None);}
+        if !aggregate_only && lane!=Some(Stage::Summary) && super::resources::CpuBudget::current().shared_encoder_slot && tx.query_row("SELECT EXISTS(SELECT 1 FROM segment_archives WHERE lease IS NOT NULL AND expires>?1)",[now_ms],|r|r.get::<_,bool>(0))?{return Ok(None);}
         let running: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM tasks WHERE lease IS NOT NULL AND expires>?1 AND (?2 IS NULL OR stage=?2))",
             params![now_ms,filter],
@@ -494,10 +504,10 @@ impl Store {
             [now_ms],
             |r| r.get(0),
         )?;
-        if running || (lane != Some(Stage::Summary) && segment_running) {
+        if !aggregate_only && (running || (lane != Some(Stage::Summary) && segment_running)) {
             return Ok(None);
         }
-        let row: Option<(String,String,String,String)> = tx.query_row("SELECT document,directory,config,segments FROM tasks WHERE status IN ('queued','transcript_committed','interrupted') AND (?2 IS NULL OR tasks.stage=?2) AND NOT EXISTS(SELECT 1 FROM segmented_sessions s WHERE s.parent=tasks.id AND (s.sealed=0 OR EXISTS(SELECT 1 FROM segment_jobs j WHERE j.session=s.session AND j.status!='done'))) AND NOT EXISTS(SELECT 1 FROM retries WHERE retries.task=tasks.id AND retries.stage=tasks.stage AND retries.next_at>?1) ORDER BY rowid LIMIT 1", params![now_ms,filter], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
+        let row: Option<(String,String,String,String)> = tx.query_row("SELECT document,directory,config,segments FROM tasks WHERE status IN ('queued','transcript_committed','interrupted') AND (?2 IS NULL OR tasks.stage=?2) AND (?3=0 OR EXISTS(SELECT 1 FROM segmented_sessions s WHERE s.session=tasks.session AND s.parent=tasks.id)) AND NOT EXISTS(SELECT 1 FROM segmented_sessions s WHERE s.session=tasks.session AND s.parent=tasks.id AND (s.sealed=0 OR NOT EXISTS(SELECT 1 FROM segment_jobs j WHERE j.session=s.session AND j.status='done' AND j.frames>0) OR EXISTS(SELECT 1 FROM segment_jobs j WHERE j.session=s.session AND j.status!='done'))) AND NOT EXISTS(SELECT 1 FROM retries WHERE retries.task=tasks.id AND retries.stage=tasks.stage AND retries.next_at>?1) ORDER BY rowid LIMIT 1", params![now_ms,filter,aggregate_only], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
         let Some((doc, dir, config, segments)) = row else {
             return Ok(None);
         };

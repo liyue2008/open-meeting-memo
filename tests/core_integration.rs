@@ -2749,6 +2749,7 @@ fn rn1_real_daemon_helper_failure_without_recording_does_not_invent_a_meeting() 
     assert!(!payloads.contains(&f.instance.to_string()));
     let template = f.command(&[]);
     let human = Command::new(env!("CARGO_BIN_EXE_omm"))
+        .env_clear()
         .envs(
             template
                 .get_envs()

@@ -325,6 +325,7 @@ fn legacy_progress_and_first_error_wall_time_persist_without_private_message() {
         speech_samples: 16000,
         processing_ms: 1234,
         startup_timing: None,
+        chunk_timing: None,
     };
     store
         .record_segment_progress(&claim.context, &event)

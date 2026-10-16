@@ -4,7 +4,11 @@ use omm::{
     core::{contracts::*, paths::private_dir},
 };
 use serde_json::{json, Value};
-use std::{os::unix::fs::PermissionsExt, path::PathBuf, time::Duration};
+use std::{
+    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    path::PathBuf,
+    time::Duration,
+};
 use tempfile::TempDir;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -368,6 +372,39 @@ fn capture_callback_requires_current_recording_session_and_instance() {
     );
 }
 
+#[tokio::test]
+async fn capture_source_format_fault_is_backend_not_permission_or_stop_success() {
+    for stop in [false, true] {
+        let f = Fixture::new();
+        let listener = f.listener();
+        let path = f.meeting.join("fault.wav");
+        wav(&path);
+        let mut status = f.status(stop, stop.then_some(&path));
+        status["session_id"] = json!(f.session);
+        status["sysReady"] = json!(false);
+        status["sysError"] = json!("capture_source_format_unavailable");
+        let child = tokio::spawn(async move {
+            for value in [status, json!({"error":"capture_source_format_unavailable"})] {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let _ = read_request(&mut stream).await;
+                stream
+                    .write_all(&serde_json::to_vec(&value).unwrap())
+                    .await
+                    .unwrap();
+            }
+        });
+        let error = if stop {
+            f.adapter(2000).stop().await.unwrap_err()
+        } else {
+            f.adapter(2000).start(f.request()).await.unwrap_err()
+        };
+        assert_eq!(error.code, ErrorCode::Backend);
+        assert!(error.retryable);
+        assert!(!error.message.contains("format_unavailable"));
+        child.await.unwrap();
+    }
+}
+
 // This child is the compiled Swift helper in synthetic fixture mode, never AppDelegate.
 struct NativeChild(std::process::Child);
 impl Drop for NativeChild {
@@ -376,10 +413,36 @@ impl Drop for NativeChild {
         let _ = self.0.wait();
     }
 }
+// Two fixture scenarios own at most four Swift children; only test startup is admitted.
+// Rust test scheduling and every product IPC budget stay unchanged.
+static NATIVE_FIXTURE_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+async fn native_fixture_slot() -> tokio::sync::SemaphorePermit<'static> {
+    NATIVE_FIXTURE_SLOTS.acquire().await.unwrap()
+}
 fn native_command(f: &Fixture, flag: &str) -> std::process::Command {
     let binary = std::env::var_os("OMM_CAPTURE_TEST_BINARY")
         .expect("build capture development bundle and set OMM_CAPTURE_TEST_BINARY");
     let mut command = std::process::Command::new(binary);
+    let log_dir = std::env::var_os("OMM_CAPTURE_FIXTURE_LOG_ROOT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| f.paths.logs.clone());
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(log_dir.join(format!(
+            "{}-{}.log",
+            f.instance,
+            flag.trim_start_matches('-')
+        )))
+        .unwrap();
+    use std::io::Write;
+    writeln!(
+        &log,
+        "fixture launch utc_ms={} flag={flag}",
+        chrono::Utc::now().timestamp_millis()
+    )
+    .unwrap();
     command
         .arg(flag)
         .env_clear()
@@ -390,23 +453,19 @@ fn native_command(f: &Fixture, flag: &str) -> std::process::Command {
         .env("YULU_SERVICE_OWNER", f.instance.to_string())
         .env("OMM_SERVICE_SOCKET", f.paths.ipc.join("service.sock"))
         .env("OMM_TEST_ROOT", &f.paths.state)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
+        .stdout(std::process::Stdio::from(log.try_clone().unwrap()))
+        .stderr(std::process::Stdio::from(log));
     command
 }
 
 #[tokio::test]
 #[ignore = "requires compiled Swift development bundle; runs only synthetic hooks"]
 async fn capture_native_synthetic_ipc_and_silence_callback_round_trip() {
+    let _slot = native_fixture_slot().await;
     let f = Fixture::new();
     let _child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
     let adapter = f.adapter(3000);
-    for _ in 0..200 {
-        if adapter.socket_path().exists() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    wait_native(&f).await;
     assert!(!adapter.status().await.unwrap().recording);
     assert_eq!(
         adapter.windows().await.unwrap()[0].title,
@@ -434,7 +493,14 @@ async fn capture_native_synthetic_ipc_and_silence_callback_round_trip() {
     let mut callback = tokio::process::Command::from(native_command(&f, "--callback-self-test"))
         .spawn()
         .unwrap();
-    assert!(callback.wait().await.unwrap().success());
+    wait_native_callback(&f).await;
+    assert!(
+        tokio::time::timeout(Duration::from_secs(3), callback.wait())
+            .await
+            .unwrap()
+            .unwrap()
+            .success()
+    );
     server.await.unwrap();
     let stopped = adapter.stop().await.unwrap();
     assert_eq!(stopped.duration_ms, 1000);
@@ -449,19 +515,16 @@ async fn capture_native_synthetic_ipc_and_silence_callback_round_trip() {
 #[tokio::test]
 #[ignore = "requires compiled Swift development bundle; synthetic restart recovery only"]
 async fn capture_native_restart_resumes_session_and_seals_both_segments() {
+    let _slot = native_fixture_slot().await;
     let f = Fixture::new();
     let adapter = f.adapter(3000);
     let child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
-    for _ in 0..200 {
-        if adapter.status().await.is_ok() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    wait_native(&f).await;
     let first = adapter.start(f.request()).await.unwrap();
     drop(child); // Force kill: original .state.json remains recording=true.
     std::fs::remove_file(adapter.socket_path()).unwrap();
     let _resumed = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
+    wait_native(&f).await;
     let mut current = None;
     for _ in 0..200 {
         if let Ok(status) = adapter.status().await {
@@ -512,9 +575,10 @@ async fn capture_native_restart_resumes_session_and_seals_both_segments() {
     assert_eq!(stopped.segments[1].path, current.path.unwrap());
 }
 
-#[test]
+#[tokio::test]
 #[ignore = "requires compiled Swift development bundle; no hardware capture"]
-fn capture_native_original_path_pcm_recovery_and_silence_self_tests() {
+async fn capture_native_original_path_pcm_recovery_and_silence_self_tests() {
+    let _slot = native_fixture_slot().await;
     for flag in ["--self-test", "--path-contract-self-test"] {
         let f = Fixture::new();
         let status = native_command(&f, flag).status().unwrap();
@@ -523,8 +587,51 @@ fn capture_native_original_path_pcm_recovery_and_silence_self_tests() {
 }
 
 #[tokio::test]
+#[ignore = "requires compiled Swift development bundle; synthetic buffers, no hardware capture"]
+async fn capture_input_format_rate_conversion_preserves_stream_clock() {
+    let _slot = native_fixture_slot().await;
+    let f = Fixture::new();
+    let output = native_command(&f, "--input-format-self-test")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "native input format conversion failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    println!("{}", String::from_utf8_lossy(&output.stdout));
+}
+
+#[tokio::test]
+#[ignore = "requires compiled Swift development bundle; injected input format and actual IO handler, no hardware"]
+async fn capture_input_format_lifecycle_has_bounded_query_fault_and_route_recovery() {
+    let _slot = native_fixture_slot().await;
+    let f = Fixture::new();
+    let output = native_command(&f, "--input-format-lifecycle-self-test")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "native format lifecycle failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("provider_calls=10; actual_IO_callbacks=1400"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("route_listener_callbacks=2") && stdout.contains("safe_recovery=true"));
+    println!("{stdout}");
+}
+
+#[tokio::test]
 #[ignore = "requires compiled Swift development bundle; callback errors/timeouts without recording"]
 async fn capture_native_callback_rejects_bad_ack_and_times_out_without_ack() {
+    let _slot = native_fixture_slot().await;
     for stall in [false, true] {
         let f = Fixture::new();
         std::fs::write(
@@ -551,6 +658,7 @@ async fn capture_native_callback_rejects_bad_ack_and_times_out_without_ack() {
             tokio::process::Command::from(native_command(&f, "--callback-self-test"))
                 .spawn()
                 .unwrap();
+        wait_native_callback(&f).await;
         let status = tokio::time::timeout(Duration::from_secs(3), callback.wait())
             .await
             .unwrap()
@@ -563,6 +671,7 @@ async fn capture_native_callback_rejects_bad_ack_and_times_out_without_ack() {
 #[tokio::test]
 #[ignore = "requires compiled Swift development bundle; synthetic recovery-state write failure"]
 async fn capture_native_state_write_failure_is_not_start_or_stop_success() {
+    let _slot = native_fixture_slot().await;
     let f = Fixture::new();
     std::fs::create_dir(f.paths.state.join("omm-session.json")).unwrap();
     let _child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
@@ -633,17 +742,30 @@ async fn native_request(f: &Fixture, request: Value) -> Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 async fn wait_native(f: &Fixture) {
-    for _ in 0..200 {
-        if f.adapter(3000).status().await.is_ok() {
-            return;
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while std::time::Instant::now() < deadline {
+        if f.paths.ipc.join("audio_daemon.sock").exists() && f.adapter(3000).status().await.is_ok()
+        {
+            return; // identity-checked endpoint handshake, not a fixed launch sleep
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    panic!("synthetic helper not ready");
+    panic!("synthetic helper endpoint handshake timed out; inspect private fixture log");
+}
+async fn wait_native_callback(f: &Fixture) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !f.paths.state.join("callback-ready").exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "synthetic callback process did not reach its start handshake"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 }
 #[tokio::test]
 #[ignore = "requires Swift bundle; quit protocol only, synthetic PCM"]
 async fn capture_native_quit_rejects_wrong_instance_version_and_recording() {
+    let _slot = native_fixture_slot().await;
     let f = Fixture::new();
     let mut child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
     wait_native(&f).await;
@@ -844,6 +966,7 @@ async fn wait_native_exit(child: &mut NativeChild) {
 #[tokio::test]
 #[ignore = "requires Swift bundle; prestarted helper adopted without child ownership"]
 async fn capture_native_shutdown_adopted_instance_exits_and_repeated_shutdown_is_safe() {
+    let _slot = native_fixture_slot().await;
     let f = Fixture::new();
     let mut child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
     wait_native(&f).await;
@@ -888,6 +1011,7 @@ async fn capture_native_shutdown_adopted_instance_exits_and_repeated_shutdown_is
 #[tokio::test]
 #[ignore = "requires Swift bundle; old instance must preserve replacement socket inode"]
 async fn capture_native_quit_cleans_only_its_owned_socket_inode() {
+    let _slot = native_fixture_slot().await;
     let f = Fixture::new();
     let mut child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
     wait_native(&f).await;
@@ -1021,9 +1145,10 @@ async fn capture_shutdown_lock_wait_is_inside_the_total_timeout() {
     server.abort();
 }
 
-#[test]
+#[tokio::test]
 #[ignore = "requires compiled Swift development bundle; only synthetic paired PCM"]
-fn capture_native_rolling_paired_frame_payload_and_maximum_boundary() {
+async fn capture_native_rolling_paired_frame_payload_and_maximum_boundary() {
+    let _slot = native_fixture_slot().await;
     let f = Fixture::new();
     assert!(native_command(&f, "--rolling-frame-self-test")
         .status()
@@ -1034,15 +1159,11 @@ fn capture_native_rolling_paired_frame_payload_and_maximum_boundary() {
 #[tokio::test]
 #[ignore = "requires compiled Swift development bundle; repeated synthetic recovery only"]
 async fn capture_native_rolling_repeated_restart_keeps_frame_origin_and_payload() {
+    let _slot = native_fixture_slot().await;
     let f = Fixture::new();
     let adapter = f.adapter(3000);
     let mut child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
-    for _ in 0..200 {
-        if adapter.status().await.is_ok() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    wait_native(&f).await;
     let mut request = f.request();
     request.segment_ms = 60000;
     adapter.start(request).await.unwrap();
@@ -1055,6 +1176,7 @@ async fn capture_native_rolling_repeated_restart_keeps_frame_origin_and_payload(
         drop(child);
         std::fs::remove_file(adapter.socket_path()).unwrap();
         child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
+        wait_native(&f).await;
         let mut resumed = false;
         for _ in 0..200 {
             if let Ok(status) = adapter.status().await {
@@ -1103,6 +1225,7 @@ async fn capture_native_rolling_repeated_restart_keeps_frame_origin_and_payload(
 #[tokio::test]
 #[ignore = "explicit Swift synthetic fixture; descriptor publication failure and retry"]
 async fn capture_native_descriptor_publish_failure_survives_status_and_retry() {
+    let _slot = native_fixture_slot().await;
     let f = Fixture::new();
     let _child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
     wait_native(&f).await;
@@ -1167,6 +1290,7 @@ async fn capture_native_descriptor_publish_failure_survives_status_and_retry() {
 #[tokio::test]
 #[ignore = "explicit Swift synthetic rolling/current-state/restart fixture"]
 async fn capture_native_multiple_rotations_recover_tail_and_replay_without_duplicates() {
+    let _slot = native_fixture_slot().await;
     let f = Fixture::new();
     assert!(native_command(&f, "--rolling-current-state-self-test")
         .status()
@@ -1205,6 +1329,7 @@ async fn capture_native_multiple_rotations_recover_tail_and_replay_without_dupli
 #[tokio::test]
 #[ignore = "requires compiled native helper; generated bounded manifest replay"]
 async fn capture_native_manifest_after_sequence_pages_reject_mutation_and_missing_sequence() {
+    let _slot = native_fixture_slot().await;
     let f = Fixture::new();
     let session = Uuid::new_v4();
     let dir = f.paths.media.join("bounded-generated");
@@ -1271,6 +1396,7 @@ async fn capture_native_manifest_after_sequence_pages_reject_mutation_and_missin
 #[tokio::test]
 #[ignore = "explicit Swift synthetic pre-rolling state/bridge compatibility"]
 async fn capture_native_legacy_state_promotes_only_single_original_and_restart_replays() {
+    let _slot = native_fixture_slot().await;
     let f = Fixture::new();
     let a = f.adapter(15_000);
     let original_child = NativeChild(native_command(&f, "--ipc-fixture").spawn().unwrap());
@@ -1335,6 +1461,7 @@ async fn capture_native_legacy_state_promotes_only_single_original_and_restart_r
 #[tokio::test]
 #[ignore = "explicit Swift synthetic empty-current crash/restart and shutdown"]
 async fn capture_native_zero_frame_current_restarts_twice_without_manifest_holes() {
+    let _slot = native_fixture_slot().await;
     use std::io::{Seek, SeekFrom, Write};
     let f = Fixture::new();
     let a = f.adapter(15_000);
