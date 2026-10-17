@@ -1,0 +1,21 @@
+src/core/store/desktop.rs
+  s_b51f0316cfa2ff::t_470c24bb9ea99e 450,454,461-465
+tests/desktop_native.rs
+  s_b51f0316cfa2ff::t_d77d87a2c37af4 843-865
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2c4d5f9278e0f25994c5be7a2a9d93eaa41defa9",
+  "prompts": {},
+  "sessions": {
+    "s_b51f0316cfa2ff": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14a57-1149-74de-90d2-383adb76b2f3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
