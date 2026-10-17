@@ -1,12 +1,18 @@
 # 桌面版本验收记录
 
-**第二轮正式业务复审仍要求修复；安全复审的P2备注也须修复，当前不允许安装或发布。** 首轮结论及以下各次门禁均为历史来源，不能覆盖第二轮新发现。 已有候选门禁不能覆盖正式评审发现；UI可读性、明确播放入口与公开依赖锁修复已完成定向验证。后端正式修复`dde5269`、`2c4d5f9`已摘取为`ae4c608`、`b190062`，受控Rust回归与F2/F5实际UI续验通过；冷首次录音/partial的受限入口已采用immutable `c2b49c4`，当前Root真实React定向7＋10项通过，默认nonpersistent且reader泄漏仍使失败；未用预启动/完整成功seed冒充。这些入口在上一轮齐备并形成ab57候选，但不覆盖本轮同页刷新与独立native导入清理修复；组合后仍须当前完整门禁、同源新包和新的独立复审。 既有146项React/WK矩阵包含非空只读行动项、严格媒体和真实脏配置关窗；测试专属UUID两进程偏好及真实React首用/服务入口也已接线。后续held busy/unknown/stale受限控制和原包CLI字节保留已采用native `1d27d271`，不改生产schema/权限。每次候选的精确commit、当前源完整运行结果、实际exit/owned回执及资源hash，必须由随候选交接的证据矩阵确认；本页的历史通过不能追认为新源通过。A9–A11仍须Main另行编排，不因组件通过或候选就绪而自动完成。
+**第二轮正式复审发现的P1/P2组件修复均已接收并组合；当前等待本源完整验收和新的独立复审，仍不允许安装或发布。** 首轮结论及以下各次门禁均为历史来源，不能覆盖第二轮新发现。 已有候选门禁不能覆盖正式评审发现；UI可读性、明确播放入口与公开依赖锁修复已完成定向验证。后端正式修复`dde5269`、`2c4d5f9`已摘取为`ae4c608`、`b190062`，受控Rust回归与F2/F5实际UI续验通过；冷首次录音/partial的受限入口已采用immutable `c2b49c4`，当前Root真实React定向7＋10项通过，默认nonpersistent且reader泄漏仍使失败；未用预启动/完整成功seed冒充。这些入口在上一轮齐备并形成ab57候选，但不覆盖本轮同页刷新与独立native导入清理修复；组合后仍须当前完整门禁、同源新包和新的独立复审。 既有146项React/WK矩阵包含非空只读行动项、严格媒体和真实脏配置关窗；测试专属UUID两进程偏好及真实React首用/服务入口也已接线。后续held busy/unknown/stale受限控制和原包CLI字节保留已采用native `1d27d271`，不改生产schema/权限。每次候选的精确commit、当前源完整运行结果、实际exit/owned回执及资源hash，必须由随候选交接的证据矩阵确认；本页的历史通过不能追认为新源通过。A9–A11仍须Main另行编排，不因组件通过或候选就绪而自动完成。
 
 ## 第二轮P1：同一挂载页的逐字稿进度刷新（组件阶段）
 
 `Artifacts`按活动版本状态每2秒有界读取现有版本API（后台窗口也生效），缺少片段时不以陈旧detail布尔值阻止新partial显示。版本status/hash变化切换正文快照并清空旧分页；cursor冲突先重置为新头页，不把重复头页追加到旧正文。终态与卸载停止活动轮询，历史版本选择和页内搜索保持。
 
-新增 `tests/artifacts-live-refresh.test.tsx` 在原生产实现先红4/5，修复后7项DOM回归覆盖无片段到首片段（detail提示仍false）、同页新增/终稿、相同内容hash的终稿、旧cursor恢复、迟到旧页丢弃、终态/卸载与历史选择/搜索。当前Node116×UTC/洛杉矶、类型/合同/validator/格式/build、8个宿主feature测试及feature clippy均通过。实际原WK脚本在clean `f846666`上12项通过（`/private/tmp/omm-lp-VkaqlW`，0play，owned17651正常wait无超时）：同一panel/back节点和选中逐字稿tab保持，advance及finalize后无reopen/标签切换/焦点事件而直接出现新段并移除部分提示；旧cursor真实冲突保留，teardown前reader释放。290条完整源码前后相同，原ci/离线完整性缓存及依赖图相等；实际host/dist/原样driver/结果/回执在组件证据根记录。原10项通过曾通过重开详情刷新，不追认为本次同页更新证据。只读postcheck最初误读nativeFixture字段的exit1保留，按实际nativeReview只读核验后0，没有重跑产品或修改实际结果。native P2仍由另一个owner修复，本组件不替它宣称通过，也不重跑整包或完整矩阵。
+新增 `tests/artifacts-live-refresh.test.tsx` 在原生产实现先红4/5，修复后7项DOM回归覆盖无片段到首片段（detail提示仍false）、同页新增/终稿、相同内容hash的终稿、旧cursor恢复、迟到旧页丢弃、终态/卸载与历史选择/搜索。当前Node116×UTC/洛杉矶、类型/合同/validator/格式/build、8个宿主feature测试及feature clippy均通过。实际原WK脚本在clean `f846666`上12项通过（`/private/tmp/omm-lp-VkaqlW`，0play，owned17651正常wait无超时）：同一panel/back节点和选中逐字稿tab保持，advance及finalize后无reopen/标签切换/焦点事件而直接出现新段并移除部分提示；旧cursor真实冲突保留，teardown前reader释放。290条完整源码前后相同，原ci/离线完整性缓存及依赖图相等；实际host/dist/原样driver/结果/回执在组件证据根记录。原10项通过曾通过重开详情刷新，不追认为本次同页更新证据。只读postcheck最初误读nativeFixture字段的exit1保留，按实际nativeReview只读核验后0，没有重跑产品或修改实际结果。该段仅记录P1组件当时的证据，不替Native P2或组合全量宣称通过。
+
+## 第二轮P2：中断提升后放弃的已知音频回收（组合阶段）
+
+Native `9023af5` 已按immutable对象摘取，5条路径与producer提交逐字节相等。取消/过期仍先持导入锁，再在SQLite IMMEDIATE事务中检查会议/任务/分段/持久请求结果引用；仅清理selection定位且record/profile/handle/meeting/hash/权限/目录内容均验证通过的已知提升对象。不扫描DATA根，未知/损坏/异常/有引用对象保留，缺表/legacy不迁移，已提交reader继续可读。
+
+原Native同测试绑定旧生产红6/8，当前imports16/相关91和feature8通过，源与reader206/owned回执见组件报告；这些不是Root当前组合全量。Root随后必须在新clean来源执行完整Rust/Swift/Node/WK矩阵、partial同页12项以及同源包/原CLI生命周期门禁。组件红和旧门禁失败均保留；只有随候选交接的实际源码前后与artifact矩阵可以证明本轮最终组合通过，新fresh裁决仍pending。
 
 | 验收项 | 当前状态 | 最终需要的证据 |
 |---|---|---|
@@ -14,12 +20,12 @@
 | A2 共享契约 | 36命令/100定义漂移通过；生产互操作修复与实际React库/版本读取通过 | 36命令、schema/Rust/TS无漂移、所有共享交换；真实桥适配器、协议/错误/预算/取消/CAS严格测试 |
 | A3 Rust | 整合基线全量通过；最新当前源结果见候选证据矩阵 | fmt/test --locked --all-targets/clippy -Dwarnings/build；desktop workspace同等门禁；持久并发/metadata/CRUD/import/版本/取消/config/文件安全fixture |
 | A4 Swift | 整合基线 build-dev 与指定17+3 synthetic通过 | `build-dev.sh`＋AGENTS两组指定synthetic IPC ignored；不运行所有ignored或硬件 |
-| A5 TypeScript/界面 | 历史146及定向19项通过；当前组合109×UTC/洛杉矶和F2/F5实际UI23项通过，最终全矩阵须复验 | npm ci、严格类型、DOM交互、真实桥、日期/DST/分页/脏态/冲突、Markdown安全、明暗/侧栏全部设计 |
+| A5 TypeScript/界面 | 历史146及定向19项通过；P1组件116×UTC/洛杉矶及同页12项通过，既有F2/F5实际UI23项通过，最终当前组合全矩阵须复验 | npm ci、严格类型、DOM交互、真实桥、日期/DST/分页/脏态/冲突、Markdown安全、明暗/侧栏全部设计 |
 | A6 媒体/受托窗口 | 原生41项通过；最小权限、隔离、revision修复已整合，真实React metadata/段内跨段暂停定位及当前媒体定向负例通过 | 最早实际WKWebView来源/driver证明；verified同FD/hash/读锁、grant失效、Range/HEAD/206/416/ETag与并发/缓冲预算fixture |
 | A7 全功能WKWebView | 既有146项及fab32首用/偏好准备通过；完整React held负例/原包CLI入口已接，当前组合结果须另行实证 | 私有profile＋真实new core/bridge＋fake helper/worker/Pi/notifier；实际窗口/交互/搜索/CRUD/版本/任务/配置/导出/明暗/侧栏；静音metadata/解码/暂停态段内跨段seek，禁止play |
 | A8 release包 | fab32准备包2031资源验证通过；每次最终包须绑定当前clean revision及原CLI字节，旧包不能替代 | 锁定aarch64 release app/dmg；macOS≥15.5、CLI/worker/helper/sherpa/codec资源闭包、嵌套身份/entitlements、内外ad-hoc签名、MIT/LGPL等完整许可与源码义务 |
 | A9 实际安装/启动 | pending，未操作个人profile | metadata-only预检、非秘密元数据备份、用户目录真实生产包、保留录音/配置/认证/auto/consent；私有profile实际启动、窗口/正常桥验证、构建/安装来源hash及版本一致 |
-| A10 独立评审 | 首轮needs_changes；修复组合及新fresh席复审pending | fresh只读正式评审无阻塞；修复后在最终当前源重跑所需门禁 |
+| A10 独立评审 | 首轮及第二轮needs_changes历史保留；P1/P2组合后的新fresh复审pending | fresh只读正式评审无阻塞；修复后在最终当前源重跑所需门禁 |
 | A11 SSH/PR | pending；当前禁止push | 最终clean commit经SSH推origin正式分支；远端full HEAD、PR API head、安装来源与源版本一致；创建PR不合并 |
 | 跨版本/offline写权 | 原生并发/只读/generation组件回归通过；最终源待重验 | 旧daemon能力缺失、旧DB只读无迁移、全mutation提交前锁内generation重验、旧配置byte不变、offline双进程/跨profile重放/过期/旧daemon竞态拒写；显式切换诊断准确 |
 

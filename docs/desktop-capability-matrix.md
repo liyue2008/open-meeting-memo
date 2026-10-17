@@ -12,7 +12,7 @@
 | 非空只读行动项及安全Markdown | 共享已验证summary artifact | 行动项列表；无交互checkbox | `scripts/fixtures/desktop-ui-probe.js`、`apps/desktop/src/features/artifacts.tsx` |
 | 录音上置、受限回听、速度、时间定位 | `media_manifest/open/close` | 详情上方真实audio控件 | `apps/desktop/tests/detail-media.test.tsx`、`apps/desktop/src-tauri/src/host/media_revision.rs`、`scripts/fixtures/desktop-ui-probe.js` |
 | 受限Range/HEAD/If-Range、hash与reader生命周期 | verified FD及artifact grant | 自有媒体协议，不接受任意路径 | `tests/desktop_native.rs::desktop_media_verified_fd_ranges_hash_and_symlink_safety`、`desktop_media_permission_change_is_rejected` |
-| 受限导入及取消 | `meeting import` / `import_select/commit/cancel` | 原生选择器与实际导入确认 | `tests/desktop_native.rs::desktop_import_normalizes_mixed_lineage_deduplicates_and_binds_generation`、`apps/desktop/src-tauri/fixtures/bridge-probe.js` |
+| 受限导入及取消 | `meeting import` / `import_select/commit/cancel` | 原生选择器与实际导入确认 | `tests/desktop_native.rs::desktop_import_normalizes_mixed_lineage_deduplicates_and_binds_generation`、`tests/desktop_import_cleanup.rs`（含已知中断对象取消/过期回收、引用/未知对象保留）、`apps/desktop/src-tauri/fixtures/bridge-probe.js` |
 | 文本复制、单场及批量导出 | `meeting read` / `artifact_copy/export`、`meeting_batch_export` | 详情/会议库批操作；原生受限目标 | `scripts/fixtures/desktop-ui-probe.js`、`apps/desktop/src-tauri/fixtures/bridge-probe.js` |
 | 重转写/重纪要、旧成功版本保留 | `process --stage ... --force` / `processing_enqueue` | 详情重新处理 | `tests/desktop_native.rs`、`scripts/fixtures/desktop-ui-probe.js` |
 | 失败队列、重试/取消/重新入队 | `task list/show/cancel/requeue`、`process --task ... --retry` | 队列及任务详情 | `tests/desktop_native.rs::desktop_persistent_cancel_waits_for_owned_worker_before_settling`、`apps/desktop/tests/recording-recovery.test.tsx` |
