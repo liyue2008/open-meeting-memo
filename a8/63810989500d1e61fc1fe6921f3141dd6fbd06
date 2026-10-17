@@ -1,0 +1,39 @@
+apps/desktop/src-tauri/capabilities/main.json
+  s_b51f0316cfa2ff::t_b1aba45f8cf951 4-7,9-46
+apps/desktop/src/contracts.generated.ts
+  s_b51f0316cfa2ff::t_4b6e6a4154f9c9 503-527,564-566
+apps/desktop/tests/desktop_contracts.test.mjs
+  s_b51f0316cfa2ff::t_c6fa1570206fe2 81
+contracts/desktop/v1/README.md
+  s_b51f0316cfa2ff::t_a459402795ca7e 80-91
+contracts/desktop/v1/commands.generated.rs
+  s_b51f0316cfa2ff::t_dc6ca3b93cc5c2 36-38
+contracts/desktop/v1/examples/profile_initialize.json
+  s_b51f0316cfa2ff::t_0cae0ff1a25208 1-85
+contracts/desktop/v1/examples/service_apply.json
+  s_b51f0316cfa2ff::t_1cdd49ff3303ea 1-46
+contracts/desktop/v1/examples/service_plan.json
+  s_b51f0316cfa2ff::t_1a86832f1aa971 1-54
+contracts/desktop/v1/schema.json
+  s_b51f0316cfa2ff::t_07ac0762311125 698-760,5905-6254,6422-6436
+src/application/desktop_contracts.rs
+  s_b51f0316cfa2ff::t_7ff6032e7fc65f 937-1015,1248-1253,1324-1329
+tests/desktop_contracts.rs
+  s_b51f0316cfa2ff::t_50288bbb1a6782 39-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a863810989500d1e61fc1fe6921f3141dd6fbd06",
+  "prompts": {},
+  "sessions": {
+    "s_b51f0316cfa2ff": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14a57-1149-74de-90d2-383adb76b2f3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
