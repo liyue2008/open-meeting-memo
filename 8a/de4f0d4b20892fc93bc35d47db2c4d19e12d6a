@@ -1,0 +1,25 @@
+apps/desktop/src-tauri/src/bridge_fixture.rs
+  s_b51f0316cfa2ff::t_4946f84337f8d5 26-28
+apps/desktop/src-tauri/src/bridge_fixture/lifecycle/held.rs
+  s_b51f0316cfa2ff::t_57b6561a707720 1-500
+apps/desktop/src-tauri/src/lib.rs
+  s_b51f0316cfa2ff::t_4dabcc357c1ffc 299-303
+docs/desktop-native.md
+  s_b51f0316cfa2ff::t_2de585faa5ceab 205-212,331-403
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8ade4f0d4b20892fc93bc35d47db2c4d19e12d6a",
+  "prompts": {},
+  "sessions": {
+    "s_b51f0316cfa2ff": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14a57-1149-74de-90d2-383adb76b2f3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
