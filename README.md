@@ -55,7 +55,7 @@ omm config validate --json
 
 ## 用户级安装与卸载
 
-完整源码安装步骤及固定官方原生库包的 SHA-256 见[安装指南](docs/install.md)。不需要管理员权限：CLI 在 `~/.local/bin/omm`，worker/helper/native 库可放 `DATA/omm/program`，服务是用户 LaunchAgent。构建不会自行安装这些组件。Pi 仍需要它自己的 Node 运行时和专用认证；OMM 不分发 Python 转写运行时，不自动更换模型/provider。
+完整源码安装步骤及固定官方原生库包的 SHA-256 见[安装指南](docs/install.md)。不需要管理员权限：CLI 在 `~/.local/bin/omm`，worker/helper/native 库可放 `DATA/omm/program`，服务是用户 LaunchAgent。构建不会自行安装这些组件。Pi 仍需要它自己的 Node 运行时和专用认证；`pi.executable` 应显式指向受信稳定入口（例如 Pi 管理安装器的 `~/.pi/agent/bin/pi`），JavaScript launcher 可另配 `pi.node_executable` 的绝对路径，不继承个人 PATH。工具升级及旧任务恢复见[安装指南](docs/install.md#4-专用-pi-认证与系统权限)。OMM 不分发 Python 转写运行时，不自动更换模型/provider。
 
 ```sh
 omm service install --json
@@ -100,7 +100,7 @@ omm task list --json
 
 自动录音默认关闭。15 秒强信号确认、30 秒结束宽限是可配置建议，不是已验证的漏录指标；轮询可能漏掉开头或多录尾段。手动停止抑制当前会议自动重启；无法识别来源时需明确结束或再次手动开始才能解除保守抑制。服务重启先对账，不重复起录；同来源 ID 重连保留 session，不同强来源 ID 按稳定确认时间建立候选，先封存旧会议再开始独立会议。短抖动、unknown 和手动录制不触发身份切换。帧级轮换保留原 session，默认/最大 `1800` 秒；`omm config set segment_ms 60000` 可设置60000–1800000的整数毫秒。正常轮换只切已配对PCM的写入文件，不停止/重启采集。恢复或系统睡眠仍可能产生缺口。睡眠后的对账不能保证睡前通知、恢复完整性或无丢音，需要真实机器验证。
 
-有效片段封存后，不等会议结束就进入独立持久转写队列；无音频帧不创建任务。每段以及已识别的语音活动段都有绑定输入/模型/版本的检查点，失败、超时或重启只补未完成部分。`meeting show` / `task show` 显示段状态和无正文的处理进度；`meeting read --artifact transcript` 在最终转写提交前返回 `partial:true`。会议封存且所有段完成后，按采集帧位置聚合一次最终转写并排队调用 Pi，不生成每段纪要或每段启停通知。
+有效片段封存后，不等会议结束就进入独立持久转写队列；无音频帧不创建任务。每段以及已识别的语音活动段都有绑定输入/模型/版本的检查点，失败、超时或重启只补未完成部分。`meeting show` / `task show` 显示段状态和无正文的处理进度；`meeting read --artifact transcript` 在最终转写提交前返回 `partial:true`、已完成/总片段数和“尚未完成”提示；空内容表示尚无已提交片段，不能当成空白终稿。会议封存且所有段完成后，按采集帧位置聚合一次最终转写并排队调用 Pi，不生成每段纪要或每段启停通知。
 
 码率默认48kbps，可用 `omm config set audio.opus_bitrate_kbps 64` 选择32/48/64/96；`omm config show` 显示当前值。每段正式入队时冻结码率，改配置只影响随后入队的新段；已入队但尚未编码的段也沿用原值。旧归档/检查点不重写，`process --force` 只重转写、不重新编码；仍有原WAV时使用校验后的原WAV，否则解码旧归档。输入记录区分当前请求值和原归档实际码率、编码器版本及hash。
 

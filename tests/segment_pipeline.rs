@@ -50,6 +50,53 @@ fn audio(m: &SealedMeeting, n: u32) -> AudioSegment {
         duration_ms: 100,
     }
 }
+#[test]
+fn cli_empty_partial_explains_unfinished_state_without_committing_final_or_writing_database() {
+    let (_t, p, m) = fixture();
+    let mut store = Store::open(&p).unwrap();
+    let parent = store
+        .begin_segmented(&m, &ConfigSnapshot::default())
+        .unwrap();
+    let source = audio(&m, 0);
+    store.admit_segment(m.session_id, 0, &source).unwrap();
+    drop(store);
+    let db = p.state.join("state.sqlite");
+    let before = std::fs::read(&db).unwrap();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_omm"))
+        .env_clear()
+        .env("HOME", _t.path().join("home"))
+        .args([
+            "meeting",
+            "read",
+            &m.session_id.to_string(),
+            "--artifact",
+            "transcript",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["data"]["partial"], true);
+    assert_eq!(v["data"]["completedSegments"], 0);
+    assert_eq!(v["data"]["totalSegments"], 1);
+    assert!(v["data"]["notice"].as_str().unwrap().contains("尚未完成"));
+    assert!(
+        serde_json::from_str::<Transcript>(v["data"]["content"].as_str().unwrap())
+            .unwrap()
+            .segments
+            .is_empty()
+    );
+    assert_eq!(std::fs::read(db).unwrap(), before);
+    assert!(!Store::open_read_only(&p)
+        .unwrap()
+        .artifact_committed(parent.id, Stage::Transcribe)
+        .unwrap());
+}
 fn result(model: &str) -> Transcript {
     Transcript {
         schema_version: 1,

@@ -438,7 +438,7 @@ async fn opus_cleanup_requires_immutable_session_descriptor_and_preserves_reader
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
     let origin = Uuid::new_v4();
     let descriptor = std::path::PathBuf::from(format!("{}.sealed.json", path.display()));
-    let document = serde_json::to_vec(&serde_json::json!({"schema_version":1,"session_id":id,"instance_id":origin,"sequence":0,"offset_frames":0,"frame_count":48013,"sample_rate":48000,"path":path,"temporary":true})).unwrap();
+    let document = serde_json::to_vec(&serde_json::json!({"schema_version":1,"session_id":id,"instance_id":origin,"sequence":0,"offset_frames":0,"frame_count":48013,"sample_rate":48000,"path":path,"temporary":true,"capture_clock":{"schema_version":1,"target_rate_hz":48000,"writer_started_utc_ms":1,"elapsed_us":1100000,"format_rejects":0,"mic":{"rate_hz":44100.0,"input_frames":44112,"target_frames":48013,"rate_changes":0,"accepted_channels":1,"input_elapsed_us":1000000,"first_accepted_offset_us":10,"last_accepted_offset_us":1000010}}})).unwrap();
     write_private_new(&descriptor, &document).unwrap();
     let audio = AudioSegment {
         capture: Some(CaptureSegmentIdentity {
@@ -517,8 +517,63 @@ async fn opus_cleanup_requires_immutable_session_descriptor_and_preserves_reader
     store.cleanup_archived_sources().unwrap();
     assert!(path.exists());
     fs2::FileExt::unlock(&lock).unwrap();
-    store.cleanup_archived_sources().unwrap();
+    // A partial persisted group is never authority to delete the source.
+    let fixture_db = rusqlite::Connection::open(paths.state.join("state.sqlite")).unwrap();
+    let saved: String = fixture_db
+        .query_row(
+            "SELECT receipt FROM segment_archives WHERE session=?1",
+            [id.to_string()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let mut partial: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    partial["files"].as_array_mut().unwrap().pop();
+    fixture_db
+        .execute(
+            "UPDATE segment_archives SET receipt=?1 WHERE session=?2",
+            rusqlite::params![serde_json::to_string(&partial).unwrap(), id.to_string()],
+        )
+        .unwrap();
+    assert!(store.cleanup_archived_sources().is_err());
+    assert!(path.exists());
+    fixture_db
+        .execute(
+            "UPDATE segment_archives SET receipt=?1 WHERE session=?2",
+            rusqlite::params![saved, id.to_string()],
+        )
+        .unwrap();
+    drop(fixture_db);
+    // A cleanup failure retains the complete encoded receipt and original WAV.
+    let mut bad_document: serde_json::Value = serde_json::from_slice(&document).unwrap();
+    bad_document["capture_clock"]["schema_version"] = serde_json::json!(2);
+    std::fs::write(&descriptor, serde_json::to_vec(&bad_document).unwrap()).unwrap();
+    store.cleanup_archived_sources_for_queue().unwrap();
+    assert!(path.exists());
+    assert_eq!(store.archive_progress(id).unwrap()[0]["status"], "failed");
+    assert!(recovered
+        .files
+        .iter()
+        .all(|f| hash_file(&f.path).unwrap() == f.sha256));
+    std::fs::write(&descriptor, &document).unwrap();
+    store.retry_segment_failures(id).unwrap();
+    // The normal archive lane must succeed even when no encoder is available.
+    let unavailable = Err(OmmError::unavailable("fixture encoder must not run"));
+    assert!(
+        omm::core::archive_pipeline::run_one(&mut store, &unavailable, 10000)
+            .await
+            .unwrap()
+    );
     assert!(!path.exists());
+    assert!(recovered
+        .files
+        .iter()
+        .all(|f| hash_file(&f.path).unwrap() == f.sha256));
+    assert!(
+        !omm::core::archive_pipeline::run_one(&mut store, &unavailable, 10000)
+            .await
+            .unwrap()
+    );
+    assert_eq!(store.segment_progress(id).unwrap()[0].status, "done");
     drop(store);
     let mut store = Store::open(&paths).unwrap();
     store.cleanup_archived_sources().unwrap();

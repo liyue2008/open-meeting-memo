@@ -112,6 +112,14 @@ FireRedASR 上游 [模型/许可说明](https://github.com/FireRedTeam/FireRedAS
 
 `CONFIG/omm/pi` 是专用 Pi agent 目录，OMM 总结调用不继承个人扩展/技能/工具/上下文。用 `PI_CODING_AGENT_DIR="$HOME/.config/omm/pi" pi`（自定义 XDG 时替换实际 CONFIG 路径）在 Pi 内按官方方式认证；认证文件设 0600、目录0700，不放进仓库/普通 OMM 配置。已有授权可使用 Pi 官方支持的安全认证机制引用；不要复制整个个人 agent 目录。Pi 1.1.0 也支持专用 `models.json` 中的自定义 provider endpoint/headers 使用 `!command` 读取授权：命令只返回所需字段、使用固定路径，不把 token 写进新文件或日志。OAuth endpoint 及额外账户 header 必须按已安装 Pi provider 实现核对；本方法不负责刷新过期授权，过期时仍需原生认证。不要打印完整认证内容、备份秘密或盲目继承原 `models.json`。OMM 不继承 shell API-key 环境变量，所选模型必须在专用目录可用。
 
+### Pi 升级、稳定入口与已有结果恢复
+
+`pi.executable` 设为用户明确选择的稳定入口，例如管理安装器的 `~/.pi/agent/bin/pi`，不要长期引用某个可删除的 npm/nvm 版本目录。支持用户或系统所有、不可被组/其他用户写入的可执行文件及受信符号链接。Pi和Node均按实际访问顺序检查每个中间目录/链接，展开相对或绝对目标后再解释`.`/`..`；root所有的sticky共享系统目录可用。单条路径/链接目标限4096字节、最多256步/40链接，循环和超限安全失败。最终目标安全也不能跳过0777/组可写中间目录。校验到spawn之间仍存在同一用户或管理员改路径的竞态，不是操作系统沙箱或固定inode执行保证；不重建旧版本目录来掩盖失效路径。JavaScript launcher 还需显式 `omm config set pi.node_executable '<受信 node 可执行文件绝对路径>'`；清除此可选项用 `omm config set pi.node_executable null`。Node 文件名须为`node`，父目录必须能由原生PATH无损表示；macOS含冒号的父目录会在启动前脱敏拒绝。Pi入口自身仍按完整路径直接执行，可含冒号。不自动搜索个人 PATH，不改模型/provider，不删除隔离参数来兼容不支持的工具。OMM 保留隔离 HOME、专用认证目录与禁扩展/工具/上下文参数；管理安装器依赖真实 HOME 寻找 Node 时，必须单独配置受信运行时。Node 同样应选维护的稳定入口；若显式使用某个 nvm 版本，删除该版本前必须审计并更新工具引用。
+
+工具缺失/启动失败、运行时缺失和不支持固定隔离参数均返回脱敏、不可自动重试的可操作原因；不能把它们当成 ASR 失败。修改全局 Pi 路径只影响随后创建的快照，**不会替换历史或运行中任务快照**。已提交转写始终可用`meeting read <meeting-id> --artifact transcript`读取。纪要报`artifact not committed`表示没有通过提交校验的纪要；先看`task show`的stage/status/error。转写返回`partial:true`时尚未完成，仅包含已完成片段，零个完成片段会返回空segments及明确提示，不拿语音块检查点冒充终稿。
+
+恢复单场已有纪要：先确认终稿已提交/hash有效，原provider/model/prompt及输入未变，只更新受信工具路径（及必要Node引用），再显式执行`omm process <meeting-id> --stage summary --force`。它创建新attempt，严格复用已有转写和输入血缘，不重跑ASR，旧attempt及产物保留。每次force都是一次明确新请求，不要循环调用。仍在ASR的会议保持运行，完成终稿后再执行；若旧快照先因missing Pi blocked，记录事实后按此单次恢复。不要就地改数据库/旧快照，也不要全库retry。
+
 `omm config set` 可编辑路径、模型、线程、超时、Pi 输入输出预算、轮询/确认/分段时长和 `rtc_log_dirs`（JSON 数组）；完整字段见 [AppConfig::set](../src/core/config.rs)。`config show` 故意只返回非秘密摘要，`config validate` 只校验结构。`doctor` 的成功退出和 `asrReady` 不证明实际推理，权限/认证 unknown 不等于已授权。
 
 ```sh
@@ -183,7 +191,7 @@ omm meeting read <meeting-id> --artifact transcript --json
 
 码率默认48kbps，公开配置只接受32/48/64/96：`omm config set audio.opus_bitrate_kbps 64`，`omm config show` 查看当前值。每段入队时冻结；改值不重编码已入队/已归档音频，重启和重试沿用冻结值。`process --force` 只重新转写，优先使用仍保留的原WAV；否则从原归档解码，记录请求码率与原归档实际码率/编码器版本/hash。
 
-部分转写标记 `partial:true`；进度只含声源/语音块数/语音秒数/处理时间，不含正文。结束后按原始帧位置聚合一份完整转写和一次纪要，不每段刷启停通知。每段及已识别语音块绑定输入/模型/配置/版本检查点；超时、失败、重启补做未完成部分。旧WAV/旧任务仍能恢复，只读命令不迁移旧数据库；显式写操作添加兼容表。新临时WAV还须有正常rolling封存的`temporary:true`凭证，归档/检查点均校验且无读者后才清理；中断恢复原件（包括合法零帧空尾）保留；零帧尾不算会议片段，截断/异常尾仍报错。恢复descriptor的`legacy_wav`须为布尔值且与来源一致；非temporary或legacy源不清理。单个归档清理失败持久标记该归档失败，后台队列继续后续任务；不能当成已清理成功。避免把升级前录音当成临时文件。旧用户录音永不自动清理。不要删除WAV来“修复”归档失败。
+部分转写标记 `partial:true`；进度只含声源/语音块数/语音秒数/处理时间，不含正文。结束后按原始帧位置聚合一份完整转写和一次纪要，不每段刷启停通知。每段及已识别语音块绑定输入/模型/配置/版本检查点；超时、失败、重启补做未完成部分。旧WAV/旧任务仍能恢复，只读命令不迁移旧数据库；显式写操作添加兼容表。新临时WAV还须有正常rolling封存的`temporary:true`凭证，归档/检查点均校验且无读者后才清理；中断恢复原件（包括合法零帧空尾）保留；零帧尾不算会议片段，截断/异常尾仍报错。恢复descriptor的`legacy_wav`须为布尔值且与来源一致；非temporary或legacy源不清理。单个归档清理失败持久标记该归档失败，后台队列继续后续任务；不能当成已清理成功。避免把升级前录音当成临时文件。旧用户录音永不自动清理。不要删除WAV来“修复”归档失败。封存descriptor兼容明确可选的`capture_clock` v1 typed字段；无字段的旧helper仍可读，present-null、未知字段/版本及非法数值会保留原件并报错，不放宽身份、descriptor/source hash、三份Ogg/Opus收据或读者锁校验。已完整编码但清理失败的归档，先确认该场所有转写片段done、收据/hash完整，在已完成的安全summary恢复attempt上显式`omm process --task <该场已完成attempt-id> --retry`；它只重排该场失败子任务。归档lane复用保留的完整收据再验证/清理，不重新编码；不完整/损坏收据仍保留WAV并报错。不要对仍带旧Pi坏路径的blocked attempt盲retry，也不要对尚有失败ASR段的会议借此要求“仅归档恢复”。
 
 已结束且全部片段转写完成的会议由纪要队列先轻量聚合终稿、再生成一次纪要，不等待其他会议的音频转写队列清空；活跃会议、未完成片段及旧整段WAV仍遵循原规则，音频ASR不增加并行。
 

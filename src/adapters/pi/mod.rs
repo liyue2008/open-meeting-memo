@@ -5,6 +5,7 @@ use crate::core::{
     process::{OwnedChild, Reapers},
 };
 use async_trait::async_trait;
+use std::os::unix::fs::MetadataExt;
 use std::{path::Path, process::Stdio, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
@@ -47,6 +48,15 @@ impl SummaryAdapter for PiAdapter {
                 "Pi executable, model and bounded execution configuration are required",
             ));
         }
+        trusted_executable(&cfg.executable, "pi.executable")?;
+        if let Some(node) = &cfg.node_executable {
+            if node.file_name().is_none_or(|name| name != "node") {
+                return Err(OmmError::invalid(
+                    "pi.node_executable must explicitly name node",
+                ));
+            }
+            trusted_executable(node, "pi.node_executable")?;
+        }
         let transcript = serde_json::to_vec(&req.transcript)?;
         // Only pass transcript text/timestamps; no audio path or task database.
         let workspace = Arc::new(Workspace::create(
@@ -74,6 +84,138 @@ impl SummaryAdapter for PiAdapter {
         })
     }
 }
+fn trusted_executable(path: &Path, key: &str) -> Result<()> {
+    walk_tool_path(path, key, |_, metadata| metadata.uid())
+}
+
+// Follow the same component order as pathname lookup, including directories later
+// discarded by a symlink or `..`. Validation does not freeze same-user mutations
+// between checking the path and spawning it; this is not an execution sandbox.
+fn walk_tool_path(
+    path: &Path,
+    key: &str,
+    owner: impl Fn(&Path, &std::fs::Metadata) -> u32,
+) -> Result<()> {
+    use std::{
+        collections::VecDeque,
+        ffi::OsString,
+        os::unix::ffi::{OsStrExt, OsStringExt},
+        path::PathBuf,
+    };
+    enum Step {
+        Root,
+        Here,
+        Parent,
+        Name(OsString),
+    }
+    fn steps(path: &Path) -> Result<VecDeque<Step>> {
+        let bytes = path.as_os_str().as_bytes();
+        if bytes.len() > 4096 {
+            return Err(OmmError::unavailable(
+                "Pi tool path traversal limit exceeded",
+            ));
+        }
+        let mut result = VecDeque::new();
+        if path.is_absolute() {
+            result.push_back(Step::Root);
+        }
+        for part in bytes.split(|b| *b == b'/') {
+            match part {
+                b"" => {}
+                b"." => result.push_back(Step::Here),
+                b".." => result.push_back(Step::Parent),
+                name => result.push_back(Step::Name(OsString::from_vec(name.to_vec()))),
+            }
+        }
+        if bytes.last() == Some(&b'/') {
+            result.push_back(Step::Here);
+        }
+        Ok(result)
+    }
+    if !path.is_absolute() {
+        return Err(OmmError::invalid(
+            "Pi tool paths must be explicit and absolute",
+        ));
+    }
+    let missing = || {
+        OmmError::unavailable(&format!(
+            "configured {key} unavailable; select an explicit trusted stable executable"
+        ))
+    };
+    let unsafe_path = || {
+        OmmError::new(
+            ErrorCode::Permission,
+            false,
+            "Pi executable ancestry or permissions are unsafe",
+        )
+    };
+    let uid = unsafe { libc::geteuid() };
+    let mut pending = steps(path)?;
+    let mut current = PathBuf::from("/");
+    let mut links = 0;
+    let mut visited = 0;
+    while let Some(step) = pending.pop_front() {
+        visited += 1;
+        if visited > 256 || pending.len() > 256 {
+            return Err(OmmError::unavailable(
+                "Pi tool path traversal limit exceeded",
+            ));
+        }
+        let candidate = match step {
+            Step::Root => {
+                current = PathBuf::from("/");
+                current.clone()
+            }
+            Step::Here => current.clone(),
+            Step::Parent => {
+                current.pop();
+                if current.as_os_str().is_empty() {
+                    current.push("/");
+                }
+                current.clone()
+            }
+            Step::Name(name) => current.join(name),
+        };
+        if candidate.as_os_str().as_bytes().len() > 4096 {
+            return Err(OmmError::unavailable(
+                "Pi tool path traversal limit exceeded",
+            ));
+        }
+        let metadata = std::fs::symlink_metadata(&candidate).map_err(|_| missing())?;
+        let uid_at_path = owner(&candidate, &metadata);
+        if uid_at_path != uid && uid_at_path != 0 {
+            return Err(unsafe_path());
+        }
+        if metadata.file_type().is_symlink() {
+            links += 1;
+            if links > 40 {
+                return Err(OmmError::unavailable(
+                    "Pi tool link traversal limit exceeded",
+                ));
+            }
+            let target = std::fs::read_link(&candidate).map_err(|_| missing())?;
+            let mut expanded = steps(&target)?;
+            expanded.append(&mut pending);
+            pending = expanded;
+        } else if metadata.is_dir() {
+            // Only root-owned sticky system directories (such as /tmp) may be shared.
+            if metadata.mode() & 0o022 != 0
+                && !(uid_at_path == 0 && metadata.mode() & libc::S_ISVTX as u32 != 0)
+            {
+                return Err(unsafe_path());
+            }
+            current = candidate;
+        } else if metadata.is_file() && pending.is_empty() {
+            if metadata.mode() & 0o022 != 0 || metadata.mode() & 0o111 == 0 {
+                return Err(unsafe_path());
+            }
+            return Ok(());
+        } else {
+            return Err(unsafe_path());
+        }
+    }
+    Err(missing())
+}
 async fn invoke(
     cfg: &PiConfig,
     workspace: &Arc<Workspace>,
@@ -81,10 +223,17 @@ async fn invoke(
     transcript: &[u8],
     reapers: &Reapers,
 ) -> Result<String> {
-    let parent = cfg
-        .executable
-        .parent()
-        .ok_or_else(|| OmmError::invalid("Pi executable has no parent"))?;
+    let mut entries = vec![Path::new("/usr/bin"), Path::new("/bin")];
+    if let Some(node) = &cfg.node_executable {
+        entries.insert(
+            0,
+            node.parent()
+                .ok_or_else(|| OmmError::invalid("invalid pi.node_executable"))?,
+        );
+    }
+    let path = std::env::join_paths(entries).map_err(|_| {
+        OmmError::invalid("pi.node_executable cannot be represented in isolated PATH")
+    })?;
     workspace.prepare_child()?;
     let child = Command::new(&cfg.executable)
         .args([
@@ -111,7 +260,7 @@ async fn invoke(
         .current_dir(&workspace.path)
         .env_clear()
         .env("HOME", workspace.path.join("home"))
-        .env("PATH", format!("{}:/usr/bin:/bin", parent.display()))
+        .env("PATH", path)
         .env("PI_CODING_AGENT_DIR", agent_dir)
         .env("PI_OFFLINE", "1")
         .env("PI_SKIP_VERSION_CHECK", "1")
@@ -121,7 +270,9 @@ async fn invoke(
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|_| OmmError::unavailable("configured Pi executable could not start"))?;
+        .map_err(|_| {
+            OmmError::unavailable("Pi launch failed; check pi.executable and pi.node_executable")
+        })?;
     let mut child = OwnedChild::new(child, reapers.clone(), Some(workspace.clone()));
     workspace.record_child(
         child
@@ -142,17 +293,45 @@ async fn invoke(
         .ok_or_else(|| OmmError::unavailable("Pi stderr unavailable"))?;
     let operation = async {
         let input = async {
-            stdin.write_all(transcript).await?;
-            stdin.shutdown().await?;
+            let mut accepted = match stdin.write_all(transcript).await {
+                Ok(()) => true,
+                Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => false,
+                Err(e) => return Err(e.into()),
+            };
+            if accepted {
+                match stdin.shutdown().await {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => accepted = false,
+                    Err(e) => return Err(e.into()),
+                }
+            }
             drop(stdin);
-            Ok::<(), OmmError>(())
+            Ok::<bool, OmmError>(accepted)
         };
         let output = bounded_read(stdout, cfg.max_output_bytes);
         let diagnostics = bounded_read(stderr, 64 * 1024);
-        let ((), bytes, diagnostics) = tokio::try_join!(input, output, diagnostics)?;
+        let (accepted, bytes, diagnostics) = tokio::try_join!(input, output, diagnostics)?;
         let status = child.wait().await?;
         if !status.success() {
+            if status.code() == Some(127) {
+                return Err(OmmError::unavailable(
+                    "Pi launcher runtime unavailable; check pi.node_executable",
+                ));
+            }
             let diagnostic = String::from_utf8_lossy(&diagnostics).to_ascii_lowercase();
+            if [
+                "unknown option",
+                "unknown argument",
+                "unrecognized option",
+                "unsupported flag",
+            ]
+            .iter()
+            .any(|s| diagnostic.contains(s))
+            {
+                return Err(OmmError::unavailable(
+                    "configured Pi CLI flags unsupported; check the trusted launcher version",
+                ));
+            }
             if [
                 "no api key",
                 "not authenticated",
@@ -172,6 +351,13 @@ async fn invoke(
                     "Pi exited unsuccessfully (code {}); diagnostic contents withheld",
                     status.code().unwrap_or(-1)
                 ),
+            ));
+        }
+        if !accepted {
+            return Err(OmmError::new(
+                ErrorCode::Corrupt,
+                false,
+                "Pi exited before accepting the transcript input",
             ));
         }
         let body = String::from_utf8(bytes)
@@ -302,4 +488,37 @@ async fn summarize_chunks(
     Err(OmmError::unavailable(
         "Pi notes could not be reduced within the bounded summary budget",
     ))
+}
+
+#[cfg(test)]
+mod tool_path_tests {
+    use super::*;
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    #[test]
+    fn tool_walk_rejects_foreign_owner_on_every_intermediate_link_directory_and_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let directory = root.join("safe");
+        std::fs::create_dir(&directory).unwrap();
+        let executable = directory.join("pi");
+        std::fs::write(&executable, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let link = root.join("indirect");
+        symlink(&directory, &link).unwrap();
+        for key in ["pi.executable", "pi.node_executable"] {
+            for foreign in [&directory, &executable, &link] {
+                let error = walk_tool_path(&link.join("pi"), key, |path, metadata| {
+                    if path == foreign {
+                        unsafe { libc::geteuid() }.wrapping_add(1000)
+                    } else {
+                        metadata.uid()
+                    }
+                })
+                .unwrap_err();
+                assert_eq!(error.code, ErrorCode::Permission);
+                assert!(!error.retryable);
+            }
+        }
+        trusted_executable(&link.join("pi"), "pi.executable").unwrap();
+    }
 }

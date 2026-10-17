@@ -145,6 +145,7 @@ printf '# Synthetic minutes\nDecision at 0ms.\n'
                 timeout_ms: 15_000,
                 max_input_bytes: 1024,
                 max_output_bytes: 1024,
+                node_executable: None,
             },
             poll_ms: 100,
             ..Default::default()

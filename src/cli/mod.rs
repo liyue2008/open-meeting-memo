@@ -671,8 +671,10 @@ pub async fn execute_at(
                         && !store.artifact_committed(task.id, Stage::Transcribe)?
                     {
                         let transcript = store.partial_transcript(*id)?;
+                        let progress = store.segment_progress(*id)?;
+                        let completed = progress.iter().filter(|s| s.status == "done").count();
                         return Ok(
-                            json!({"taskId":task.id,"partial":true,"content":serde_json::to_string_pretty(&transcript)?}),
+                            json!({"taskId":task.id,"partial":true,"completedSegments":completed,"totalSegments":progress.len(),"notice":"转写尚未完成；这里只包含已完成片段，不是整场终稿。", "content":serde_json::to_string_pretty(&transcript)?}),
                         );
                     }
                     let bytes = store.read_artifact(

@@ -158,6 +158,68 @@ pub struct PiConfig {
     pub timeout_ms: u64,
     pub max_input_bytes: usize,
     pub max_output_bytes: usize,
+    /// Explicit runtime for JavaScript launchers; never inherited from the user's PATH.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node_executable: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CaptureSourceClock {
+    pub rate_hz: f64,
+    pub input_frames: u64,
+    pub target_frames: u64,
+    pub rate_changes: u32,
+    pub accepted_channels: u32,
+    pub input_elapsed_us: u64,
+    pub first_accepted_offset_us: u64,
+    pub last_accepted_offset_us: u64,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CaptureClock {
+    pub schema_version: u32,
+    pub target_rate_hz: u32,
+    pub writer_started_utc_ms: u64,
+    pub elapsed_us: u64,
+    pub format_rejects: u64,
+    pub mic: Option<CaptureSourceClock>,
+    pub system: Option<CaptureSourceClock>,
+}
+impl CaptureClock {
+    pub fn valid(&self) -> bool {
+        self.schema_version == 1
+            && self.target_rate_hz == 48000
+            && self.writer_started_utc_ms <= i64::MAX as u64
+            && self.elapsed_us <= i64::MAX as u64
+            && (self.writer_started_utc_ms > 0
+                || (self.elapsed_us == 0 && self.mic.is_none() && self.system.is_none()))
+            && [(&self.mic, 1), (&self.system, 2)]
+                .into_iter()
+                .all(|(source, channels)| {
+                    source.as_ref().is_none_or(|s| {
+                        s.rate_hz.is_finite()
+                            && (8000.0..=384000.0).contains(&s.rate_hz)
+                            && s.accepted_channels == channels
+                            && s.input_frames <= i64::MAX as u64
+                            && s.target_frames <= i64::MAX as u64
+                            && s.first_accepted_offset_us <= s.last_accepted_offset_us
+                            && s.last_accepted_offset_us <= self.elapsed_us
+                            && s.input_elapsed_us
+                                == s.last_accepted_offset_us - s.first_accepted_offset_us
+                    })
+                })
+    }
+}
+/// Missing clocks are legacy; a present null, unknown schema or malformed clock is not legacy.
+pub fn deserialize_capture_clock<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<CaptureClock>, D::Error> {
+    let clock = CaptureClock::deserialize(d)?;
+    if !clock.valid() {
+        return Err(serde::de::Error::custom("invalid capture clock"));
+    }
+    Ok(Some(clock))
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
