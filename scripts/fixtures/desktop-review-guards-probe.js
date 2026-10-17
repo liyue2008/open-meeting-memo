@@ -35,15 +35,15 @@
   try {
     await wait('real React library', () => label('搜索会议'));
     change(label('日期'), 'all');
-    change(label('搜索会议'), 'Failed synthetic retry');
-    await wait('seeded failed meeting', () => titles().length === 1 && titles()[0] === 'Failed synthetic retry');
-    const found = await raw('meeting_list', { filter: { query: 'Failed synthetic retry', scope: 'title', date: null, sources: [], statuses: [], sort: 'started_desc', visibility: 'active' }, cursor: null, pageSize: 25, expectedRevision: null });
+    change(label('搜索会议'), 'UI failed task fixture');
+    await wait('seeded failed meeting', () => titles().length === 1 && titles()[0] === 'UI failed task fixture');
+    const found = await raw('meeting_list', { filter: { query: 'UI failed task fixture', scope: 'title', date: null, sources: [], statuses: [], sort: 'started_desc', visibility: 'active' }, cursor: null, pageSize: 25, expectedRevision: null });
     check('real seeded failed meeting found', found.items.length === 1);
     meetingId = found.items[0].meetingId;
     const tasks = await raw('task_list', { meetingId, statuses: [], cursor: null, pageSize: 25 });
     check('failed fixture has no successful content to match', tasks.items.length === 1 && tasks.items[0].status === 'failed');
     taskId = tasks.items[0].taskId;
-    await click('Failed synthetic retry');
+    await click('UI failed task fixture');
     await click('编辑'); await wait('edit dialog', () => modal());
     change(label('会议标题'), title);
     await click('保存', modal());
