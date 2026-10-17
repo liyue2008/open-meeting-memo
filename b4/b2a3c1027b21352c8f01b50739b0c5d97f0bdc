@@ -1,0 +1,19 @@
+docs/desktop-acceptance.md
+  s_b51f0316cfa2ff::t_481a2c24927ea0 3,11,24-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b4b2a3c1027b21352c8f01b50739b0c5d97f0bdc",
+  "prompts": {},
+  "sessions": {
+    "s_b51f0316cfa2ff": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14a57-1149-74de-90d2-383adb76b2f3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
