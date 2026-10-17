@@ -49,5 +49,17 @@ receipt = json.loads((evidence / 'owned-process.json').read_text())
 assert receipt['waited'] and receipt['exitCode'] == 0 and not receipt['terminatedOnTimeout'], receipt
 result = json.loads((evidence / 'bridge-result.json').read_text())['result']
 assert result['ok'] and result['playCalls'] == 0 and not result.get('mediaNotTested'), result
-print(f"Actual React/WK passed: {len(result['checks'])} checks, playCalls=0, owned process waited")
+assert 'real synthetic actions visible and read only' in result['checks']
+assert 'summary checkbox source has no interactive checkbox' in result['checks']
+close = result['nativeClose']
+for key in ['destroyedEvent', 'mainAbsent', 'readersReleased', 'shutdownAcknowledged', 'captureExitSuccess', 'captureChildWaited']:
+    assert close[key] is True, (key, close)
+assert close['closeRequestIds'] == ['ui-close-cancel', 'ui-close-confirm', 'ui-close-finish'], close
+assert result['closeGuard']['cancelledWindowAndDraftRetained'] is True
+assert result['closeGuard']['cancelledDiskUnchanged'] is True
+before_destroy = json.loads((evidence / 'close-before-destroy.json').read_text())
+assert before_destroy['requestId'] == 'ui-close-finish' and before_destroy['mainAlive'] is True
+assert before_destroy['origin'] == 'tauri://localhost' and '设置尚未保存' in before_destroy['dom']
+assert before_destroy['result']['closeGuard'] == result['closeGuard']
+print(f"Actual React/WK passed: {len(result['checks'])} checks, populated read-only actions, playCalls=0, native destroy and owned cleanup observed")
 PY

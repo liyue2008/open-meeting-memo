@@ -91,7 +91,8 @@
     await wait('actual summary content', () => elements('.markdown').some(e => e.textContent.includes('Synthetic summary')));
     const player = document.querySelector('.audio-player'), artifacts = document.querySelector('.artifact-panel');
     check('recording above transcript and minutes', !!(player.compareDocumentPosition(artifacts) & Node.DOCUMENT_POSITION_FOLLOWING));
-    check('actions read only without checkboxes', !!document.querySelector('.action-items') && !document.querySelector('.artifact-panel input[type=checkbox]'));
+    check('real synthetic actions visible and read only', document.querySelector('.action-items')?.textContent.includes('Read-only synthetic action') && elements('.action-items li').length > 0 && !document.querySelector('.action-items input[type=checkbox]'));
+    check('summary checkbox source has no interactive checkbox', !document.querySelector('.artifact-panel input[type=checkbox]'));
     const mediaMeeting = (await list('Private bridge fixture')).items[0];
     const manifest = await raw('media_manifest', { meetingId: mediaMeeting.meetingId, cursor: null, pageSize: 100 });
     const grant = await raw('media_open', { meetingId: mediaMeeting.meetingId, segmentId: manifest.segments[0].segmentId, expectedRevision: manifest.revision });
@@ -209,7 +210,41 @@
     const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i));
     check('only appearance in private web storage', keys.every(k => ['omm.theme', 'omm.sidebar'].includes(k)));
     check('no audio playback', playCalls === 0);
-    window.__ommFixtureResult = { ok: true, checks, playCalls, views, mediaEvidence, independentNativeReads: reads, storage: 'nonpersistent isolated fixture; no cross-process persistence claim', userAgent: navigator.userAgent };
+    await click('设置');
+    const closeField = await wait('editable config before native close', () => { const field = label('自动录音开始延迟（毫秒）'); return field && !field.disabled && field; });
+    const closeBaseline = await raw('config_get');
+    const closeDraft = String(closeBaseline.values.startDelayMs + 123);
+    await change(closeField, closeDraft);
+    await wait('actual dirty settings before native close', () => text().includes('有未保存的修改'));
+    const requestClose = async request => {
+      window.__ommFixtureCloseResult = null;
+      window.__ommFixtureCloseRequest = request;
+      const receipt = await wait('owned native close receipt: ' + request.id, () => window.__ommFixtureCloseResult);
+      check('trusted matching native close receipt: ' + request.id, receipt.ok === true && receipt.id === request.id);
+      return receipt;
+    };
+    const cancelledClose = await requestClose({ id: 'ui-close-cancel', action: 'close' });
+    check('first actual Rust close requested', cancelledClose.nativeCloseRequested === true);
+    await wait('actual React dirty close confirmation', () => modal()?.textContent.includes('设置尚未保存'));
+    await click('留在设置', modal());
+    await wait('cancel keeps real window and unsaved draft', () => !modal() && closeField.isConnected && closeField.value === closeDraft && text().includes('有未保存的修改'));
+    const afterCancel = await raw('config_get');
+    check('cancelled native close did not save disk configuration', afterCancel.revision === closeBaseline.revision && JSON.stringify(afterCancel.values) === JSON.stringify(closeBaseline.values));
+    const confirmedClose = await requestClose({ id: 'ui-close-confirm', action: 'close' });
+    check('second actual Rust close requested', confirmedClose.nativeCloseRequested === true);
+    await wait('second actual React close confirmation', () => modal()?.textContent.includes('设置尚未保存'));
+    check('draft remains unsaved until actual discard', closeField.isConnected && closeField.value === closeDraft && (await raw('config_get')).revision === closeBaseline.revision);
+    await snapshot('dirty-close-confirmation');
+    const discard = await wait('enabled real React discard before arming', () => elements('button', modal()).find(button => !button.disabled && button.textContent.trim() === '放弃并离开'));
+    check('enabled actual React discard button', !!discard);
+    // The native arm channel is bounded to 64 KiB; retain assertions and aggregate diagnostic polling.
+    const readCounts = reads.reduce((counts, read) => { const key = read.command + ':' + (read.error ?? 'ok'); counts[key] = (counts[key] ?? 0) + 1; return counts; }, {});
+    const closeGuard = { cancelledWindowAndDraftRetained: true, cancelledDiskUnchanged: true, baselineRevision: closeBaseline.revision, draft: closeDraft };
+    const armed = await requestClose({ id: 'ui-close-finish', action: 'arm-destroy', result: { ok: true, checks, playCalls, views: views.map(({ body, ...view }) => view), mediaEvidence, independentNativeReadCounts: readCounts, closeGuard, storage: 'nonpersistent isolated fixture; no cross-process persistence claim', userAgent: navigator.userAgent } });
+    check('native evidence armed before actual React discard', armed.armed === true && armed.mainAlive === true);
+    check('real discard still connected after native arming', discard.isConnected && !discard.disabled);
+    // No IPC or generic completion after this click: native destruction and owned cleanup decide success.
+    discard.click();
   } catch (error) {
     window.__ommFixtureResult = { ok: false, checks, playCalls, error: String(error), views, mediaEvidence, visibility: document.visibilityState, focused: document.hasFocus(), body: text().slice(0, 16000), independentNativeReads: reads };
   }

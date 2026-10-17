@@ -60,6 +60,8 @@ native/frontend 从同一 Foundation 本地提交分别分叉，已按等价契�
 
 实际 React fixture 使用 `scripts/fixtures/desktop-ui-probe.js` 驱动真实控件，保持生产 Tauri transport 不变。独立入口只接受全新空的私有 `/private/tmp` 证据根（可由 `OMM_DESKTOP_UI_EVIDENCE` 指定），记录运行前后源码 SHA256、实际 driver/dist/二进制/结果 hash 和 owned 进程退出回执；源码变化、业务断言失败、播放或超时均失败。测试中的 WKWebView 使用非持久网站数据存储，不复用个人 App 的缓存或偏好。偏好写入和当前窗口行为的检查，只覆盖本次私有运行；生产 App 重启后是否保留偏好需要单独验证。
 
+真实React矩阵要求非空只读行动项（实际文本及列表、无checkbox），末尾经受限Rust入口请求真实关闭：取消保留草稿且磁盘未保存，确认前保存证据并arm，点击原React放弃按钮后，由native记录真实destroy、reader释放、服务关闭及owned helper等待。驱动不直接调用destroy/emit；证据入口独立核对关闭前记录与最终回执。native arm请求上限为64KiB，因此仅聚合诊断轮询、保留截图元数据，完整截图和关闭前DOM仍独立保存。
+
 完整媒体路径使用 verified descriptor/hash 和短效 grant；fixture 只做无输出节点的静音解码、metadata 与暂停定位，`playCalls` 必须为0。生产播放仅由用户控制。真实权限、硬件采集、语音识别质量、个人 Pi 认证、可见通知及长会议质量不由这些 fixture 证明。
 
 发布流程是：当前源码全量验证 → fresh 只读正式评审 → 最终 clean commit 构建并验证资源/signature/license/source hash → 显式用户目录 side-by-side 安装并用私有 profile 实际启动 → 既有 SSH origin push 与 GitHub PR（不 merge）。整合 owner 不提前安装或推送；组件包中旧 Foundation 界面不能冒充最终产品包。
