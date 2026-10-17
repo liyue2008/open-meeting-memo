@@ -45,6 +45,11 @@
       evidence.focusContrast = contrast(focus.color, focus.backgroundColor);
       check('actual focus state contrast >=4.5 ' + theme, document.activeElement === entry && evidence.focusContrast >= 4.5);
     }
+    const search = await wait('real library query field', () => document.querySelector('input[aria-label="搜索会议"]'));
+    check('real library query field', search);
+    change(search, 'Private bridge fixture');
+    await wait('actual query result settles', () => document.querySelectorAll('[aria-label="会议列表"] tbody tr').length === 1);
+    check('actual query retains expected synthetic meeting', document.querySelector('[aria-label="会议列表"] tbody')?.textContent.includes('Private bridge fixture'));
     const meeting = await wait('actual synthetic detail entry', () => [...document.querySelectorAll('.meeting-title')].find(e => e.textContent === 'Private bridge fixture'));
     meeting.click();
     const audio = await wait('actual ready paused audio', () => { const a = document.querySelector('audio'); return a?.readyState >= 1 && a; });
