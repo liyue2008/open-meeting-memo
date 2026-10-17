@@ -52,7 +52,7 @@ bash scripts/test-desktop-ui-wkwebview.sh
 
 仅摘native `1cb3edf` 为 `fab32d7ccd5e8836d0e3fda3543080642cdde12d`；36schema/ACL/CSP和production持久策略未变。clean fab32实际打包exit0：`target/desktop-package/fab32d7ccd5e8836d0e3fda3543080642cdde12d/Open Meeting Memo.app`，2031资源verified=true，包含当前真实UI/CLI/worker/helper/sherpa/codec和许可证，owned包装进程已wait。完整证据 `/private/tmp/omm-candidate-current-kMHzGp`。这不是最终新增fixture/文档提交的release。
 
-该App实际作为 `OMM_LIFECYCLE_RESOURCE_APP`，受限as-is自有React driver运行于 `/private/tmp/omm-lifecycle-proof-T5aqvI`：run/owned wrapper exit0，36项真实按钮/取消初始化/初始化/自然到期拒绝和重检/启动/安全切换/停止通过，playCalls=0。两CLI40303/40665及capture40419已owned收尾；provenance明确sourceRevision=fab32、资源2031、实际CLI和manifest hash，不是旧f139。busy/unknown/stale当时只有native原4case直接证据，不能替代真实React负例；Main已批准同native补feature-only held控制，Root不自行改组件或竞态测试。
+该App实际作为 `OMM_LIFECYCLE_RESOURCE_APP`，受限as-is自有React driver运行于 `/private/tmp/omm-lifecycle-proof-T5aqvI`：run/owned wrapper exit0，36项真实按钮/取消初始化/初始化/自然到期拒绝和重检/启动/安全切换/停止通过，playCalls=0。两CLI40303/40665及capture40419已owned收尾；provenance明确sourceRevision=fab32、资源2031及实际hash，不是旧f139。必须注意：当时脚本重新编译并替换了私有副本CLI，原包CLI为bf7fd49b...，实际执行为e91c9258...；这是当前源码重编译CLI的准备证明，不能称原包CLI字节已验。Main已批准同native改测试入口保留原包CLI并记录source/staged/运行后hash相等；最终须同源新包重跑。busy/unknown/stale当时只有native原4case直接证据，不能替代真实React负例；另已批准同native补feature-only held控制，Root不自行改组件或竞态测试。
 
 专属存储新入口 `bash scripts/test-desktop-preferences-wkwebview.sh` 已实际exit0，证据 `/private/tmp/omm-pref-Cm4kfJ`：先A/B隔离proof、再工具分配新UUID，两个实际React进程第一次真实写dark/collapsed，第二次任何偏好写/清除前初始还原，两次真实dirty close/native销毁及owned收尾通过，最终exact cleanup removed=true。每阶段在cleanup重建前保存实际binary/dist/driver/result/owned hash，源码前后相等；运行时fab32加明确的自有fixture WIP，不冒称后续最终提交已全量重跑。
 
