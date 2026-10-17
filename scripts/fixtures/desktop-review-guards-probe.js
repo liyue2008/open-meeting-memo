@@ -21,7 +21,7 @@
     throw new Error('Timeout: ' + name);
   };
   const label = name => elements('label').find(e => e.childNodes[0]?.textContent.trim() === name)?.querySelector('input,select,textarea') || document.querySelector('[aria-label="' + name + '"]');
-  const button = (name, root = document) => elements('button,a', root).find(e => (e.getAttribute('aria-label') || e.textContent).trim() === name);
+  const button = (name, root = document) => elements('button,a', root).find(e => e.textContent.trim() === name || e.getAttribute('aria-label') === name);
   const click = async (name, root) => { const e = await wait('enabled ' + name, () => { const e = button(name, root); return e && !e.disabled && e.getClientRects().length && e; }); e.click(); };
   const change = (element, value) => {
     const proto = element.tagName === 'SELECT' ? HTMLSelectElement.prototype : element.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
@@ -44,6 +44,7 @@
     check('failed fixture has no successful content to match', tasks.items.length === 1 && tasks.items[0].status === 'failed');
     taskId = tasks.items[0].taskId;
     await click('UI failed task fixture');
+    await wait('actual failed meeting detail', () => document.querySelector('h1')?.textContent === 'UI failed task fixture' && text().includes('本场处理任务'));
     await click('编辑'); await wait('edit dialog', () => modal());
     change(label('会议标题'), title);
     await click('保存', modal());
@@ -60,10 +61,10 @@
     check('Trash retains failed meeting', true);
     await click('处理队列');
     let row = await wait('actual failed task row', () => elements('.task-row').find(e => e.textContent.includes(meetingId)));
-    await wait('Trash disables retry and requeue', () => button('重试任务', row)?.disabled && button('重新入队', row)?.disabled);
+    await wait('Trash disables retry and requeue', () => button('重试失败阶段', row)?.disabled && button('重新入队', row)?.disabled);
     const blocked = await raw('task_get', { taskId });
     check('native task capabilities deny Trash retry and requeue', !blocked.task.canRetry && !blocked.task.canRequeue && blocked.task.status === 'failed');
-    check('actual React queue disables Trash mutations', button('重试任务', row).disabled && button('重新入队', row).disabled);
+    check('actual React queue disables Trash mutations', button('重试失败阶段', row).disabled && button('重新入队', row).disabled);
     await click('会议库'); await wait('Trash library controls', () => label('位置'));
     change(label('日期'), 'all'); change(label('位置'), 'trash'); change(label('搜索会议'), title);
     await wait('retained Trash meeting searchable', () => titles().length === 1 && titles()[0] === title);
@@ -71,10 +72,10 @@
     await wait('restore committed', () => !modal() && !text().includes('此会议位于回收站'));
     await click('处理队列');
     row = await wait('restored task row', () => elements('.task-row').find(e => e.textContent.includes(meetingId)));
-    await wait('restore returns real queue capabilities', () => !button('重试任务', row)?.disabled && !button('重新入队', row)?.disabled);
+    await wait('restore returns real queue capabilities', () => !button('重试失败阶段', row)?.disabled && !button('重新入队', row)?.disabled);
     const restored = await raw('task_get', { taskId });
     check('restore preserves task identity and restores eligible capabilities', restored.task.taskId === taskId && restored.task.canRetry && restored.task.canRequeue);
-    check('actual React queue reflects restored capabilities', !button('重试任务', row).disabled && !button('重新入队', row).disabled);
+    check('actual React queue reflects restored capabilities', !button('重试失败阶段', row).disabled && !button('重新入队', row).disabled);
     check('no playback requested', playCalls === 0);
     window.__ommFixtureResult = { ok: true, checks, playCalls, meetingId, taskId, scope: 'F2 Trash UI and F5 title-only content; active-attempt/late-shutdown races remain Core regression evidence' };
   } catch (error) {
