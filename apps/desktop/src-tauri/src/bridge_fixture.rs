@@ -18,6 +18,15 @@ use std::{
 use tauri::Manager;
 use uuid::Uuid;
 pub mod capture;
+mod window_acl;
+pub fn scenario() -> String {
+    let scenario = std::env::var("OMM_WKWEBVIEW_SCENARIO").unwrap_or_else(|_| "native".into());
+    assert!(
+        matches!(scenario.as_str(), "native" | "window-acl"),
+        "unknown private fixture scenario"
+    );
+    scenario
+}
 pub fn output(name: &str) -> PathBuf {
     assert!(!name.contains('/') && !name.contains('\\') && name != "." && name != "..");
     let root = PathBuf::from(std::env::var_os("OMM_NATIVE_FIXTURE_ROOT").unwrap())
@@ -133,7 +142,13 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
     let helper = capture::start(paths);
     builder
         .manage(std::sync::Mutex::new(helper))
-        .setup(move |_| {
+        .setup(move |app| {
+            if scenario() == "window-acl" {
+                // Same local origin and capability, but no React listener competes with this API-level probe.
+                tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
+                    .on_web_resource_request(|_, response| { *response.body_mut() = std::borrow::Cow::Borrowed(b"<!doctype html><title>Private window ACL fixture</title>"); })
+                    .build()?;
+            }
             let location = owned.runtime_location(&std::env::vars().collect()).unwrap();
             tauri::async_runtime::spawn(async move {
                 omm::service::daemon::run_at(owned, location)
@@ -147,6 +162,10 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
                 || view.label() != "main"
                 || started.swap(true, Ordering::SeqCst)
             {
+                return;
+            }
+            if scenario() == "window-acl" {
+                window_acl::start(view.clone(), stop.clone());
                 return;
             }
             view.eval_with_callback(

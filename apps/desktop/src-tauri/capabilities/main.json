@@ -1,12 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "Only reviewed, versioned OMM commands for the local main window; no filesystem, shell or remote grants.",
+  "description": "Reviewed OMM commands and the close listener/unlistener/destroy hooks for the local main window; no filesystem, shell, window-creation or remote grants.",
   "windows": [
     "main"
   ],
   "local": true,
   "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-destroy",
     "allow-desktop-info",
     "allow-meeting-list",
     "allow-meeting-get",

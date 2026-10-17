@@ -2,6 +2,8 @@
 #[cfg(feature = "native-bridge-fixture")]
 mod bridge_fixture;
 mod host;
+#[cfg(test)]
+mod window_acl;
 #[tauri::command]
 async fn profile_initialize(
     window: tauri::WebviewWindow,
@@ -290,6 +292,9 @@ async fn media_close(
 ) -> Result<serde_json::Value, String> {
     Ok(host::invoke(window, host, "media_close", request).await)
 }
+fn context() -> tauri::Context<tauri::Wry> {
+    tauri::generate_context!()
+}
 pub fn run() {
     #[cfg(feature = "native-bridge-fixture")]
     if std::env::var_os("OMM_NATIVE_FIXTURE_HELPER").is_some() {
@@ -304,9 +309,14 @@ pub fn run() {
     #[cfg(feature = "native-bridge-fixture")]
     let builder = bridge_fixture::builder(builder, &paths);
     #[allow(unused_mut)]
-    let mut context = tauri::generate_context!();
+    let mut context = context();
     #[cfg(feature = "native-bridge-fixture")]
     {
+        // Never attach controlled fixtures to the user's persistent WebKit data store.
+        context.config_mut().app.windows[0].incognito = true;
+        if bridge_fixture::scenario() == "window-acl" {
+            context.config_mut().app.windows[0].create = false;
+        }
         context.config_mut().app.security.csp = Some(tauri::utils::config::Csp::Policy("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost omm-media: omm-fixture-result:; media-src omm-media:; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'".into()));
     }
     builder

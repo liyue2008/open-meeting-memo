@@ -67,3 +67,43 @@ The package contains its own CLI, ASR worker, identity-preserving capture app, p
 Assembly checks arm64, macOS 15.5 deployment target, dynamic-library closure, capture bundle identity/entitlements, inside-out ad-hoc signatures, bundled licenses/sources and file hashes. The application icon is generated from the original approved OMM glyph geometry. Ad-hoc signing is development signing, not notarization.
 
 Installation verifies the source bundle and copies it to a revision-named new user app bundle. It does not modify `~/.local/bin/omm`, LaunchAgents, personal recording/configuration/authentication, consent or auto-record settings. Its 0600 receipt contains only non-secret package metadata. Integrated release acceptance must rebuild from the final combined clean commit, verify that exact package/install provenance and actually launch the production package with an isolated profile. A component package or fixture is not that final release acceptance.
+
+## Main-window close ACL and isolated WebKit fixtures
+
+The only additional core permissions are `core:event:allow-listen`,
+`core:event:allow-unlisten` and `core:window:allow-destroy`, scoped to the local
+`main` window in the existing capability. Tauri's `onCloseRequested` registers a
+window-targeted event listener and destroys that window only after the handler
+has not prevented the close; the UI's confirmed discard path also calls
+`destroy`. No event emit, IPC close, window creation, core default, remote,
+filesystem or shell permission is granted. The 36 business permissions and
+native trusted-origin checks are unchanged. Production defines just one window;
+the frontend cannot create others with these permissions.
+
+```sh
+# Fresh evidence directory required, from this worktree; no shared target/dist.
+OMM_WKWEBVIEW_SCENARIO=window-acl \
+OMM_WKWEBVIEW_EVIDENCE="$(mktemp -d /private/tmp/omm-window-acl-XXXXXX)" \
+bash packaging/desktop/test-wkwebview.sh
+```
+
+This API-level real-WK fixture uses the production capability and actual
+`tauri://localhost` origin, but an inert fixture HTML document so React's own
+close listener cannot compete with the probe. It proves listen, pending-close
+preservation, unlisten cleanup and actual current-main destruction. A native-only
+unknown local window and a main-labelled, short-lived owned loopback HTTP page
+prove the same commands are refused for untrusted callers/origins. Registered
+custom protocols are classified as local by Tauri and are not remote negatives.
+No production test command or window-creation permission is added. Complete
+React dirty-form cancel/save/discard behaviour remains combined UI acceptance.
+
+**Every `native-bridge-fixture` window is nonpersistent/incognito**, including
+normal/native and UI-driver runs. This is a feature-only context override;
+production `tauri.conf.json` and appearance persistence are unchanged. The locked
+Tauri 2.12.4 / tauri-runtime-wry 2.12.2 / Wry 0.57.0 path forwards `incognito`
+to `WKWebsiteDataStore::nonPersistentDataStore`. The window-ACL scenario verifies
+two same-origin independent windows with a random synthetic localStorage key:
+B cannot see A, B writes its value, A still sees A. It never reads personal
+WebKit files or clears global stores. XDG/HOME isolation alone is not claimed
+to isolate WebKit. This evidence does not prove cross-process preference
+persistence; ephemeral fixtures can test same-window reload only.
