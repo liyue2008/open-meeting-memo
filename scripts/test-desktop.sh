@@ -33,9 +33,27 @@ fi
 if "$wkwebview"; then
   (
     unset OMM_WKWEBVIEW_SCENARIO OMM_WKWEBVIEW_DRIVER OMM_WKWEBVIEW_EVIDENCE OMM_WKWEBVIEW_STORE_MANIFEST
+    record_native_artifacts() {
+      python3 - "$OMM_WKWEBVIEW_EVIDENCE" "$DESKTOP_ROOT" <<'PY'
+import hashlib, json, pathlib, subprocess, sys
+path, root = map(pathlib.Path, sys.argv[1:])
+files = [root / 'target/debug/omm-desktop', path / 'driver.js', path / 'bridge-result.json', path / 'owned-process.json']
+files += sorted((root / 'apps/desktop/dist').rglob('*'))
+value = {'head': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(), 'files': {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files if p.is_file()}}
+artifact = path / 'actual-artifact-sha256.json'
+artifact.write_text(json.dumps(value, indent=2) + '\n')
+artifact.chmod(0o600)
+PY
+    }
+    export OMM_WKWEBVIEW_EVIDENCE
+    OMM_WKWEBVIEW_EVIDENCE=$(mktemp -d /private/tmp/omm-wk-native-XXXXXX)
     desktop_component_script packaging/desktop/test-wkwebview.sh
+    record_native_artifacts
     export OMM_WKWEBVIEW_SCENARIO=window-acl
+    OMM_WKWEBVIEW_EVIDENCE=$(mktemp -d /private/tmp/omm-wk-acl-XXXXXX)
     desktop_component_script packaging/desktop/test-wkwebview.sh
+    record_native_artifacts
+    unset OMM_WKWEBVIEW_SCENARIO OMM_WKWEBVIEW_EVIDENCE
     desktop_component_script scripts/test-desktop-ui-wkwebview.sh
     desktop_component_script scripts/test-desktop-preferences-wkwebview.sh
     desktop_component_script scripts/test-desktop-lifecycle-wkwebview.sh
