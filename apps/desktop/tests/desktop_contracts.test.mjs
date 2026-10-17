@@ -78,7 +78,17 @@ assert.ok(!conf.app.security.csp.includes('unsafe-inline'));
 assert.ok(!conf.app.security.csp.includes('unsafe-eval'));
 assert.ok(!conf.app.security.csp.includes('https:'));
 const cap = JSON.parse(fs.readFileSync(path.join(root, 'apps/desktop/src-tauri/capabilities/main.json')));
-assert.deepEqual(cap.permissions, Object.keys(schema['x-commands']).map(name => `allow-${name.replaceAll('_', '-')}`));
+const commands = Object.keys(schema['x-commands']);
+assert.equal(commands.length, 36);
+const closeListenerPermissions = [
+  'core:event:allow-listen',
+  'core:event:allow-unlisten',
+  'core:window:allow-destroy',
+];
+assert.deepEqual(cap.permissions, [
+  ...closeListenerPermissions,
+  ...commands.map(name => `allow-${name.replaceAll('_', '-')}`),
+]);
 assert.equal(cap.local, true);
 assert.equal(cap.remote, undefined);
 assert.deepEqual(cap.windows, ['main']);
