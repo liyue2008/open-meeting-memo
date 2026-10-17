@@ -1,0 +1,43 @@
+.gitignore
+  s_ae02d12992cb1d::t_2ec57d9569a69b 84-87
+AGENTS.md
+  s_ae02d12992cb1d::t_320f78f7e01383 3
+README.md
+  s_ae02d12992cb1d::t_d42c10ed5a2241 7
+docs/desktop-acceptance.md
+  s_a264fe4abc41cf::t_9be94f1ac26cb1 3,7-14,18,20,22-24,35
+docs/desktop-lanes.md
+  s_ae02d12992cb1d::t_de99f6d845bed3 8-11
+docs/desktop.md
+  s_ae02d12992cb1d::t_dd388d599192c2 3,16,28-30,38,54-62
+docs/install.md
+  s_ae02d12992cb1d::t_f1a6a56d27ead3 7-21
+docs/overview-design.md
+  s_ae02d12992cb1d::t_e0771c1226225c 16
+prd.md
+  s_ae02d12992cb1d::t_801af9f156e75a 20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c0b4cdeac1616ca32c3588da6ccc17cef47bd79f",
+  "prompts": {},
+  "sessions": {
+    "s_a264fe4abc41cf": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14a57-1149-72a4-9c79-db3a380c6755",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_ae02d12992cb1d": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14acf-e318-76cd-a43b-6bd5ff8c8bfe",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
