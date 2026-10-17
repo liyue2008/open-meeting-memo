@@ -69,6 +69,9 @@ try:
         assert provenance['sourceManifestHash'] == provenance['resourceManifestHash'] == preservation['sourceManifestHash'] == preservation['stagedManifestHash'] == digest(manifest) == resource['manifestHash']
         running = preservation['verifiedRunningCases']
         assert len(running) == 2 and running[0]['ownedPid'] != running[1]['ownedPid'] and all(c['actualExecutableVerified'] for c in running)
+        assert [c['case'] for c in result['nativeCases']] == ['configure', 'running', 'switched', 'offline'] and all(c['ok'] for c in result['nativeCases'])
+        capture = result['capturePeer']
+        assert capture['waited'] and capture['exitCode'] == 0 and capture['exitedByServiceQuit'], capture
         lifecycle = result['nativeLifecycle']
         for key in ['allOwnedExited', 'dataPreserved', 'locksReleased', 'socketRemoved']:
             assert lifecycle[key] is True, (key, lifecycle)
