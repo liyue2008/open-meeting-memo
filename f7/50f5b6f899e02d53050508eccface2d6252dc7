@@ -1,0 +1,31 @@
+apps/desktop/src-tauri/src/bridge_fixture.rs
+  s_ae02d12992cb1d::t_d79825d64d3c43 21,206-207,209,225-229,248,256-266,272,277-283,296-298
+apps/desktop/src-tauri/src/bridge_fixture/close.rs
+  s_ae02d12992cb1d::t_9f78b3318c295d 1-245
+docs/desktop-native.md
+  s_b51f0316cfa2ff::t_1e0b698e0910ce 169-200
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f750f5b6f899e02d53050508eccface2d6252dc7",
+  "prompts": {},
+  "sessions": {
+    "s_ae02d12992cb1d": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14acf-e318-76cd-a43b-6bd5ff8c8bfe",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_b51f0316cfa2ff": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14a57-1149-74de-90d2-383adb76b2f3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
