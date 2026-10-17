@@ -7,7 +7,7 @@
   const elements = (selector, root = document) => [...root.querySelectorAll(selector)];
   const check = (name, value) => { if (!value) throw new Error(name); checks.push(name); };
   const raw = async (command, payload) => {
-    const reply = await window.__TAURI_INTERNALS__.invoke(command, { request: { version: 1, requestId: crypto.randomUUID(), payload } });
+    const reply = await window.__TAURI_INTERNALS__.invoke(command, { request: { schemaVersion: 1, requestId: crypto.randomUUID(), payload } });
     if (reply.error) throw new Error(command + ': ' + JSON.stringify(reply.error));
     return reply.data;
   };
