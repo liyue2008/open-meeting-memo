@@ -157,6 +157,10 @@ async fn desktop_import_cleanup_commit_retries_after_reconstruction_preserve_fin
         std::thread::sleep(std::time::Duration::from_millis(10));
     };
     assert!(status.success());
+    eprintln!(
+        "desktop_import_owned_child_receipt={}",
+        json!({"kind":"fresh_process_replay","pid":child.id(),"waited":true,"exitCode":status.code(),"executableSha256":hash_file(&std::env::current_exe().unwrap()).unwrap()})
+    );
     let restarted: Value =
         serde_json::from_slice(&fs::read(f._temp.path().join("replayed.json")).unwrap()).unwrap();
     assert_eq!(
@@ -389,4 +393,503 @@ async fn desktop_import_decoder_failure_waits_owned_child_and_cleans_known_outpu
         "failed decoder left imported staging behind"
     );
     assert!(source.exists(), "the selected source must never be removed");
+    eprintln!(
+        "desktop_import_owned_child_receipt={}",
+        json!({"kind":"failed_owned_decoder","pid":pid,"drained":true,"esrchConfirmed":true,"executableSha256":hash_file(&decoder).unwrap()})
+    );
+}
+
+// Recreate the exact on-disk boundaries before SQLite admission, not a UI cancellation.
+fn interrupted_promotion(f: &Fixture, h: &str, boundary: &str) -> PathBuf {
+    let s = imports::load(&f.paths, &f.owner, h).unwrap();
+    let dir = f
+        .paths
+        .data
+        .join("meetings/imports")
+        .join(s.meeting_id.to_string());
+    private_dir(&dir).unwrap();
+    write_private_new(
+        &dir.join("import-promotion.json"),
+        &serde_json::to_vec(&json!({
+            "version":1,"profileId":f.owner.profile_id,"handle":s.handle,
+            "meetingId":s.meeting_id,"mixHash":s.mix_hash
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let bytes = fs::read(f.stage(h).join("imported-mix.wav")).unwrap();
+    match boundary {
+        "marker" => {}
+        "partial" => {
+            write_private_new(&dir.join(".import-copy"), &bytes[..bytes.len() / 2]).unwrap()
+        }
+        "copied" => write_private_new(&dir.join(".import-copy"), &bytes).unwrap(),
+        "linked" => {
+            write_private_new(&dir.join(".import-copy"), &bytes).unwrap();
+            fs::hard_link(dir.join(".import-copy"), dir.join("imported-mix.wav")).unwrap();
+        }
+        "published" => write_private_new(&dir.join("imported-mix.wav"), &bytes).unwrap(),
+        _ => panic!("unknown synthetic interruption boundary"),
+    }
+    assert!(Store::open_read_only(&f.paths)
+        .unwrap()
+        .meeting(s.meeting_id)
+        .unwrap()
+        .is_none());
+    dir
+}
+#[tokio::test]
+async fn desktop_import_interrupted_abandon_cancel_reclaims_only_uncommitted_promotion() {
+    for boundary in ["partial", "copied", "linked", "published", "marker"] {
+        let f = Fixture::new();
+        let h = f.select().await;
+        let dir = interrupted_promotion(&f, &h, boundary);
+        imports::cancel(&f.paths, &f.owner, &h).unwrap();
+        assert!(
+            !dir.exists(),
+            "cancel orphaned {boundary} promotion audio/record"
+        );
+        assert!(!f.stage(&h).exists());
+        assert!(f.input.exists());
+    }
+}
+#[tokio::test]
+async fn desktop_import_interrupted_abandon_expiry_reclaims_only_uncommitted_promotion() {
+    for boundary in ["partial", "copied", "linked", "published", "marker"] {
+        let f = Fixture::new();
+        let h = f.select().await;
+        let dir = interrupted_promotion(&f, &h, boundary);
+        f.expire(&h);
+        let report =
+            imports::reap_expired(&f.paths, &f.owner, chrono::Utc::now().timestamp_millis())
+                .unwrap();
+        assert_eq!(report["removed"], 1);
+        assert_eq!(report["retained"], 0);
+        assert!(
+            !dir.exists(),
+            "expiry orphaned {boundary} promotion audio/record"
+        );
+        assert!(!f.stage(&h).exists());
+        assert!(f.input.exists());
+    }
+}
+
+fn tree_snapshot(root: &std::path::Path) -> std::collections::BTreeMap<PathBuf, String> {
+    use std::os::unix::fs::MetadataExt;
+    fn visit(
+        root: &std::path::Path,
+        p: &std::path::Path,
+        out: &mut std::collections::BTreeMap<PathBuf, String>,
+    ) {
+        let m = fs::symlink_metadata(p).unwrap();
+        let content = if m.is_symlink() {
+            format!("link:{}", fs::read_link(p).unwrap().display())
+        } else if m.is_file() {
+            hash_file(p).unwrap()
+        } else {
+            "directory".into()
+        };
+        out.insert(
+            p.strip_prefix(root).unwrap().into(),
+            format!("{}:{}:{}:{content}", m.mode(), m.uid(), m.nlink()),
+        );
+        if m.is_dir() {
+            for entry in fs::read_dir(p).unwrap() {
+                visit(root, &entry.unwrap().path(), out);
+            }
+        }
+    }
+    let mut out = Default::default();
+    visit(root, root, &mut out);
+    out
+}
+#[tokio::test]
+async fn desktop_import_interrupted_abandon_retains_every_unknown_or_unsafe_object() {
+    for defect in [
+        "record_profile",
+        "record_handle",
+        "record_meeting",
+        "record_hash",
+        "record_extra",
+        "record_version",
+        "record_corrupt",
+        "record_missing",
+        "record_oversize",
+        "record_link",
+        "unknown_file",
+        "unknown_dir",
+        "target_hash",
+        "partial_bytes",
+        "target_link",
+        "external_hardlink",
+        "unrelated_pair",
+        "mode",
+        "directory_mode",
+        "directory_link",
+        "source_hash",
+        "selection_missing",
+    ] {
+        let f = Fixture::new();
+        let h = f.select().await;
+        let dir = interrupted_promotion(
+            &f,
+            &h,
+            if defect == "partial_bytes" {
+                "partial"
+            } else {
+                "published"
+            },
+        );
+        let marker = dir.join("import-promotion.json");
+        let target = dir.join("imported-mix.wav");
+        if defect.starts_with("record_")
+            && ![
+                "record_corrupt",
+                "record_missing",
+                "record_oversize",
+                "record_link",
+            ]
+            .contains(&defect)
+        {
+            let mut record: Value = serde_json::from_slice(&fs::read(&marker).unwrap()).unwrap();
+            match defect {
+                "record_profile" => record["profileId"] = json!("0".repeat(64)),
+                "record_handle" => record["handle"] = json!("0".repeat(32)),
+                "record_meeting" => record["meetingId"] = json!(Uuid::new_v4()),
+                "record_hash" => record["mixHash"] = json!("0".repeat(64)),
+                "record_extra" => record["unknown"] = json!(true),
+                "record_version" => record["version"] = json!(2),
+                _ => unreachable!(),
+            }
+            write_private_replace(&marker, &serde_json::to_vec(&record).unwrap()).unwrap();
+        } else {
+            match defect {
+                "record_corrupt" => fs::write(&marker, b"not json").unwrap(),
+                "record_missing" => fs::remove_file(&marker).unwrap(),
+                "record_oversize" => fs::write(&marker, vec![b' '; 8193]).unwrap(),
+                "record_link" => {
+                    fs::remove_file(&marker).unwrap();
+                    symlink(&f.input, &marker).unwrap();
+                }
+                "unknown_file" => write_private_new(&dir.join("unknown"), b"retained").unwrap(),
+                "unknown_dir" => private_dir(&dir.join("unknown")).unwrap(),
+                "target_hash" => fs::write(&target, b"not selected audio").unwrap(),
+                "partial_bytes" => {
+                    fs::write(dir.join(".import-copy"), b"not a source prefix").unwrap()
+                }
+                "target_link" => {
+                    fs::remove_file(&target).unwrap();
+                    symlink(&f.input, &target).unwrap();
+                }
+                "external_hardlink" => {
+                    fs::hard_link(&target, f._temp.path().join("external-link")).unwrap()
+                }
+                "unrelated_pair" => {
+                    write_private_new(&dir.join(".import-copy"), &fs::read(&target).unwrap())
+                        .unwrap()
+                }
+                "mode" => fs::set_permissions(&target, fs::Permissions::from_mode(0o644)).unwrap(),
+                "directory_mode" => {
+                    fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap()
+                }
+                "directory_link" => {
+                    let actual = f._temp.path().join("relocated-promotion");
+                    fs::rename(&dir, &actual).unwrap();
+                    symlink(actual, &dir).unwrap();
+                }
+                "source_hash" => {
+                    fs::write(f.stage(&h).join("imported-mix.wav"), b"changed source").unwrap()
+                }
+                "selection_missing" => fs::remove_file(f.stage(&h).join("selection.json")).unwrap(),
+                _ => unreachable!(),
+            }
+        }
+        let before = tree_snapshot(&f.paths.data);
+        let cache = tree_snapshot(&f.paths.cache);
+        let source = hash_file(&f.input).unwrap();
+        // With no selection, only the original cache ownership is known. Keep
+        // the existing failed-selection cache cleanup; never guess/scan DATA.
+        if defect == "selection_missing" {
+            imports::cancel(&f.paths, &f.owner, &h).unwrap();
+            assert!(!f.stage(&h).exists());
+            assert_eq!(tree_snapshot(&f.paths.data), before);
+            assert_eq!(hash_file(&f.input).unwrap(), source);
+            continue;
+        }
+        assert!(
+            imports::cancel(&f.paths, &f.owner, &h).is_err(),
+            "cancel accepted unsafe {defect}"
+        );
+        let report = imports::reap_expired(
+            &f.paths,
+            &f.owner,
+            chrono::Utc::now().timestamp_millis() + 900001,
+        )
+        .unwrap();
+        assert_eq!(report["removed"], 0, "unsafe {defect}");
+        assert_eq!(report["retained"], 1, "unsafe {defect}");
+        assert_eq!(
+            tree_snapshot(&f.paths.data),
+            before,
+            "DATA changed for {defect}"
+        );
+        assert_eq!(
+            tree_snapshot(&f.paths.cache),
+            cache,
+            "CACHE changed for {defect}"
+        );
+        assert_eq!(hash_file(&f.input).unwrap(), source);
+    }
+}
+#[tokio::test]
+async fn desktop_import_interrupted_abandon_committed_and_replayed_data_stay_readable() {
+    for operation in ["cancel", "expiry", "replay"] {
+        let f = Fixture::new();
+        let h = f.select().await;
+        let saved: Vec<_> = fs::read_dir(f.stage(&h))
+            .unwrap()
+            .map(|entry| {
+                let p = entry.unwrap().path();
+                (p.file_name().unwrap().to_owned(), fs::read(p).unwrap())
+            })
+            .collect();
+        let request = f.request(&h);
+        let result = imports::commit(&f.paths, &f.owner, &request).unwrap();
+        let id = Uuid::parse_str(result["meeting"]["meetingId"].as_str().unwrap()).unwrap();
+        let store = Store::open_read_only(&f.paths).unwrap();
+        let meeting = store.meeting(id).unwrap().unwrap();
+        let audio = &meeting.segments[0];
+        let mut reader = media::VerifiedMedia::open(
+            &meeting.directory,
+            audio.path.strip_prefix(&meeting.directory).unwrap(),
+            &audio.sha256,
+            store.audio_read_lock().unwrap(),
+            "audio/wav",
+        )
+        .unwrap();
+        let initial = reader.response("GET", Some("bytes=0-43"), None).unwrap();
+        assert_eq!(initial.status, 206);
+        let expected = initial.body;
+        private_dir(&f.stage(&h)).unwrap();
+        for (name, bytes) in saved {
+            write_private_new(&f.stage(&h).join(name), &bytes).unwrap();
+        }
+        let data = tree_snapshot(&f.paths.data);
+        let db_hash = hash_file(&f.paths.state.join("state.sqlite")).unwrap();
+        match operation {
+            "cancel" => {
+                imports::cancel(&f.paths, &f.owner, &h).unwrap();
+            }
+            "expiry" => {
+                f.expire(&h);
+                assert_eq!(
+                    imports::reap_expired(
+                        &f.paths,
+                        &f.owner,
+                        chrono::Utc::now().timestamp_millis()
+                    )
+                    .unwrap()["removed"],
+                    1
+                );
+            }
+            "replay" => assert_eq!(
+                imports::commit(&f.paths, &f.owner, &request).unwrap(),
+                result
+            ),
+            _ => unreachable!(),
+        }
+        assert!(!f.stage(&h).exists());
+        assert_eq!(tree_snapshot(&f.paths.data), data, "committed DATA changed");
+        let response = reader.response("GET", Some("bytes=0-43"), None).unwrap();
+        assert_eq!(response.status, 206);
+        assert_eq!(
+            response.body, expected,
+            "owned verified reader lost committed audio"
+        );
+        drop(reader); // FD and shared maintenance lock released before fixture teardown.
+        eprintln!(
+            "desktop_import_reader_receipt={}",
+            json!({"operation":operation,"meetingId":id,"artifactSha256":audio.sha256,"rangeStatus":response.status,"readerReleased":true})
+        );
+        assert_eq!(
+            hash_file(&f.paths.state.join("state.sqlite")).unwrap(),
+            db_hash,
+            "cleanup wrote DB"
+        );
+        assert_eq!(
+            imports::commit(&f.paths, &f.owner, &request).unwrap(),
+            result
+        );
+    }
+}
+
+#[tokio::test]
+async fn desktop_import_interrupted_abandon_db_writer_commit_wins_before_cleanup_check() {
+    let f = Fixture::new();
+    let h = f.select().await;
+    let dir = interrupted_promotion(&f, &h, "published");
+    let selection = imports::load(&f.paths, &f.owner, &h).unwrap();
+    let conn = rusqlite::Connection::open(f.paths.state.join("state.sqlite")).unwrap();
+    conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+    // Hold a real uncommitted DB writer, then let cancel acquire the import lock.
+    conn.execute("INSERT INTO meetings VALUES(?1,?2)",rusqlite::params![selection.meeting_id.to_string(),serde_json::to_string(&json!({"session_id":selection.meeting_id,"title":"Synthetic pending DB commit","directory":dir,"segments":[],"sealed_at_ms":0})).unwrap()]).unwrap();
+    let paths = f.paths.clone();
+    let owner = f.owner.clone();
+    let handle = h.clone();
+    let (send, recv) = std::sync::mpsc::channel();
+    let (entered, start) = std::sync::mpsc::channel();
+    let thread = std::thread::spawn(move || {
+        entered.send(()).unwrap();
+        send.send(imports::cancel(&paths, &owner, &handle)).unwrap();
+    });
+    start
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .unwrap();
+    // Do not probe/steal the try-lock: doing so would itself make cancel fail.
+    assert!(
+        matches!(
+            recv.recv_timeout(std::time::Duration::from_millis(100)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ),
+        "cancel escaped the DB writer fence"
+    );
+    assert!(f.stage(&h).join("imported-mix.wav").exists());
+    let before = tree_snapshot(&f.paths.data);
+    conn.execute_batch("COMMIT").unwrap();
+    recv.recv_timeout(std::time::Duration::from_secs(8))
+        .unwrap()
+        .unwrap();
+    thread.join().unwrap();
+    assert!(!f.stage(&h).exists());
+    assert_eq!(
+        tree_snapshot(&f.paths.data),
+        before,
+        "concurrently committed audio was deleted"
+    );
+}
+
+#[tokio::test]
+async fn desktop_import_interrupted_abandon_preserves_foreign_meeting_path_and_replay_references() {
+    for reference in ["meeting_path", "task_path", "segment_path", "replay"] {
+        let f = Fixture::new();
+        let h = f.select().await;
+        let dir = interrupted_promotion(&f, &h, "published");
+        let s = imports::load(&f.paths, &f.owner, &h).unwrap();
+        let conn = rusqlite::Connection::open(f.paths.state.join("state.sqlite")).unwrap();
+        match reference {
+            "meeting_path" => {
+                conn.execute(
+                    "INSERT INTO meetings VALUES(?1,?2)",
+                    rusqlite::params![
+                        Uuid::new_v4().to_string(),
+                        serde_json::to_string(&json!({"directory":dir})).unwrap()
+                    ],
+                )
+                .unwrap();
+            }
+            "task_path" => {
+                let foreign = Uuid::new_v4();
+                conn.execute(
+                    "INSERT INTO meetings VALUES(?1,'{}')",
+                    [foreign.to_string()],
+                )
+                .unwrap();
+                conn.execute("INSERT INTO tasks(id,session,attempt,input_hash,config_hash,document,stage,status,directory,config,segments) VALUES(?1,?2,1,'hash','hash','{}','transcribe','done',?3,'{}','[]')",rusqlite::params![Uuid::new_v4().to_string(),foreign.to_string(),dir.to_str().unwrap()]).unwrap();
+            }
+            "segment_path" => {
+                let foreign = Uuid::new_v4().to_string();
+                let task = Uuid::new_v4().to_string();
+                conn.execute("INSERT INTO meetings VALUES(?1,'{}')", [&foreign])
+                    .unwrap();
+                conn.execute("INSERT INTO tasks(id,session,attempt,input_hash,config_hash,document,stage,status,directory,config,segments) VALUES(?1,?2,1,'hash','hash','{}','transcribe','done',?3,'{}','[]')",rusqlite::params![task,foreign,f.paths.data.to_str().unwrap()]).unwrap();
+                conn.execute(
+                    "INSERT INTO segmented_sessions VALUES(?1,?2,0)",
+                    rusqlite::params![foreign, task],
+                )
+                .unwrap();
+                conn.execute("INSERT INTO segment_jobs(session,sequence,offset_frames,frames,audio) VALUES(?1,0,0,1,?2)",rusqlite::params![foreign,serde_json::to_string(&json!({"path":dir.join("imported-mix.wav")})).unwrap()]).unwrap();
+            }
+            "replay" => {
+                conn.execute(
+                    "INSERT INTO desktop_requests VALUES('import_commit:synthetic','hash',?1)",
+                    [
+                        serde_json::to_string(&json!({"meeting":{"meetingId":s.meeting_id}}))
+                            .unwrap(),
+                    ],
+                )
+                .unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let before = tree_snapshot(&f.paths.data);
+        let db_hash = hash_file(&f.paths.state.join("state.sqlite")).unwrap();
+        imports::cancel(&f.paths, &f.owner, &h).unwrap();
+        assert!(!f.stage(&h).exists());
+        assert_eq!(
+            tree_snapshot(&f.paths.data),
+            before,
+            "reference lost: {reference}"
+        );
+        assert_eq!(
+            hash_file(&f.paths.state.join("state.sqlite")).unwrap(),
+            db_hash
+        );
+    }
+}
+
+#[tokio::test]
+async fn desktop_import_interrupted_abandon_no_db_migration_or_gc_on_read_only_open() {
+    let f = Fixture::new();
+    let h = f.select().await;
+    let dir = interrupted_promotion(&f, &h, "published");
+    let conn = rusqlite::Connection::open(f.paths.state.join("state.sqlite")).unwrap();
+    conn.execute_batch("DROP TABLE desktop_requests; DROP TABLE desktop_imports;")
+        .unwrap();
+    let data = tree_snapshot(&f.paths.data);
+    let cache = tree_snapshot(&f.paths.cache);
+    let db_hash = hash_file(&f.paths.state.join("state.sqlite")).unwrap();
+    let read = Store::open_read_only(&f.paths).unwrap();
+    assert!(read.meetings().unwrap().is_empty());
+    drop(read);
+    assert_eq!(tree_snapshot(&f.paths.data), data);
+    assert_eq!(tree_snapshot(&f.paths.cache), cache);
+    assert!(imports::cancel(&f.paths, &f.owner, &h).is_err());
+    assert_eq!(tree_snapshot(&f.paths.data), data);
+    assert_eq!(tree_snapshot(&f.paths.cache), cache);
+    assert_eq!(
+        hash_file(&f.paths.state.join("state.sqlite")).unwrap(),
+        db_hash
+    );
+    assert!(dir.join("imported-mix.wav").exists());
+    assert_eq!(conn.query_row("SELECT count(*) FROM sqlite_master WHERE name IN ('desktop_requests','desktop_imports')",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+}
+
+#[tokio::test]
+async fn desktop_import_interrupted_abandon_duplicate_commit_releases_only_its_orphan() {
+    let f = Fixture::new();
+    let first = f.select().await;
+    let orphan = interrupted_promotion(&f, &first, "published");
+    let second = f.select().await;
+    let admitted = imports::commit(&f.paths, &f.owner, &f.request(&second)).unwrap();
+    let id = Uuid::parse_str(admitted["meeting"]["meetingId"].as_str().unwrap()).unwrap();
+    let meeting = Store::open_read_only(&f.paths)
+        .unwrap()
+        .meeting(id)
+        .unwrap()
+        .unwrap();
+    let preserved = tree_snapshot(&meeting.directory);
+    let request = f.request(&first);
+    let duplicate = imports::commit(&f.paths, &f.owner, &request).unwrap();
+    assert_eq!(duplicate["duplicate"], true);
+    assert_eq!(
+        duplicate["meeting"]["meetingId"],
+        admitted["meeting"]["meetingId"]
+    );
+    assert!(!orphan.exists());
+    assert!(!f.stage(&first).exists());
+    assert_eq!(tree_snapshot(&meeting.directory), preserved);
+    assert_eq!(
+        imports::commit(&f.paths, &f.owner, &request).unwrap(),
+        duplicate
+    );
 }

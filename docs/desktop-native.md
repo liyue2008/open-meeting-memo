@@ -443,3 +443,38 @@ Only `id` and `action` are accepted. IDs are unique ASCII alphanumeric/underscor
 Native completion requires explicit finish, real service shutdown acknowledgment, reader release and owned child wait/exit. Cold success also requires a real spawned peer and bound/start/stop/sealed/quit events, with `prestartedChildWaited=null`, `productionCaptureWaitConfirmed=true`. Partial retains the old prestarted peer and reports its actual wait separately. A leaked UI reader is released for safe teardown but makes the test fail; it cannot be hidden by cleanup. Errors/deadline also finalize owned synthetic partial state and shut down owned processes.
 
 For a startup failure before a WK window exists, the same private partial roots may explicitly invoke the feature binary with `OMM_NATIVE_REVIEW_CLEANUP=1`, `OMM_NATIVE_REVIEW_FIXTURE=partial-transcript`, `OMM_WKWEBVIEW_SCENARIO=ui` and the original owned fixture/XDG context. It validates that context, seals the real synthetic aggregate and writes `review-startup-cleanup.json`, without starting a window, service, helper or model. It is not a general cleanup command and is absent from production builds.
+
+### Interrupted import abandonment (second formal review P2)
+
+Explicit cancel and expiry (including select-time and compatible-service maintenance)
+now follow the existing import lock into a no-create/no-migration SQLite
+`BEGIN IMMEDIATE` reference fence. Read-only profile/Store opening does not run it.
+The fence preserves promotions referenced by meeting/task/import identity, other
+meeting/task/segment audio paths, or persisted request results; it remains held
+through filesystem cleanup. It performs no SQL writes. Missing/unsafe database,
+missing schema or invalid reference JSON refuses cleanup instead of migrating.
+
+Only `selection.meeting_id` locates a candidate; there is no DATA directory scan.
+After profile/handle/meeting/hash/version promotion-record equality and canonical,
+owner/private-permission checks, the complete directory must contain only:
+
+- `import-promotion.json`;
+- optional `.import-copy`, verified as a prefix of the still hash-verified cache mix;
+- optional `imported-mix.wav`, verified against the selection's full mix hash.
+
+Two audio names are accepted only as the exact same inode with exactly two links
+(the known exclusive-link publication boundary). Other links, extra files or
+subdirectories, corrupt/mismatching records or hashes, and unsafe permissions are
+retained with the existing error/`retained` diagnostic. All entries are validated
+before the first unlink. Audio is removed first, marker last, then the empty owned
+directory and normal known cache staging; the original selected input is untouched.
+Committed/replayable audio is never deleted. If selection metadata itself is absent,
+no DATA candidate can be proven: existing owned-cache failure cleanup remains,
+and DATA is left untouched rather than guessed from a handle or scanned.
+
+`tests/desktop_import_cleanup.rs` reproduces marker, partial/copy-complete,
+link-publication and published-before-DB boundaries for cancel/expiry. It retains
+original resume/replay tests and checks committed-after-DB-before-cache-cleanup,
+foreign path/replay references, unknown-object preservation, SQLite writer fencing,
+and legacy/read-only non-migration. These are private synthetic Store/filesystem
+fixtures, not hardware, playback, real-model or packaged-WKWebView evidence.

@@ -740,3 +740,69 @@ pub fn decode_cursor(cursor: Option<&str>, revision: &str) -> Result<usize> {
         }
     }
 }
+
+impl Store {
+    /// Import lock must be held first. No create/migration: fence all DB writers while
+    /// checking references and removing only a verified uncommitted promotion.
+    pub(crate) fn cleanup_unreferenced_import(
+        paths: &Paths,
+        meeting: Uuid,
+        directory: &std::path::Path,
+        cleanup: impl FnOnce() -> Result<()>,
+    ) -> Result<()> {
+        let db = paths.state.join("state.sqlite");
+        crate::core::paths::validate_private_dir(&paths.state)?;
+        crate::core::paths::validate_private_file(&db)?;
+        if db.canonicalize()? != db {
+            return Err(OmmError::invalid(
+                "import cleanup database is not canonical",
+            ));
+        }
+        let mut conn = Connection::open_with_flags(
+            db,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let id = meeting.to_string();
+        let referenced: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM meetings WHERE id=?1) OR EXISTS(SELECT 1 FROM tasks WHERE session=?1) OR EXISTS(SELECT 1 FROM desktop_imports WHERE meeting=?1)",
+            [&id], |r| r.get(0),
+        )?;
+        if referenced {
+            return Ok(());
+        }
+        fn refers(value: &Value, id: &str, directory: &std::path::Path) -> bool {
+            match value {
+                Value::String(s) => s == id || std::path::Path::new(s).starts_with(directory),
+                Value::Array(a) => a.iter().any(|v| refers(v, id, directory)),
+                Value::Object(o) => o.values().any(|v| refers(v, id, directory)),
+                _ => false,
+            }
+        }
+        // Include other meetings' paths and persistent request results, not just
+        // this UUID: a committed/replayable alias must never lose its audio.
+        for sql in [
+            "SELECT document FROM meetings",
+            "SELECT segments FROM tasks",
+            "SELECT audio FROM segment_jobs",
+            "SELECT result FROM desktop_requests",
+        ] {
+            let mut stmt = tx.prepare(sql)?;
+            for row in stmt.query_map([], |r| r.get::<_, String>(0))? {
+                if refers(&serde_json::from_str(&row?)?, &id, directory) {
+                    return Ok(());
+                }
+            }
+        }
+        let directory_referenced: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM tasks WHERE directory=?1 OR substr(directory,1,length(?1)+1)=?1||'/')",
+            [directory.to_string_lossy().as_ref()], |r| r.get(0),
+        )?;
+        if !directory_referenced {
+            cleanup()?;
+        }
+        // No database changes. Drop rolls back the read/check fence on every path.
+        Ok(())
+    }
+}

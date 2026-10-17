@@ -116,3 +116,112 @@ fn validate_file(path: &Path) -> Result<()> {
     }
     Ok(())
 }
+
+/// Called only after the complete cache selection has passed cleanup validation.
+/// Never search DATA: this selection identifies exactly one possible promotion.
+pub(super) fn abandon(paths: &Paths, owner: &ProfileOwner, selection: &Selection) -> Result<()> {
+    let parent = paths.data.join("meetings/imports");
+    let dir = parent.join(selection.meeting_id.to_string());
+    if std::fs::symlink_metadata(&dir).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
+        return Ok(());
+    }
+    Store::cleanup_unreferenced_import(paths, selection.meeting_id, &dir, || {
+        for path in [&paths.data, &paths.data.join("meetings"), &parent, &dir] {
+            validate_private_dir(path)?;
+            if path.canonicalize()? != *path {
+                return Err(OmmError::invalid(
+                    "unsafe abandoned import directory retained",
+                ));
+            }
+        }
+        let marker = dir.join("import-promotion.json");
+        validate_file(&marker)?;
+        let expected = json!({"version":1,"profileId":owner.profile_id,"handle":selection.handle,"meetingId":selection.meeting_id,"mixHash":selection.mix_hash});
+        if std::fs::metadata(&marker)?.len() > 8192
+            || serde_json::from_slice::<Value>(&std::fs::read(&marker)?)? != expected
+        {
+            return Err(OmmError::invalid(
+                "abandoned import ownership mismatch; retained",
+            ));
+        }
+        let source = directory(paths, &selection.handle)?.join("imported-mix.wav");
+        validate_file(&source)?;
+        if hash_file(&source)? != selection.mix_hash {
+            return Err(OmmError::invalid(
+                "abandoned import source changed; retained",
+            ));
+        }
+        let target = dir.join("imported-mix.wav");
+        let partial = dir.join(".import-copy");
+        let mut audio = Vec::new();
+        for entry in std::fs::read_dir(&dir)? {
+            let path = entry?.path();
+            if path == marker {
+                continue;
+            }
+            if path != target && path != partial {
+                return Err(OmmError::invalid(
+                    "unknown abandoned import content retained",
+                ));
+            }
+            audio.push(path);
+        }
+        let paired = audio.len() == 2;
+        let source_length = std::fs::metadata(&source)?.len();
+        for path in &audio {
+            validate_private_file(path)?;
+            let m = std::fs::symlink_metadata(path)?;
+            if path.canonicalize()? != *path
+                || m.mode() & 0o777 != 0o600
+                || m.nlink() != if paired { 2 } else { 1 }
+                || m.len() > source_length
+                || (path == &target && m.len() != source_length)
+            {
+                return Err(OmmError::invalid(
+                    "abandoned import file identity unsafe; retained",
+                ));
+            }
+            if paired {
+                let other =
+                    std::fs::symlink_metadata(if path == &target { &partial } else { &target })?;
+                if m.dev() != other.dev() || m.ino() != other.ino() {
+                    return Err(OmmError::invalid(
+                        "unknown import publication pair retained",
+                    ));
+                }
+            }
+            if path == &target {
+                if hash_file(path)? != selection.mix_hash {
+                    return Err(OmmError::invalid(
+                        "abandoned import hash mismatch; retained",
+                    ));
+                }
+            } else {
+                // A truncated copy is known only if it is an exact prefix of the
+                // still-verified source. A marker alone cannot authorize random bytes.
+                let mut copy = File::open(path)?;
+                let mut original = File::open(&source)?;
+                let mut a = [0; 65536];
+                let mut b = [0; 65536];
+                loop {
+                    let n = copy.read(&mut a)?;
+                    if n == 0 {
+                        break;
+                    }
+                    if original.read_exact(&mut b[..n]).is_err() || a[..n] != b[..n] {
+                        return Err(OmmError::invalid(
+                            "unknown interrupted import copy retained",
+                        ));
+                    }
+                }
+            }
+        }
+        // Validate every entry before the first unlink; marker is removed last.
+        for path in audio {
+            std::fs::remove_file(path)?;
+        }
+        std::fs::remove_file(marker)?;
+        std::fs::remove_dir(&dir)?;
+        sync_dir(&parent)
+    })
+}

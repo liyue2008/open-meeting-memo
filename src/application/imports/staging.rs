@@ -130,6 +130,9 @@ pub(super) fn remove(paths: &Paths, owner: &ProfileOwner, handle: &str) -> Resul
         file(&entry.path())?;
         files.push(entry.path());
     }
+    if dir.join("selection.json").try_exists()? {
+        promotion::abandon(paths, owner, &selection(paths, owner, handle)?)?;
+    }
     // Validate the complete set before deleting any bytes, and remove ownership last.
     files.sort_by_key(|p| {
         p.file_name()
