@@ -20,9 +20,13 @@ use uuid::Uuid;
 pub mod capture;
 mod close;
 mod lifecycle;
+mod review;
 mod snapshot;
 pub mod store;
 mod window_acl;
+pub fn review_cleanup() {
+    review::cleanup_without_window();
+}
 pub fn run_lifecycle_unknown_listener() {
     lifecycle::run_unknown_listener();
 }
@@ -100,6 +104,7 @@ pub fn prepare() -> Paths {
     cfg.asr.model_version = "fixture-asr".into();
     cfg.pi.provider = "fixture".into();
     cfg.pi.model = "fixture".into();
+    review::configure(&paths, &mut cfg);
     cfg.save(&paths).unwrap();
     let id = Uuid::parse_str("00000000-0000-4000-8000-000000000041").unwrap();
     let directory = paths.data.join("meetings").join(id.to_string());
@@ -182,6 +187,7 @@ pub fn prepare() -> Paths {
         }
         write_private_new(&output("ui-scenario.json"),&serde_json::to_vec_pretty(&serde_json::json!({"scenario":"ui","meetings":26,"primaryMeetingId":meeting.session_id,"primarySegments":2,"primaryDurationMs":6000,"fixtures":fixtures,"pollSeconds":180,"processSeconds":240,"webKitStore":"nonpersistent"})).unwrap()).unwrap();
     }
+    review::seed(&paths);
     paths
 }
 fn complete_seed(store: &mut Store, duration_ms: u64) {
@@ -236,11 +242,16 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
     let owned = paths.clone();
     let stop = paths.clone();
     let started = Arc::new(AtomicBool::new(false));
-    let helper = capture::start(paths);
+    let helper = if review::mode().as_deref() == Some("cold-recording") {
+        None
+    } else {
+        Some(capture::start(paths))
+    };
     let close = Arc::new(close::Controller::new());
     let close_events = close.clone();
     builder
-        .manage(std::sync::Mutex::new(Some(helper)))
+        .manage(std::sync::Mutex::new(helper))
+        .manage(std::sync::Mutex::new(review::Controller::new()))
         .setup(move |app| {
             store::ui_setup(app.handle());
             if scenario() == "window-acl" {
@@ -289,10 +300,18 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
                         break;
                     }
                     std::thread::sleep(std::time::Duration::from_millis(500));
+                    if review::mode().is_some() {
+                        if view.app_handle().state::<std::sync::Mutex<review::Controller>>().lock().unwrap().expired() {
+                            done.store(true,Ordering::SeqCst);
+                            review::finish(view.app_handle().clone(), stop.clone(), serde_json::json!({"ok":false,"playCalls":0,"error":"review fixture exceeded 150 seconds"}));
+                            break;
+                        }
+                        review::poll(&view,stop.clone());
+                    }
                     if scenario() == "ui" {
                         if let Some(result) = close.completion(view.app_handle()) {
                             done.store(true, Ordering::SeqCst);
-                            close::finish(view.app_handle().clone(), stop.clone(), result);
+                            if review::mode().is_some() {review::finish(view.app_handle().clone(),stop.clone(),result);} else {close::finish(view.app_handle().clone(), stop.clone(), result);}
                             break;
                         }
                         close.poll(&view);
@@ -310,6 +329,10 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
                         let Ok(serde_json::Value::String(text)) = serde_json::from_str(&text) else { return; };
                         let Ok(result) = serde_json::from_str::<serde_json::Value>(&text) else { return; };
                         if !result.is_object() || done.swap(true, Ordering::SeqCst) { return; }
+                        if review::mode().is_some() {
+                            review::finish(app.clone(),paths.clone(),result);
+                            return;
+                        }
                         if close.used() {
                             let mut result = result;
                             result["ok"] = serde_json::json!(false);
@@ -329,7 +352,9 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
                         });
                     }).unwrap();
                 }
-                if !done.load(Ordering::SeqCst) && close.used() {
+                if !done.load(Ordering::SeqCst) && review::mode().is_some() {
+                    review::finish(view.app_handle().clone(),stop.clone(),serde_json::json!({"ok":false,"playCalls":0,"error":"review fixture exceeded 180 second completion budget"}));
+                } else if !done.load(Ordering::SeqCst) && close.used() {
                     close::finish(view.app_handle().clone(), stop, serde_json::json!({"ok":false,"playCalls":0,"error":"native close fixture exceeded 180 second budget"}));
                 }
             });

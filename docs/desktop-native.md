@@ -411,3 +411,35 @@ resource proof is final `b398585b` or later candidate acceptance.
 - Stop/switch rejects persisted running ASR, summary, segment and archive leases, and audio readers that can outlive an expired lease. The service atomically rechecks idleness and closes new claims before acknowledging shutdown; a new explicitly locked service startup reopens claims. This does not cancel or interrupt active work. See `tests/core_integration.rs::desktop_idle_shutdown_rejects_persistently_owned_processing_before_stopping_service` and `tests/desktop_native.rs::desktop_review_shutdown_gate_serializes_all_claim_lanes_and_restart_release`.
 
 These source-level/private-process regressions do not establish hardware capture permissions, audible playback, real recognition/model quality, or final release-package acceptance. The unchanged desktop schema, ACL and CSP remain authoritative.
+
+## Explicit formal-review UI producers (test feature only)
+
+Compile `omm-desktop` with `custom-protocol,native-bridge-fixture`. Keep the existing private `ui` fixture driver/root, isolated XDG roots and verified private resource bundle; additionally set exactly one of:
+
+- `OMM_NATIVE_REVIEW_FIXTURE=cold-recording`: no capture peer is prestarted. `review-scenario.json.coldBaseline` records both `captureNotSpawned` and `helperSocketAbsent`. Actual React consent/start invokes normal Core `ensure_helper`, which launches a private 0700 fixture launcher. That launcher reconstructs an explicit private environment after Core `env_clear`; the same feature binary takes its helper entry before any Tauri application. Missing/invalid private context fails closed. Nonce, Unix peer PID and ordinary transport checks remain in use. `review-capture-pids` and `review-capture-events.jsonl` record bound/start/stop/sealed_segments/quit; no real capture backend is invoked.
+- `OMM_NATIVE_REVIEW_FIXTURE=partial-transcript`: meeting `00000000-0000-4000-8000-000000000042` has a real segmented parent with only segment zero committed, no whole transcript. The bounded producer uses real Store segment claims/commit files and normal desktop artifact reads; it never changes renderer samples or inserts a fake final commit.
+
+Absent this variable, all original fixture seeds/prestart behavior remain unchanged. Both review modes are restricted to the private `ui` scenario; leave `OMM_WKWEBVIEW_STORE_MANIFEST` unset for these acceptance runs, preserving default nonpersistent storage. Use short roots such as `/private/tmp/omm-rvw-XXXXXX` to stay within macOS Unix socket limits.
+
+The source-named as-is driver is `apps/desktop/src-tauri/fixtures/review-probe.js` (no samples substitution). It clicks real React controls, never calls play, and writes the original `__ommFixtureResult`. Partial UI navigation waits the existing one-second query freshness period before remounting; it does not modify the query cache. With another owned driver, use only:
+
+```js
+window.__ommReviewControl = { id: 'root-1', action: 'inspect' };
+// Wait __ommReviewControlResult.id === 'root-1'; result shape:
+// { id, action, ok: true, data: { scenario, phase, finished, ... } }
+// or { id, action, ok: false, error }.
+```
+
+Only `id` and `action` are accepted. IDs are unique ASCII alphanumeric/underscore/hyphen, 1–64 bytes; at most 32 controls and 150 seconds. Controls run on an owned worker, not synchronously in a WK evaluation callback. Unknown fields/actions, duplicates, wrong phase, expiry and requests after finish reject without arbitrary SQL/path/generation input.
+
+| action | exact behavior |
+|---|---|
+| `inspect` | Returns native `review-scenario.json`; partial adds `partialRevision/wholeCommitted`; cold adds real `capturePids/captureEvents`. |
+| `advance` | Partial phase 0 only: commit segment one through the real claim/commit path, move to phase 1; old artifact cursor conflicts. |
+| `finalize` | Partial phase 1 only: seal the real session, claim aggregate and commit the whole transcript, phase 2. |
+| `restore` | Partial: finish owned synthetic segments/session without deleting evidence, not rewind immutable artifacts. Cold: only after actual recording is stopped, ask normal adapter to quit/wait the owned idle peer. |
+| `finish` | Same cleanup, then permanently close this controller. Set `__ommFixtureResult` only after the matching receipt. |
+
+Native completion requires explicit finish, real service shutdown acknowledgment, reader release and owned child wait/exit. Cold success also requires a real spawned peer and bound/start/stop/sealed/quit events, with `prestartedChildWaited=null`, `productionCaptureWaitConfirmed=true`. Partial retains the old prestarted peer and reports its actual wait separately. A leaked UI reader is released for safe teardown but makes the test fail; it cannot be hidden by cleanup. Errors/deadline also finalize owned synthetic partial state and shut down owned processes.
+
+For a startup failure before a WK window exists, the same private partial roots may explicitly invoke the feature binary with `OMM_NATIVE_REVIEW_CLEANUP=1`, `OMM_NATIVE_REVIEW_FIXTURE=partial-transcript`, `OMM_WKWEBVIEW_SCENARIO=ui` and the original owned fixture/XDG context. It validates that context, seals the real synthetic aggregate and writes `review-startup-cleanup.json`, without starting a window, service, helper or model. It is not a general cleanup command and is absent from production builds.

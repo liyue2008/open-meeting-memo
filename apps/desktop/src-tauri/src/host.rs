@@ -22,6 +22,10 @@ pub struct Host {
     plans: Mutex<HashMap<String, app::lifecycle::Plan>>,
 }
 impl Host {
+    #[cfg(feature = "native-bridge-fixture")]
+    pub(crate) fn fixture_release_readers(&self) {
+        self.grants.lock().unwrap().clear();
+    }
     pub fn new(paths: Paths) -> Self {
         Self {
             paths,

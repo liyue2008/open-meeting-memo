@@ -297,6 +297,11 @@ fn context() -> tauri::Context<tauri::Wry> {
 }
 pub fn run() {
     #[cfg(feature = "native-bridge-fixture")]
+    if std::env::var_os("OMM_NATIVE_REVIEW_CLEANUP").is_some() {
+        bridge_fixture::review_cleanup();
+        return;
+    }
+    #[cfg(feature = "native-bridge-fixture")]
     if std::env::var_os("OMM_LIFECYCLE_UNKNOWN_LISTENER").is_some() {
         bridge_fixture::run_lifecycle_unknown_listener();
         return;

@@ -64,9 +64,13 @@ pub fn run() {
     assert!(paths.data.starts_with(root.parent().unwrap()));
     let instance =
         Uuid::parse_str(&std::env::var("OMM_NATIVE_FIXTURE_CAPTURE_INSTANCE").unwrap()).unwrap();
+    super::review::validate_capture_context(&paths, instance);
     let socket = socket(&paths);
     let listener = UnixListener::bind(&socket).unwrap();
     std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600)).unwrap();
+    super::review::capture_event(
+        json!({"action":"bound","pid":std::process::id(),"instanceId":instance}),
+    );
     let mut session = None::<Uuid>;
     let mut file = None::<PathBuf>;
     let mut recording = false;
@@ -136,6 +140,13 @@ pub fn run() {
             _ => json!({"error":"unknown synthetic operation"}),
         };
         reply["pid"] = json!(std::process::id());
+        if ["start", "stop", "sealed_segments", "quit"]
+            .contains(&req["action"].as_str().unwrap_or(""))
+        {
+            super::review::capture_event(
+                json!({"action":req["action"],"pid":std::process::id(),"instanceId":instance,"sessionId":session,"reply":reply}),
+            );
+        }
         let _ = stream.write_all(&serde_json::to_vec(&reply).unwrap());
         let _ = stream.shutdown(std::net::Shutdown::Write);
         if req["action"] == "quit" {
