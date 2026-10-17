@@ -6,7 +6,7 @@
 
 `Artifacts`按活动版本状态每2秒有界读取现有版本API（后台窗口也生效），缺少片段时不以陈旧detail布尔值阻止新partial显示。版本status/hash变化切换正文快照并清空旧分页；cursor冲突先重置为新头页，不把重复头页追加到旧正文。终态与卸载停止活动轮询，历史版本选择和页内搜索保持。
 
-新增 `tests/artifacts-live-refresh.test.tsx` 在原生产实现先红4/5，修复后7项DOM回归覆盖无片段到首片段（detail提示仍false）、同页新增/终稿、相同内容hash的终稿、旧cursor恢复、迟到旧页丢弃、终态/卸载与历史选择/搜索。当前Node116×UTC/洛杉矶、类型/合同/validator/格式/build、8个宿主feature测试及feature clippy均通过。实际WK同页partial验证待本组件记录；原10项通过曾通过重开详情刷新，不追认为本次同页更新证据。native P2仍由另一个owner修复，本组件不替它宣称通过，也不重跑整包或完整矩阵。
+新增 `tests/artifacts-live-refresh.test.tsx` 在原生产实现先红4/5，修复后7项DOM回归覆盖无片段到首片段（detail提示仍false）、同页新增/终稿、相同内容hash的终稿、旧cursor恢复、迟到旧页丢弃、终态/卸载与历史选择/搜索。当前Node116×UTC/洛杉矶、类型/合同/validator/格式/build、8个宿主feature测试及feature clippy均通过。实际原WK脚本在clean `f846666`上12项通过（`/private/tmp/omm-lp-VkaqlW`，0play，owned17651正常wait无超时）：同一panel/back节点和选中逐字稿tab保持，advance及finalize后无reopen/标签切换/焦点事件而直接出现新段并移除部分提示；旧cursor真实冲突保留，teardown前reader释放。290条完整源码前后相同，原ci/离线完整性缓存及依赖图相等；实际host/dist/原样driver/结果/回执在组件证据根记录。原10项通过曾通过重开详情刷新，不追认为本次同页更新证据。只读postcheck最初误读nativeFixture字段的exit1保留，按实际nativeReview只读核验后0，没有重跑产品或修改实际结果。native P2仍由另一个owner修复，本组件不替它宣称通过，也不重跑整包或完整矩阵。
 
 | 验收项 | 当前状态 | 最终需要的证据 |
 |---|---|---|
