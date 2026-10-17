@@ -1,0 +1,55 @@
+docs/desktop-native.md
+  s_ae02d12992cb1d::t_572d0904ab26df 404-413
+src/application/artifacts.rs
+  s_b51f0316cfa2ff::t_b5d76f71b671ad 58-75,119
+src/application/imports/promotion.rs
+  s_b51f0316cfa2ff::t_e6ec9f954fa48f 1-118
+src/application/imports/staging.rs
+  s_b51f0316cfa2ff::t_ca090c5f99b95b 1-177
+src/application/lifecycle.rs
+  s_ae02d12992cb1d::t_6d8e025cc57916 194
+src/application/mod.rs
+  s_b51f0316cfa2ff::t_9e409812f83869 102,105
+src/core/store.rs
+  s_b51f0316cfa2ff::t_09ad153eeeddc6 47,493-495
+src/core/store/archives.rs
+  s_b51f0316cfa2ff::t_937651f7b5ca6b 43-45
+src/core/store/desktop.rs
+  s_b51f0316cfa2ff::t_ed70fdcfc5a4ee 7-16,301,449-531,561,568,605-612,622,625
+src/core/store/desktop_partial.rs
+  s_ae02d12992cb1d::t_fab5d774d8ddef 1-156
+src/core/store/segments.rs
+  s_b51f0316cfa2ff::t_1e0b3330f271c5 434-436
+tests/core_integration.rs
+  s_b51f0316cfa2ff::t_51db4a092ac277 389-392,2796-2975
+tests/desktop_import_cleanup.rs
+  s_b51f0316cfa2ff::t_f305bf66c63df0 1-392
+tests/desktop_native.rs
+  s_b51f0316cfa2ff::t_ce626aa3e8994d 694-842
+tests/segment_pipeline.rs
+  s_b51f0316cfa2ff::t_f201d0e30f179e 1034-1168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dde526964c13ba10f12a908bcf86f09ddbdaa404",
+  "prompts": {},
+  "sessions": {
+    "s_ae02d12992cb1d": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14acf-e318-76cd-a43b-6bd5ff8c8bfe",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_b51f0316cfa2ff": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14a57-1149-74de-90d2-383adb76b2f3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
