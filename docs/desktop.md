@@ -1,6 +1,6 @@
 # 桌面 App 开发
 
-当前新增 macOS Apple Silicon、macOS 15.5+ 的 Tauri 2 桌面工程。Foundation 只建立隔离工程、类型契约与编译基线；**它还不是可用桌面产品，不能代替后续完整实现、评审和安装验收**。桌面内嵌系统 WKWebView，不开放 HTTP 产品服务；浏览器版 WebUI、Windows/Linux、MCP 仍是后续目标。
+当前 macOS Apple Silicon、macOS 15.5+ 的 Tauri 2 桌面分支已合入真实前端与原生组件，正在执行整合验收。**组件测试不等于产品验收；完整真实界面门禁、独立评审与最终用户安装状态见[验收记录](desktop-acceptance.md)**。桌面内嵌系统 WKWebView，不开放 HTTP 产品服务；浏览器版 WebUI、Windows/Linux、MCP 仍是后续目标。
 
 ## 目录和单一职责
 
@@ -13,7 +13,7 @@
 | `native/yulu-capture` | 原 Swift/Yulu 录音内核与现有构建入口；不为目录美观移动或改写 PCM/同步/WAV/恢复代码 |
 | `contracts/desktop/v1` | 版本化 schema、合成交换、生成命令表及冻结安全语义 |
 | `scripts/*-desktop.sh` | 全项目统一 dev/test/build/package/install 门面，委托现有 Swift/native 构建入口 |
-| `packaging/desktop` | 后续 native owner 提供资源闭包、签名、包检查与用户级安装脚本 |
+| `packaging/desktop` | 资源闭包、签名、包检查、受控 WKWebView 与用户级安装脚本 |
 | `docs/webui-demo`、`docs/assets` | 已确认静态设计及独立 Logo 的精确导入；是设计材料，不是生产数据源 |
 
 保留 root Rust crate 和 Swift 原目录，不重写已验证的安全/原生边界。Rust、TypeScript、Swift 各自使用成熟工具链，只提交根 Cargo.lock 与 `apps/desktop/package-lock.json`。Node 是前端开发依赖；外部 Pi 自身的 Node 需求须独立诊断，不能把 Vite 放进生产后台。
@@ -25,8 +25,9 @@
 ```sh
 cd apps/desktop && npm ci && cd ../..
 bash scripts/dev-desktop.sh
-bash scripts/test-desktop.sh --foundation  # 当前组件门禁，不是全产品验收
-bash scripts/test-desktop.sh               # Rust/TS/指定 Swift fixture；后续继续补桌面验收
+bash scripts/test-desktop.sh --foundation  # 有限组件门禁，不是全产品验收
+bash scripts/test-desktop.sh               # 全量 Rust/TS/指定 Swift fixture
+bash scripts/test-desktop.sh --wkwebview   # 额外真实桥/WKWebView 私有 fixture
 bash scripts/build-desktop.sh
 bash scripts/build-desktop.sh --release
 bash scripts/package-desktop.sh
@@ -34,7 +35,7 @@ bash scripts/install-desktop.sh --check
 bash scripts/install-desktop.sh --from /absolute/path/to/verified/OMM.app
 ```
 
-脚本接受参数见脚本源；统一执行 `--locked` 和契约漂移检查，用 `npm ci --ignore-scripts` 仅安装锁定的项目级依赖。开发服务器只监听127.0.0.1；release CSP 不允许开发地址。`bundle.active=false` 与空权限是有意的 Foundation 默认拒绝，主功能尚未接线。package/install 在 native 实现并通过安全/资源检查前明确失败，不生成假发行包或安装空壳。安装必须仅当前用户、检查旧元数据、保留配置/录音/认证/auto/consent；不复制秘密备份、不打断录制、不盲杀/擅重启个人 daemon。可以经过核验后 versioned side-by-side 安装生产包并用私有 profile 实际启动；个人服务切换另行准确报告。
+脚本接受参数见脚本源；统一执行 `--locked` 和契约漂移检查，用 `npm ci --ignore-scripts` 仅安装锁定的项目级依赖。开发服务器只监听127.0.0.1；release CSP 不允许开发地址。`bundle.active=false` 禁止 Tauri 自行发布不完整资源包；实际包装由 `packaging/desktop/package.sh` 组装并核验自有运行时、资源、许可证与内外签名。36 个业务命令逐项授予可信 main 窗口，没有任意文件/路径/shell 权限。package 要求已提交的干净源码，结果按完整 revision 放在 `target/desktop-package/<revision>/`。安装必须仅当前用户、检查旧元数据、保留配置/录音/认证/auto/consent；不复制秘密备份、不打断录制、不盲杀/擅重启个人 daemon。可以经过核验后 versioned side-by-side 安装生产包并用私有 profile 实际启动；个人服务切换另行准确报告。
 
 ## 已确定的完整功能范围
 
@@ -50,4 +51,12 @@ bash scripts/install-desktop.sh --from /absolute/path/to/verified/OMM.app
 
 参见 [冻结接口与安全语义](../contracts/desktop/v1/README.md)。先 read-only 检查 profile 和版本化 service capability，不能打开即迁移旧数据库。旧/未知 daemon 无写权；写入 admission 绑定规范 profile、所有者 generation、可信调用者和有效期，提交前持锁再检查。受限 offline admission 只允许显式初始化/隔离/已安全接管的新 profile 做安全配置保存，不伪装录音/任务已可运行。现有 legacy profile 不被隐式迁移。
 
-native/frontend 从同一 Foundation 本地提交分别分叉，组件独占规则见 [lane board](desktop-lanes.md)。完成组件提交后才由 integration-only 汇合；[验收矩阵](desktop-acceptance.md) 全通过、fresh 独立正式评审无阻塞、实际 release 用户级安装验证后，才 SSH push 并创建 PR，不自动合并。
+native/frontend 从同一 Foundation 本地提交分别分叉，已按等价契约去重汇合；组件独占与修复退回原 owner 的规则见 [lane board](desktop-lanes.md)。完成组件提交后才由 integration-only 汇合；[验收矩阵](desktop-acceptance.md) 全通过、fresh 独立正式评审无阻塞、实际 release 用户级安装验证后，才 SSH push 并创建 PR，不自动合并。
+
+## 统一门禁与证据边界
+
+完整测试入口会执行私有 wrapper 参数回归、锁定 npm 安装、36命令/100定义共享契约、格式/严格类型、UTC 与 America/Los_Angeles 两个时区的 DOM 测试、生产构建、root 与 workspace 的 Rust fmt/test/clippy/build、fixture-feature clippy，以及指定的 Swift synthetic IPC 17+3 项。`--foundation` 只运行有限组件子集；`--wkwebview` 额外启动私有合成 profile 的真实 macOS WKWebView，不能以 Chromium 或 DOM mocks 代替。
+
+完整媒体路径使用 verified descriptor/hash 和短效 grant；fixture 只做无输出节点的静音解码、metadata 与暂停定位，`playCalls` 必须为0。生产播放仅由用户控制。真实权限、硬件采集、语音识别质量、个人 Pi 认证、可见通知及长会议质量不由这些 fixture 证明。
+
+发布流程是：当前源码全量验证 → fresh 只读正式评审 → 最终 clean commit 构建并验证资源/signature/license/source hash → 显式用户目录 side-by-side 安装并用私有 profile 实际启动 → 既有 SSH origin push 与 GitHub PR（不 merge）。整合 owner 不提前安装或推送；组件包中旧 Foundation 界面不能冒充最终产品包。

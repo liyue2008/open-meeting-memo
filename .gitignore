@@ -81,3 +81,7 @@ credentials.json
 *.opus
 *.ogg
 *.dmg
+
+# Packaging/test Python caches; source and license materials stay tracked.
+__pycache__/
+*.pyc

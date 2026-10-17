@@ -17,7 +17,7 @@ Open meeting memo (OMM) 定位是开源 AI Native 的会议录音/转写/纪要 
 
 在上述最终目标及现有 CLI 基线之上，新增 Tauri 2 原生桌面 App，限 macOS Apple Silicon、macOS 15.5+，复用 Rust 核心与 Swift/Yulu 内核。已确认静态设计的会议库、搜索/日期/排序/分页、详情音频/逐字稿/纪要/只读行动项、保留式删除恢复、重处理版本与任务、真实配置/诊断/帮助均接真实逻辑；不是静态壳。浏览器 HTTP WebUI 和 MCP 仍未进入本次交付。
 
-当前只完成 Foundation 工程和契约，完整实现、独立正式评审、release 用户级安装和实际启动验证尚待完成。边界、写入兼容门禁、验收及所有权见[桌面开发](docs/desktop.md)与[冻结接口](contracts/desktop/v1/README.md)。
+真实前端与原生组件已合入桌面分支，当前进入整合验收；完整真实界面门禁、独立正式评审、最终 release 用户级安装和启动验证尚待完成。首次启用包含显式初始化与服务计划/确认应用；打开 App 不隐式初始化、迁移或启动服务。边界、写入兼容门禁、验收及所有权见[桌面开发](docs/desktop.md)与[冻结接口](contracts/desktop/v1/README.md)。
 
 ## 设计要求
 

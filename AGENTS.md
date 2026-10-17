@@ -1,6 +1,6 @@
 # Contributor and agent guide
 
-Read [README.md](README.md), [prd.md](prd.md), [the design](docs/overview-design.md) and [installation](docs/install.md) before changing behavior. The CLI baseline is macOS/Apple Silicon + Lark + Pi. The approved Tauri 2 desktop App is now in implementation for Apple Silicon/macOS 15.5+; see [desktop development](docs/desktop.md), [frozen contract](contracts/desktop/v1/README.md), [lane ownership](docs/desktop-lanes.md) and [acceptance](docs/desktop-acceptance.md). Foundation is not a functional desktop release. Windows/Linux, other meeting apps, MCP and browser-served WebUI remain later goals.
+Read [README.md](README.md), [prd.md](prd.md), [the design](docs/overview-design.md) and [installation](docs/install.md) before changing behavior. The CLI baseline is macOS/Apple Silicon + Lark + Pi. The approved Tauri 2 desktop App is now in integration validation for Apple Silicon/macOS 15.5+; see [desktop development](docs/desktop.md), [frozen contract](contracts/desktop/v1/README.md), [lane ownership](docs/desktop-lanes.md) and [acceptance](docs/desktop-acceptance.md). Component gates are not final product acceptance; inspect the current acceptance record before installation or release. Windows/Linux, other meeting apps, MCP and browser-served WebUI remain later goals.
 
 ## Ownership and seams
 

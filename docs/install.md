@@ -4,7 +4,21 @@
 
 ## 桌面 App 状态
 
-Tauri 2 桌面工程面向 Apple Silicon/macOS 15.5+，当前 Foundation 尚无可安装的完整产品包。以下仍是既有 CLI 源码安装步骤，不能当成桌面安装验收。统一桌面 dev/test/build/package/install 入口及当前阻塞见[桌面开发](desktop.md)和[验收矩阵](desktop-acceptance.md)；package/install 在完整 native 资源与安全校验入口尚未交付时明确拒绝。
+Tauri 2 桌面 App 面向 Apple Silicon/macOS 15.5+，真实前端和原生组件已合入整合分支。统一入口及当前验证状态见[桌面开发](desktop.md)和[验收矩阵](desktop-acceptance.md)。以下 CLI 源码安装流程仍可独立使用，不能代替桌面产品验收。
+
+桌面构建需要已有 Rust/Xcode、Node 22.19–22.x、npm 11.x；构建不会安装系统工具。干净已提交源码可执行：
+
+```sh
+bash scripts/test-desktop.sh --wkwebview
+bash scripts/package-desktop.sh
+# 用脚本打印的完整 .app 路径替换下方参数；安装必须另行显式执行
+bash scripts/install-desktop.sh --check
+bash scripts/install-desktop.sh --from "/absolute/path/to/Open Meeting Memo.app"
+```
+
+桌面包包含自有 CLI、worker、Swift capture helper、固定 sherpa/ONNX Runtime 与 codec 闭包、许可证和源码材料；模型权重仍按固定 manifest 安装至 XDG DATA，Pi/Node/Lark 是外部集成。安装器先验证资源/hash/签名与已有安装元数据，发布到 `~/Applications/Open Meeting Memo <version>-<revision前12位>.app`，保留旧版本；不覆盖 CLI/LaunchAgent，不改配置、录音、认证、auto/consent，也不启动个人服务。具体 receipt 和位置以安装器输出及[原生包装说明](desktop-native.md)为准。
+
+首次打开仅只读观察。首次初始化、启动/停止/安全切换服务均需在“状态与诊断”显式确认；旧或未知服务/不兼容 schema、活动录音或未封存数据会拒绝不安全写入。模型、系统权限与专用 Pi 认证分别诊断，服务运行不冒充这些依赖已就绪。开发签名是 ad-hoc，不是 Apple 公证。
 
 后续 release 安装只进入当前用户目录，先只读检查安装元数据、备份非秘密元数据，保留所有录音/配置/认证/auto/consent，不打断在录会议、不盲杀未知进程、不因启动 App 迁移旧 profile。可安全并存版本化 App，并以实际生产包＋私有 profile 验证窗口和真实桥；个人旧 daemon 不兼容时准确报告显式切换路径。ad-hoc 签名不是公证，实际注册也不是权限/运行就绪。
 

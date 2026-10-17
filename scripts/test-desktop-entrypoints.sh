@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Exercise wrapper argument routing with private fake components, never an installation.
+set -euo pipefail
+umask 077
+ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+FIXTURE=$(mktemp -d /private/tmp/omm-desktop-entrypoints-XXXXXX)
+trap 'rm -rf "$FIXTURE"' EXIT
+mkdir -p "$FIXTURE/scripts" "$FIXTURE/packaging/desktop"
+cp "$ROOT/scripts/desktop-common.sh" "$ROOT/scripts/install-desktop.sh" "$ROOT/scripts/package-desktop.sh" "$FIXTURE/scripts/"
+# Only the copied private preflight is bypassed: no global tools or real package are used.
+printf '\ndesktop_preflight() { :; }\n' >> "$FIXTURE/scripts/desktop-common.sh"
+cat > "$FIXTURE/packaging/desktop/install.sh" <<'SH'
+set -euo pipefail
+printf '%s\n' "$#" "$@" > received
+SH
+cp "$FIXTURE/packaging/desktop/install.sh" "$FIXTURE/packaging/desktop/package.sh"
+assert_exit() {
+  local expected=$1; shift
+  local actual=0
+  "$@" > "$FIXTURE/output" 2>&1 || actual=$?
+  [[ "$actual" == "$expected" ]] || { cat "$FIXTURE/output"; echo "Expected $expected, got $actual" >&2; exit 1; }
+}
+assert_exit 0 bash "$FIXTURE/scripts/install-desktop.sh" --from "$FIXTURE/Verified App.app"
+printf '1\n%s\n' "$FIXTURE/Verified App.app" > "$FIXTURE/expected"
+cmp "$FIXTURE/expected" "$FIXTURE/received"
+assert_exit 0 bash "$FIXTURE/scripts/install-desktop.sh" --check
+printf '1\n--check\n' > "$FIXTURE/expected"
+cmp "$FIXTURE/expected" "$FIXTURE/received"
+assert_exit 2 bash "$FIXTURE/scripts/install-desktop.sh" --from
+assert_exit 2 bash "$FIXTURE/scripts/install-desktop.sh" --unknown
+assert_exit 0 bash "$FIXTURE/scripts/package-desktop.sh"
+printf '0\n' > "$FIXTURE/expected"
+cmp "$FIXTURE/expected" "$FIXTURE/received"
+assert_exit 2 bash "$FIXTURE/scripts/package-desktop.sh" --unknown
+mv "$FIXTURE/packaging/desktop/install.sh" "$FIXTURE/owned-component"
+assert_exit 3 bash "$FIXTURE/scripts/install-desktop.sh" --check
+ln -s "$FIXTURE/owned-component" "$FIXTURE/packaging/desktop/install.sh"
+assert_exit 3 bash "$FIXTURE/scripts/install-desktop.sh" --check
+echo 'Desktop entrypoints: explicit package path/check routing, argument and missing/symlink component refusals passed.'

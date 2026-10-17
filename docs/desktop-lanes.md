@@ -5,10 +5,10 @@
 | 顺序 / lane | 当前状态 | 独占写入 | 交付条件 |
 |---|---|---|---|
 | 20 Plan | Main 已批准 | 计划与内部裁决 | 不再另起不兼容架构 |
-| 21 Foundation | 接口和编译基线，待 Main 记录交接 | 本提交建立共享文件 | 契约、deny-default 宿主、锁、脚本、文档、目标验证，本地 durable commit |
-| 22 Native | 从 Foundation commit 新 worktree/branch 开始 | `src/**`（生成 DTO 除外）、Rust `tests/**`、根 Cargo.toml/Cargo.lock、`apps/desktop/src-tauri/**`、`packaging/desktop/**`、`docs/desktop-native.md` | 全部真实共享用例/CLI/宿主/媒体/版本门禁/资源打包/独立fixture测试与 durable commits |
-| 22 Frontend | 与 Native 并行，从相同 commit 开始 | `apps/desktop/src/**`（生成 DTO 除外）、`public/**`、前端 `tests/**`、前端配置/package.json/package-lock.json、`docs/desktop-ui.md` | 全部设计功能接 typed bridge、TS/DOM/交互/共享桥测试与 durable commits |
-| 23 Integration-only | 组件门禁后开始 | 共享 scripts/CI、根 README/AGENTS/.gitignore、安装/设计/desktop文档 | 只整合已完成组件；组件缺陷退回原owner，不接手缺失主功能 |
+| 21 Foundation | 已交接 durable Foundation | 本提交建立共享文件 | 契约、deny-default 宿主、锁、脚本、文档、目标验证，本地 durable commit |
+| 22 Native | 组件 durable 已交接；缺陷回原 owner | `src/**`（生成 DTO 除外）、Rust `tests/**`、根 Cargo.toml/Cargo.lock、`apps/desktop/src-tauri/**`、`packaging/desktop/**`、`docs/desktop-native.md` | 全部真实共享用例/CLI/宿主/媒体/版本门禁/资源打包/独立fixture测试与 durable commits |
+| 22 Frontend | 组件 durable 已交接；缺陷回原 owner | `apps/desktop/src/**`（生成 DTO 除外）、`public/**`、前端 `tests/**`、前端配置/package.json/package-lock.json、`docs/desktop-ui.md` | 全部设计功能接 typed bridge、TS/DOM/交互/共享桥测试与 durable commits |
+| 23 Integration-only | 组件已去重合入；真实 WK 缺陷修复中 | 共享 scripts/CI、根 README/AGENTS/.gitignore、安装/设计/desktop文档 | 只整合已完成组件；组件缺陷退回原owner，不接手缺失主功能 |
 | 24 Final acceptance | 尚未开始 | 冻结后修复回owner | 全量门禁、fresh正式复审、release资源/签名、真实用户级安装/启动、SSH push＋GitHub PR |
 
 ## 冻结共享文件

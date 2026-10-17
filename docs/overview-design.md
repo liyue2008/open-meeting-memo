@@ -13,7 +13,7 @@
 
 现有 CLI/录音/ASR/Pi 分层保持不变；新增 `apps/desktop` 的 Tauri 2＋React/TypeScript，使用系统 WKWebView，支持 Apple Silicon/macOS 15.5+。Rust 核心继续拥有持久状态和最终产物，`src/application` 复用共享用例，Tauri 仅实现受托窗口、受限原生操作与有界 mix 媒体协议。不开放浏览器产品 HTTP 服务，不改写 Swift/Yulu 内核。
 
-已确认设计全部业务将接真实核心；当前 Foundation 只建立可编译工程及冻结 schema/Rust/TS 接口，未交付完整功能。旧 profile 打开只读无隐式迁移，版本化 capability 与锁内 generation 校验保护所有 mutation；受限 offline admission 仅供显式新/隔离/已安全接管 profile 保存安全配置。见[完整桌面边界](desktop.md)、[接口安全语义](../contracts/desktop/v1/README.md)及[当前验收矩阵](desktop-acceptance.md)。上文“首版不做 WebUI”描述既有 CLI 基线；浏览器版仍延期，新增桌面目标已批准。
+已确认设计的 React 业务已接 Rust 共享用例；36 个冻结命令覆盖库/产物/任务/配置、显式初始化与服务生命周期。当前组件已合入整合分支，正式产品验收仍在进行。旧 profile 打开只读无隐式迁移，版本化 capability 与锁内 generation 校验保护所有 mutation；受限 offline admission 仅供显式新/隔离/已安全接管 profile 保存安全配置。见[完整桌面边界](desktop.md)、[接口安全语义](../contracts/desktop/v1/README.md)及[当前验收矩阵](desktop-acceptance.md)。上文“首版不做 WebUI”描述既有 CLI 基线；浏览器版仍延期，新增桌面目标已批准。
 
 ## 一、范围、录音与检测事实
 
