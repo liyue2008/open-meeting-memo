@@ -1,0 +1,37 @@
+Cargo.lock
+  s_b51f0316cfa2ff::t_ad28e070fe0d54 2388
+apps/desktop/src-tauri/Cargo.toml
+  s_ae02d12992cb1d::t_6ca1cf5919de2b 11,34-35
+apps/desktop/src-tauri/src/bridge_fixture.rs
+  s_b51f0316cfa2ff::t_10e23124d5e7d9 22,28-31,61-75,205-207,218-220
+apps/desktop/src-tauri/src/bridge_fixture/lifecycle.rs
+  s_ae02d12992cb1d::t_430e220dd85c4f 1-292
+docs/desktop-native.md
+  s_ae02d12992cb1d::t_a554e19627307e 201-240
+packaging/desktop/test-lifecycle.sh
+  s_ae02d12992cb1d::t_20c1f12797da8d 1-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "39aaf2aacd37fd4521247e8a51a4255f52bf3e4e",
+  "prompts": {},
+  "sessions": {
+    "s_ae02d12992cb1d": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14acf-e318-76cd-a43b-6bd5ff8c8bfe",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_b51f0316cfa2ff": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14a57-1149-74de-90d2-383adb76b2f3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
