@@ -27,4 +27,12 @@ else
   cargo test --locked --test capture_adapter -- --ignored
   cargo test --locked --test core_integration review_r1_03_ -- --ignored
 fi
-if "$wkwebview"; then desktop_component_script packaging/desktop/test-wkwebview.sh; fi
+if "$wkwebview"; then
+  (
+    unset OMM_WKWEBVIEW_SCENARIO OMM_WKWEBVIEW_DRIVER OMM_WKWEBVIEW_EVIDENCE
+    desktop_component_script packaging/desktop/test-wkwebview.sh
+    export OMM_WKWEBVIEW_SCENARIO=window-acl
+    desktop_component_script packaging/desktop/test-wkwebview.sh
+  )
+  desktop_component_script scripts/test-desktop-ui-wkwebview.sh
+fi

@@ -27,7 +27,8 @@ cd apps/desktop && npm ci && cd ../..
 bash scripts/dev-desktop.sh
 bash scripts/test-desktop.sh --foundation  # 有限组件门禁，不是全产品验收
 bash scripts/test-desktop.sh               # 全量 Rust/TS/指定 Swift fixture
-bash scripts/test-desktop.sh --wkwebview   # 额外真实桥/WKWebView 私有 fixture
+bash scripts/test-desktop.sh --wkwebview   # 额外原生桥、窗口权限负例与完整 React/WK fixture
+bash scripts/test-desktop-ui-wkwebview.sh  # 单独复验实际 React 交互；不重跑 Rust/Swift 单测
 bash scripts/build-desktop.sh
 bash scripts/build-desktop.sh --release
 bash scripts/package-desktop.sh
@@ -56,6 +57,8 @@ native/frontend 从同一 Foundation 本地提交分别分叉，已按等价契�
 ## 统一门禁与证据边界
 
 完整测试入口会执行私有 wrapper 参数回归、锁定 npm 安装、36命令/100定义共享契约、格式/严格类型、UTC 与 America/Los_Angeles 两个时区的 DOM 测试、生产构建、root 与 workspace 的 Rust fmt/test/clippy/build、fixture-feature clippy，以及指定的 Swift synthetic IPC 17+3 项。`--foundation` 只运行有限组件子集；`--wkwebview` 额外启动私有合成 profile 的真实 macOS WKWebView，不能以 Chromium 或 DOM mocks 代替。
+
+实际 React fixture 使用 `scripts/fixtures/desktop-ui-probe.js` 驱动真实控件，保持生产 Tauri transport 不变。独立入口只接受全新空的私有 `/private/tmp` 证据根（可由 `OMM_DESKTOP_UI_EVIDENCE` 指定），记录运行前后源码 SHA256、实际 driver/dist/二进制/结果 hash 和 owned 进程退出回执；源码变化、业务断言失败、播放或超时均失败。测试中的 WKWebView 使用非持久网站数据存储，不复用个人 App 的缓存或偏好。偏好写入和当前窗口行为的检查，只覆盖本次私有运行；生产 App 重启后是否保留偏好需要单独验证。
 
 完整媒体路径使用 verified descriptor/hash 和短效 grant；fixture 只做无输出节点的静音解码、metadata 与暂停定位，`playCalls` 必须为0。生产播放仅由用户控制。真实权限、硬件采集、语音识别质量、个人 Pi 认证、可见通知及长会议质量不由这些 fixture 证明。
 

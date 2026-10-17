@@ -36,4 +36,16 @@ mv "$FIXTURE/packaging/desktop/install.sh" "$FIXTURE/owned-component"
 assert_exit 3 bash "$FIXTURE/scripts/install-desktop.sh" --check
 ln -s "$FIXTURE/owned-component" "$FIXTURE/packaging/desktop/install.sh"
 assert_exit 3 bash "$FIXTURE/scripts/install-desktop.sh" --check
-echo 'Desktop entrypoints: explicit package path/check routing, argument and missing/symlink component refusals passed.'
+cp "$ROOT/scripts/test-desktop-ui-wkwebview.sh" "$FIXTURE/scripts/"
+mkdir "$FIXTURE/empty-evidence"
+ln -s "$FIXTURE/empty-evidence" "$FIXTURE/evidence-link"
+assert_exit 1 env OMM_DESKTOP_UI_EVIDENCE="$FIXTURE" bash "$FIXTURE/scripts/test-desktop-ui-wkwebview.sh"
+grep -q 'UI evidence must be a new empty directory' "$FIXTURE/output"
+assert_exit 1 env OMM_DESKTOP_UI_EVIDENCE="$FIXTURE/evidence-link" bash "$FIXTURE/scripts/test-desktop-ui-wkwebview.sh"
+grep -q 'canonical absolute path without symlinks' "$FIXTURE/output"
+[[ -z $(ls -A "$FIXTURE/empty-evidence") ]]
+outside="$ROOT/target/ui-evidence-refusal-${FIXTURE##*/}"
+assert_exit 1 env OMM_DESKTOP_UI_EVIDENCE="$outside" bash "$FIXTURE/scripts/test-desktop-ui-wkwebview.sh"
+grep -q 'UI evidence requires a private /private/tmp root' "$FIXTURE/output"
+[[ ! -e "$outside" ]]
+echo 'Desktop entrypoints: argument/component routing and nonempty/symlink/outside-private UI evidence refusals passed.'

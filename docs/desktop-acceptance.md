@@ -1,16 +1,16 @@
 # 桌面版本验收记录
 
-**真实前端与原生组件已整合，完整产品验收尚未通过。** 当前基线 `8639079296dc26f37791109a4df1b8ee23621af6` 已运行全量组件门禁，但真实 React/WKWebView 暴露了生产校验器互操作及关窗监听权限问题，正在由原组件 owner 隔离修复。修复前不进入正式评审、用户目录安装或推送。下列状态区分组件证明与最终产品证明，不能用旧源结果、mock、编译成功或服务注册成功代替实际功能。
+**真实前端与原生组件已整合，完整产品验收尚未通过。** 生产校验器、最小关窗权限、私有网站数据隔离及媒体 revision 修复已整合至 `5c8c206`。当前实际 React/WKWebView 的媒体与常规业务矩阵134项通过；真实脏配置关窗、首次初始化/成功服务生命周期、隔离的跨进程主题/侧栏保留仍待直接证据，不能据此进入正式评审、用户目录安装或推送。下列状态区分组件证明与最终产品证明，不能用旧源结果、mock、编译成功或服务注册成功代替实际功能。
 
 | 验收项 | 当前状态 | 最终需要的证据 |
 |---|---|---|
 | A1 工程/可重复入口 | 组件已整合；最终 clean source 待冻结 | 独立worktree/分支、Rust workspace＋npm双锁、清晰Swift原目录、统一脚本、clean committed source |
-| A2 共享契约 | 36命令/100定义漂移检查通过；真实 React 互操作修复中 | 36命令、schema/Rust/TS无漂移、所有共享交换；真实桥适配器、协议/错误/预算/取消/CAS严格测试 |
+| A2 共享契约 | 36命令/100定义漂移通过；生产互操作修复与实际React库/版本读取通过 | 36命令、schema/Rust/TS无漂移、所有共享交换；真实桥适配器、协议/错误/预算/取消/CAS严格测试 |
 | A3 Rust | 整合基线全量通过；修复后须重跑 | fmt/test --locked --all-targets/clippy -Dwarnings/build；desktop workspace同等门禁；持久并发/metadata/CRUD/import/版本/取消/config/文件安全fixture |
 | A4 Swift | 整合基线 build-dev 与指定17+3 synthetic通过 | `build-dev.sh`＋AGENTS两组指定synthetic IPC ignored；不运行所有ignored或硬件 |
-| A5 TypeScript/界面 | 101 DOM测试在UTC/洛杉矶通过；真实WK功能未通过 | npm ci、严格类型、DOM交互、真实桥、日期/DST/分页/脏态/冲突、Markdown安全、明暗/侧栏全部设计 |
-| A6 媒体/受托窗口 | 41项原生WK fixture通过；关窗最小权限修复中 | 最早实际WKWebView来源/driver证明；verified同FD/hash/读锁、grant失效、Range/HEAD/206/416/ETag与并发/缓冲预算fixture |
-| A7 全功能WKWebView | 阻塞：实际React库/版本读取失败，关窗监听未获最小权限 | 私有profile＋真实new core/bridge＋fake helper/worker/Pi/notifier；实际窗口/交互/搜索/CRUD/版本/任务/配置/导出/明暗/侧栏；静音metadata/解码/暂停态段内跨段seek，禁止play |
+| A5 TypeScript/界面 | 基线101单时区；修复后102×UTC/洛杉矶通过；当前真实React134项通过，最终源须复验 | npm ci、严格类型、DOM交互、真实桥、日期/DST/分页/脏态/冲突、Markdown安全、明暗/侧栏全部设计 |
+| A6 媒体/受托窗口 | 原生41项通过；最小权限、隔离、revision修复已整合，真实React metadata/段内跨段暂停定位通过；定向负例待组件交接 | 最早实际WKWebView来源/driver证明；verified同FD/hash/读锁、grant失效、Range/HEAD/206/416/ETag与并发/缓冲预算fixture |
+| A7 全功能WKWebView | 当前媒体/常规业务134项通过；真实关闭、成功首用/服务与跨进程偏好仍阻塞 | 私有profile＋真实new core/bridge＋fake helper/worker/Pi/notifier；实际窗口/交互/搜索/CRUD/版本/任务/配置/导出/明暗/侧栏；静音metadata/解码/暂停态段内跨段seek，禁止play |
 | A8 release包 | 最终整合包pending；旧原生组件包不可替代 | 锁定aarch64 release app/dmg；macOS≥15.5、CLI/worker/helper/sherpa/codec资源闭包、嵌套身份/entitlements、内外ad-hoc签名、MIT/LGPL等完整许可与源码义务 |
 | A9 实际安装/启动 | pending，未操作个人profile | metadata-only预检、非秘密元数据备份、用户目录真实生产包、保留录音/配置/认证/auto/consent；私有profile实际启动、窗口/正常桥验证、构建/安装来源hash及版本一致 |
 | A10 独立评审 | pending | fresh只读正式评审无阻塞；修复后在最终当前源重跑所需门禁 |
@@ -21,9 +21,15 @@
 
 私有证据根 `/private/tmp/omm-desktop-integration-8KrEI9`（0700）中的 `full-gate.log` / `full-gate.exit` 记录基线全量门禁 exit 0；`bridge-initial/bridge-result.json` 为41项原生WK fixture，`ok=true`、`playCalls=0`。`bridge-snapshot/bridge-result.json` 同时抓取真实React DOM，确认库校验失败；详细可复现命令与环境见该目录 `component-handoff.md`。原生fixture通过不能解除实际React阻塞。
 
-修复交接后必须在新整合提交重跑完整门禁和全业务真实WK测试，并在本页替换为最终当前源码与工件证据。
+前端修复 `ca5107f` 已摘取为 `1b6f52051e6bc32b5a58cc0402886b7bf6e20221`，`frontend-repair-gates.exit=0`：生成/strict TS/format、102测试×UTC/洛杉矶及生产build通过（含Vite实际输出的校验器回归）。未运行其附带WK脚本，不能据此关闭实际React阻塞。基线统一脚本只运行101个DOM测试一次；双时区/format/fixture-feature clippy是后续新增门禁，最终必须按当前脚本重跑。
 
-WK测试隔离待证实：只将HOME/XDG指向私有目录不足以证明macOS网站数据仓库隔离。原生owner须提供test-only非持久仓库或明确独立受控仓库及A/B互不读取sentinel的证据，生产持久外观行为不变。在此之前暂停写主题/侧栏网站偏好的WK测试；不读取或清空既有个人网站数据。非持久仓库中同窗口reload不证明生产跨进程持久化。
+原生隔离与最小权限三个修复已按原组件提交顺序整合。测试 feature 使用非持久 WK 网站数据仓库；原组件 A/B 独立仓库互不读取 sentinel 的实际证据已验证，生产持久化策略不变。不读取或清空个人网站数据。非持久仓库中的偏好保存及同窗口行为不证明生产跨进程持久化。
+
+实际无媒体 React 矩阵根为 `/private/tmp/omm-integration-ui-without-media-arlcmv` 与 `/private/tmp/omm-integration-ui-without-media-srVeUp`：各 `bridge-result.json` 为118项、`ok=true`、`mediaNotTested=true`、`playCalls=0`，`command.exit`/`runtime.exit` 均0，`owned-process.json` 记录实际子进程正常退出且已等待，无超时。覆盖日期/排序/分页、版本、元数据 CAS、Trash恢复、重处理和取消、导入、fake helper同意与封存、配置冲突与原子保存、失败队列恢复、真实明暗/收缩/窄屏内容截图。完整hash清单见整合证据根 `without-media-handoff.json`；各 `post-run-source-freeze.json` 明确是事后来源冻结。
+
+旧完整 driver 的 `retained trash detail` 失败是测试选择器错误：React 使用原生 `<dialog open>`，没有显式 `role=dialog`；旧 driver 查询不到 modal 后误点页头同名按钮。仅将整合 driver 选择器改为 `dialog[open],[role=dialog]`，未改组件，以上两次均严格验证真实 Trash/恢复。原失败保留。这两次运行未测试媒体，关闭确认不能用导航脏态提示代替。
+
+媒体最小修复 `29a1f50` 已摘取为 `5c8c206`。随后实际执行 `OMM_DESKTOP_UI_EVIDENCE=/private/tmp/omm-integration-ui-media-fixed-Jm89LO bash scripts/test-desktop-ui-wkwebview.sh`，exit0：134项、`ok=true`、`playCalls=0`，无跳过媒体标记。严格 grant/manifest revision 相等；真实音频 metadata、第一段1.2秒和第二段1.5秒暂停定位、速度1.25及逐字稿timestamp均通过，连同Trash恢复、常规业务、真实内容索引查询和批量导出。7张实际WK内容截图中已直接查看录音上置、浅色展开和深色窄屏。owned PID83774正常exit0且wait，无超时；运行前后源码清单相等，`artifact-sha256.json` 保存实际driver/二进制/dist/结果/回执hash。不是最终clean来源；缺少真实关闭、成功首次初始化/服务和两次独立进程偏好保持的实际证据。最终须补这些场景，在最终当前clean提交重跑全量门禁并重新构建整合release。
 
 依赖审计的外部限制：当前 `npm audit` 未取得报告。证据根中的 `npm-audit-current.exit`、`npm-audit-official-current.exit`、`npm-audit-system-ca.exit` 均为1：项目镜像审计API返回400；官方端点先遇证书链验证失败，使用现有系统信任后返回网络策略拦截页面。未关闭TLS、绕过网络策略或改动依赖。这是未完成的审计，不是“无漏洞”，也不是已发现漏洞。已知Vitest更新提示由原前端owner核对适用公告；正式评审必须考虑该验证限制。
 
