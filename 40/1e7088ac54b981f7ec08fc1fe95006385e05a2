@@ -1,0 +1,19 @@
+scripts/fixtures/desktop-review-guards-probe.js
+  s_ae02d12992cb1d::t_327ad50ffafc50 7,47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "401e7088ac54b981f7ec08fc1fe95006385e05a2",
+  "prompts": {},
+  "sessions": {
+    "s_ae02d12992cb1d": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14acf-e318-76cd-a43b-6bd5ff8c8bfe",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
