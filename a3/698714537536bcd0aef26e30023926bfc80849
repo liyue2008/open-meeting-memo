@@ -1,0 +1,43 @@
+src/adapters/pi/mod.rs
+  s_88cc65ec23b24c::t_48e010a50dbb1d 8,51-59,87-218,226-236,263,273-275,296-307,309,313,316-320,322-334,356-362,492-524
+src/core/archive_pipeline.rs
+  s_88cc65ec23b24c::t_01c4a426152487 11-36
+src/core/config.rs
+  s_88cc65ec23b24c::t_05c3c63c863e94 162,184-190
+src/core/store/archives.rs
+  s_88cc65ec23b24c::t_d9866a272db2e7 20-24,110-114,319-326,333-349,351-362
+src/core/store/segments.rs
+  s_88cc65ec23b24c::t_c76446555a2149 145-150
+tests/asr_measurements.rs
+  s_88cc65ec23b24c::t_09b1f3c8915a42 549-553,558-559,584,607-609,626-645,670-679
+tests/capture_clock.rs
+  s_cdf61893996751::t_237081649430b6 1-107
+tests/core_pipeline_pi.rs
+  s_88cc65ec23b24c::t_d0585f06ca49b4 71,258-805
+tests/opus_archive.rs
+  s_88cc65ec23b24c::t_e31c71117e4fb9 441,520-565,567-576
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a3698714537536bcd0aef26e30023926bfc80849",
+  "prompts": {},
+  "sessions": {
+    "s_88cc65ec23b24c": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a13897-b6bf-702e-9914-d2c2e518800b",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_cdf61893996751": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a13f4d-59f0-7111-a75f-595846184f3d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
