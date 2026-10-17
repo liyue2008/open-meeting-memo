@@ -1,0 +1,14 @@
+scripts/fixtures/desktop-service-player-probe.js
+  h_b4d40596eab523 48-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0186cb555ae19bf5af0aba21394a74a650b1ed2d",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
