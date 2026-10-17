@@ -1,0 +1,21 @@
+apps/desktop/src/app/dates.ts
+  s_a264fe4abc41cf::t_aa0e791836db49 40-53
+apps/desktop/tests/dates.test.ts
+  s_a264fe4abc41cf::t_c31aea21aadb8a 5,28-38,52-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "15563553c573077c1c0aed49cf78dc3917ec1c5f",
+  "prompts": {},
+  "sessions": {
+    "s_a264fe4abc41cf": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14a57-1149-72a4-9c79-db3a380c6755",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
