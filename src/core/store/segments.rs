@@ -142,6 +142,12 @@ impl Store {
                 ));
             }
             let doc: serde_json::Value = serde_json::from_slice(&bytes)?;
+            if let Some(value) = doc.get("capture_clock") {
+                let clock: CaptureClock = serde_json::from_value(value.clone())?;
+                if !clock.valid() {
+                    return Err(OmmError::invalid("capture clock invalid"));
+                }
+            }
             if doc["schema_version"] != 1
                 || doc["session_id"] != session.to_string()
                 || doc["instance_id"] != capture.instance_id.to_string()

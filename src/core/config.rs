@@ -159,6 +159,7 @@ impl AppConfig {
             "asr.threads",
             "asr.timeout_ms",
             "pi.executable",
+            "pi.node_executable",
             "pi.provider",
             "pi.model",
             "pi.prompt_version",
@@ -180,6 +181,13 @@ impl AppConfig {
             &mut doc[first]
         };
         *slot = match slot {
+            _ if key == "pi.node_executable" => {
+                if value == "null" {
+                    Value::Null
+                } else {
+                    Value::String(value.into())
+                }
+            }
             Value::String(_) => Value::String(value.into()),
             _ => serde_json::from_str(value)
                 .map_err(|_| OmmError::invalid("config value has invalid type"))?,

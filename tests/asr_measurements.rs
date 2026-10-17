@@ -546,12 +546,17 @@ impl SummaryAdapter for UnusedSummary {
         panic!("transcription fixture must not call a summary provider")
     }
 }
-fn paced_worker(root: &std::path::Path, task: &Task) -> (std::path::PathBuf, std::path::PathBuf) {
+fn paced_worker(
+    root: &std::path::Path,
+    task: &Task,
+    startup_delay_ms: u64,
+) -> (std::path::PathBuf, std::path::PathBuf) {
     use std::os::unix::fs::PermissionsExt;
     let pid = root.join("owned-worker.pid");
     let worker = root.join("paced-worker");
     let mut script = format!(
-        "#!/bin/sh\n/bin/cat >/dev/null\nprintf '%s' $$ > '{}'\n",
+        "#!/bin/sh\n/bin/cat >/dev/null\n/bin/sleep {:.3}\nprintf '%s\\n' $$ > '{}'\n",
+        startup_delay_ms as f64 / 1000.0,
         pid.display()
     );
     for i in 0..70 {
@@ -576,7 +581,7 @@ async fn paced_owned_progress_renews_one_second_lease_past_initial_expiry_and_ca
     use std::time::{Duration, Instant};
     for cancel in [false, true] {
         let (temp, paths, mut store, task) = queued_fixture();
-        let (worker, pid_path) = paced_worker(temp.path(), &task);
+        let (worker, pid_path) = paced_worker(temp.path(), &task, if cancel { 950 } else { 0 });
         let adapter = LocalAsrAdapter::with_paths(worker, paths.clone()).unwrap();
         let db = rusqlite::Connection::open_with_flags(
             paths.state.join("state.sqlite"),
@@ -599,6 +604,9 @@ async fn paced_owned_progress_renews_one_second_lease_past_initial_expiry_and_ca
         let mut max_renewal_gap = Duration::ZERO;
         let mut renewals = 0;
         let mut completed = None;
+        let mut ready = None;
+        let mut child_pid = None;
+        let mut metrics_table_ready = false;
         loop {
             tokio::select! {
                 result = &mut operation => {completed = Some(result.unwrap().unwrap());break;},
@@ -615,7 +623,26 @@ async fn paced_owned_progress_renews_one_second_lease_past_initial_expiry_and_ca
                             renewals += 1;
                         }
                     }
-                    if cancel && started.elapsed() >= Duration::from_millis(1300) {break;}
+                    // Startup and persistence are not part of the paced observation window.
+                    if child_pid.is_none() {
+                        if let Ok(line)=std::fs::read_to_string(&pid_path) {
+                            if line.len()<=32 && line.ends_with('\n') {
+                                if let Ok(pid)=line.trim().parse::<i32>() {
+                                    assert!(pid>0);assert_eq!(unsafe {libc::kill(pid,0)},0,"fixture child must be live at readiness");child_pid=Some(pid);
+                                }
+                            }
+                        }
+                    }
+                    if !metrics_table_ready {metrics_table_ready=db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='asr_measurement_totals')",[],|r|r.get::<_,bool>(0)).unwrap();}
+                    let observations = if metrics_table_ready {
+                        use rusqlite::OptionalExtension;
+                        let totals:Option<String>=db.query_row("SELECT document FROM asr_measurement_totals WHERE task=?1",[task.id.to_string()],|r|r.get(0)).optional().unwrap();
+                        totals.map(|s|serde_json::from_str::<serde_json::Value>(&s).unwrap()["observations"].as_u64().unwrap()).unwrap_or(0)
+                    } else {0};
+                    if child_pid.is_some() && observations>0 {ready.get_or_insert_with(Instant::now);}
+                    if cancel && ready.is_some_and(|t|t.elapsed()>=Duration::from_millis(1300)) && observations>=10 {
+                        assert_eq!(unsafe {libc::kill(child_pid.unwrap(),0)},0,"cancel while producer is still live");break;
+                    }
                 }
             }
         }
@@ -640,7 +667,16 @@ async fn paced_owned_progress_renews_one_second_lease_past_initial_expiry_and_ca
         let samples = store.asr_measurements(task.id).unwrap();
         let observations = samples["totals"]["observations"].as_u64().unwrap();
         assert!(observations >= if cancel { 10 } else { 70 });
-        let pid: i32 = std::fs::read_to_string(pid_path).unwrap().parse().unwrap();
+        let pid: i32 = std::fs::read_to_string(pid_path)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        assert_eq!(child_pid, Some(pid));
+        assert!(
+            ready.is_some(),
+            "persisted progress must be observed while child is live"
+        );
         assert_eq!(
             unsafe { libc::kill(pid, 0) },
             -1,

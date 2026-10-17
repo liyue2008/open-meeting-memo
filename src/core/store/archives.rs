@@ -17,6 +17,11 @@ struct CapturedWavProvenance {
     frame_count: u64,
     sample_rate: u32,
     path: PathBuf,
+    #[serde(
+        default,
+        deserialize_with = "crate::core::contracts::deserialize_capture_clock"
+    )]
+    capture_clock: Option<CaptureClock>,
 }
 impl Store {
     pub(super) fn initialize_archives(&self) -> Result<()> {
@@ -101,6 +106,11 @@ impl Store {
         }
         c.context.lease.expires_at_ms = expires;
         Ok(())
+    }
+    /// Only a newly claimed explicit retry can reuse retained encoded media.
+    pub fn retained_archive_receipt(&self, c: &ClaimedSegment) -> Result<Option<ArchiveReceipt>> {
+        let raw: Option<String> = self.conn.query_row("SELECT receipt FROM segment_archives WHERE session=?1 AND sequence=?2 AND status='running' AND lease=?3 AND expires>?4",params![c.context.session_id.to_string(),c.sequence,c.context.lease.token.to_string(),chrono::Utc::now().timestamp_millis()],|r|r.get(0))?;
+        raw.as_deref().map(decode).transpose()
     }
     pub fn commit_archive(
         &mut self,
@@ -306,15 +316,50 @@ impl Store {
                 "capture provenance identity mismatch",
             ));
         }
+        // Typed diagnostics are optional for old helpers, never an authority to delete media.
+        if provenance
+            .capture_clock
+            .as_ref()
+            .is_some_and(|c| !c.valid())
+        {
+            return Err(OmmError::invalid("capture clock invalid"));
+        }
         if !provenance.temporary || provenance.legacy_wav {
             return Ok(());
         }
         let receipt = self
             .archive_for_audio(Uuid::parse_str(session).map_err(|_| conflict())?, &audio)?
             .ok_or_else(conflict)?;
-        for f in receipt.files {
+        if receipt.schema_version != 1
+            || receipt.source_sha256 != audio.sha256
+            || receipt.files.len() != 3
+        {
+            return Err(conflict());
+        }
+        let bitrate: u32 = self.conn.query_row(
+            "SELECT bitrate FROM segment_archives WHERE session=?1 AND sequence=?2",
+            params![session, sequence],
+            |r| r.get(0),
+        )?;
+        for source in ["mix", "mic", "system"] {
+            let f = receipt
+                .files
+                .iter()
+                .find(|f| f.source == source)
+                .ok_or_else(conflict)?;
             controlled_file(&self.paths.data, &f.path)?;
-            if hash_file(&f.path)? != f.sha256 {
+            let (pre_skip, tail_padding) = crate::core::opus::metadata(&f.path, frames)?;
+            if hash_file(&f.path)? != f.sha256
+                || f.frames != frames
+                || f.decoded_frames != frames
+                || f.sample_rate != 48000
+                || f.channels != 1
+                || f.codec != "opus"
+                || f.container != "ogg"
+                || f.bitrate != bitrate
+                || f.pre_skip != pre_skip
+                || f.tail_padding != tail_padding
+            {
                 return Err(conflict());
             }
         }
