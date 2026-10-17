@@ -1,0 +1,27 @@
+docs/desktop-native.md
+  s_b51f0316cfa2ff::t_aedcd3ab8c5ead 446-480
+src/application/imports/promotion.rs
+  s_b51f0316cfa2ff::t_4317d26c80740a 119-227
+src/application/imports/staging.rs
+  s_b51f0316cfa2ff::t_2bffbb82fe045a 133-135
+src/core/store/desktop.rs
+  s_b51f0316cfa2ff::t_8e9949a71758f8 743-808
+tests/desktop_import_cleanup.rs
+  s_b51f0316cfa2ff::t_4461269d4d3ae5 160-163,396-894
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "53820eb2945b73e3c83f1034cbd6fe01de327b61",
+  "prompts": {},
+  "sessions": {
+    "s_b51f0316cfa2ff": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14a57-1149-74de-90d2-383adb76b2f3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
