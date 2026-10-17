@@ -8,7 +8,7 @@ build = "build.rs"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
-native-bridge-fixture = []
+native-bridge-fixture = ["dep:objc2", "dep:block2"]
 
 [lib]
 name = "omm_desktop"
@@ -29,3 +29,8 @@ omm = { package = "open-meeting-memo", path = "../../.." }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Used only by the explicit, nonpersistent WK fixture's owned-view snapshot callback.
+objc2 = { version = "=0.6.5", optional = true }
+block2 = { version = "=0.6.2", optional = true }

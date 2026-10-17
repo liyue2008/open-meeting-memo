@@ -18,11 +18,12 @@ use std::{
 use tauri::Manager;
 use uuid::Uuid;
 pub mod capture;
+mod snapshot;
 mod window_acl;
 pub fn scenario() -> String {
     let scenario = std::env::var("OMM_WKWEBVIEW_SCENARIO").unwrap_or_else(|_| "native".into());
     assert!(
-        matches!(scenario.as_str(), "native" | "window-acl"),
+        matches!(scenario.as_str(), "native" | "window-acl" | "ui"),
         "unknown private fixture scenario"
     );
     scenario
@@ -79,7 +80,7 @@ pub fn prepare() -> Paths {
     let wav = media::silent_wav(3);
     let path = directory.join("segment.wav");
     write_private_new(&path, &wav).unwrap();
-    let meeting = SealedMeeting {
+    let mut meeting = SealedMeeting {
         session_id: id,
         title: "Private bridge fixture".into(),
         directory,
@@ -91,11 +92,72 @@ pub fn prepare() -> Paths {
             sha256: hash_bytes(&wav),
         }],
     };
+    let ui = scenario() == "ui";
+    if ui {
+        let path = meeting.directory.join("segment-2.wav");
+        write_private_new(&path, &wav).unwrap();
+        meeting.segments.push(AudioSegment {
+            capture: None,
+            path,
+            duration_ms: 3000,
+            sha256: hash_bytes(&wav),
+        });
+    }
     let mut store = Store::open(&paths).unwrap();
     store
         .set_state("capture_instance", &Uuid::new_v4())
         .unwrap();
     store.enqueue(&meeting, &cfg.snapshot(), false).unwrap();
+    complete_seed(&mut store, if ui { 6000 } else { 3000 });
+    if ui {
+        let mut fixtures = Vec::new();
+        for index in 1..26_u128 {
+            let id = Uuid::from_u128(0x00000000000040008000000000000100 + index);
+            let directory = paths.data.join("meetings").join(id.to_string());
+            private_dir(&directory).unwrap();
+            let path = directory.join("segment.wav");
+            write_private_new(&path, &wav).unwrap();
+            let title = match index {
+                1 => "UI failed task fixture".into(),
+                2 => "UI cancelled task fixture".into(),
+                _ => format!("UI pagination fixture {index:02}"),
+            };
+            let item = SealedMeeting {
+                session_id: id,
+                title,
+                directory,
+                sealed_at_ms: meeting.sealed_at_ms - index as i64 * 60000,
+                segments: vec![AudioSegment {
+                    capture: None,
+                    path,
+                    duration_ms: 3000,
+                    sha256: hash_bytes(&wav),
+                }],
+            };
+            let task = store.enqueue(&item, &cfg.snapshot(), false).unwrap();
+            match index {
+                1 => {
+                    let claim = store.claim_asr(1, 10000).unwrap().unwrap();
+                    store
+                        .fail(
+                            &claim,
+                            &OmmError::invalid("Private synthetic failed task"),
+                            2,
+                        )
+                        .unwrap();
+                }
+                2 => {
+                    store.desktop_cancel(task.id).unwrap();
+                }
+                _ => complete_seed(&mut store, 3000),
+            }
+            fixtures.push(serde_json::json!({"meetingId":id,"title":item.title,"taskId":task.id,"status":store.desktop_task(task.id).unwrap()["status"]}));
+        }
+        write_private_new(&output("ui-scenario.json"),&serde_json::to_vec_pretty(&serde_json::json!({"scenario":"ui","meetings":26,"primaryMeetingId":meeting.session_id,"primarySegments":2,"primaryDurationMs":6000,"fixtures":fixtures,"pollSeconds":180,"processSeconds":240,"webKitStore":"nonpersistent"})).unwrap()).unwrap();
+    }
+    paths
+}
+fn complete_seed(store: &mut Store, duration_ms: u64) {
     let claim = store.claim_asr(1, 10000).unwrap().unwrap();
     store
         .commit_transcript(
@@ -103,11 +165,11 @@ pub fn prepare() -> Paths {
             &Transcript {
                 schema_version: 1,
                 model_version: claim.context.config.asr.model_version.clone(),
-                duration_ms: 3000,
+                duration_ms,
                 segments: vec![TranscriptSegment {
                     source: AudioSource::Mic,
                     start_ms: 0,
-                    end_ms: 3000,
+                    end_ms: duration_ms,
                     text: "Private synthetic transcript token".into(),
                 }],
             },
@@ -128,8 +190,8 @@ pub fn prepare() -> Paths {
             4,
         )
         .unwrap();
-    paths
 }
+
 pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Builder<tauri::Wry> {
     let root = PathBuf::from(std::env::var_os("OMM_NATIVE_FIXTURE_ROOT").unwrap())
         .canonicalize()
@@ -177,11 +239,12 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
             let stop = stop.clone();
             std::thread::spawn(move || {
                 let done = Arc::new(AtomicBool::new(false));
-                for _ in 0..70 {
+                for _ in 0..if scenario() == "ui" { 360 } else { 70 } {
                     if done.load(Ordering::SeqCst) {
                         break;
                     }
                     std::thread::sleep(std::time::Duration::from_millis(500));
+                    snapshot::poll(&view);
                     let root = root.clone();
                     let paths = stop.clone();
                     let done = done.clone();

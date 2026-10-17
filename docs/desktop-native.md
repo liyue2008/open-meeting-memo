@@ -107,3 +107,53 @@ B cannot see A, B writes its value, A still sees A. It never reads personal
 WebKit files or clears global stores. XDG/HOME isolation alone is not claimed
 to isolate WebKit. This evidence does not prove cross-process preference
 persistence; ephemeral fixtures can test same-window reload only.
+
+### Larger UI scene and owned-view screenshots (test feature only)
+
+Set `OMM_WKWEBVIEW_SCENARIO=ui` for 26 private synthetic meetings instead of the
+unchanged default one-meeting/one-segment native 41-check scene. The original
+`Private bridge fixture` has two 3-second silent WAV segments (6 seconds total).
+The added 25 meetings have stable `UI ... fixture` titles, including one failed
+and one cancelled task. `ui-scenario.json` in the evidence directory records
+meeting/task IDs, titles, statuses and budgets. Use an unfiltered 25-row first
+page to reach the second page before other operations; `query="UI "`, title
+scope, pageSize=20 selects a stable 25-row subset even while the original
+fixture's processing tasks change. Stale revisions must still fail normally.
+
+```sh
+OMM_WKWEBVIEW_SCENARIO=ui \
+OMM_WKWEBVIEW_DRIVER=/private/tmp/your-owned-driver.js \
+OMM_WKWEBVIEW_EVIDENCE="$(mktemp -d /private/tmp/omm-ui-fixture-XXXXXX)" \
+bash packaging/desktop/test-wkwebview.sh
+```
+
+UI result polling is bounded at 180 seconds (the default remains 35). The
+parent-owned process wait is 240 seconds for UI, 90 otherwise; timeout still
+terminates/waits only its own child and reports failure. No success is inferred
+from a timeout or missing report. Every scene remains nonpersistent/incognito.
+
+A UI driver may request a PNG of **only its current owned main WKWebView** after
+its DOM/UI transitions have painted:
+
+```js
+window.__ommFixtureSnapshotResult = null;
+window.__ommFixtureSnapshotRequest = { name: 'light-expanded' };
+// Poll __ommFixtureSnapshotResult, with a finite deadline, for {ok:true,name,bytes}.
+// Optional bounded logical window size; only this owned fixture window resizes:
+window.__ommFixtureSnapshotRequest = { name: 'dark-narrow', width: 640, height: 700 };
+```
+
+Names permit only ASCII letters/digits/hyphens (1–64 characters), with optional
+width 360–1600 and height 480–1200 specified together. Unknown keys, paths,
+untrusted origins and windows are refused. Files are new 0600 `<name>.png`
+children of the private evidence directory; existing files are not overwritten.
+Resize waits for the actual window, view bounds and CSS viewport to settle,
+preserving the measured titlebar inset rather than guessing its height. PNG
+pixels include the view's backing scale. `WKWebView.takeSnapshot` with
+`afterScreenUpdates` and in-process NSImage→PNG conversion never captures a
+display/other window, requests screen permissions, changes OS appearance or
+records video. Drivers change theme/sidebar using this fixture's UI, not system
+settings. Optional already-locked objc2/block2 dependencies and this channel
+exist only with `native-bridge-fixture`; production has neither test commands nor
+additional permissions. These screenshots prove the seam, not final React theme
+or dirty-form behaviour; the combined repaired UI still needs that acceptance.

@@ -2383,7 +2383,9 @@ name = "omm-desktop"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "block2",
  "chrono",
+ "objc2",
  "open-meeting-memo",
  "rfd",
  "serde_json",

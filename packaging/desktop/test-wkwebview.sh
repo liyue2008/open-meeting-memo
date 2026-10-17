@@ -26,16 +26,23 @@ npm ci --prefix apps/desktop >"$EVIDENCE/npm-ci.log" 2>&1
 npm run build --prefix apps/desktop >"$EVIDENCE/frontend-build.log" 2>&1
 TAURI_CONFIG='{"app":{"security":{"csp":"default-src '\''none'\''; script-src '\''self'\''; style-src '\''self'\''; img-src '\''self'\'' data:; connect-src ipc: http://ipc.localhost omm-media: omm-fixture-result:; media-src omm-media:; object-src '\''none'\''; frame-src '\''none'\''; base-uri '\''none'\''; form-action '\''none'\''"}}}' cargo build --locked -p omm-desktop --features custom-protocol,native-bridge-fixture >"$EVIDENCE/build.log" 2>&1
 python3 - "$ROOT/target/debug/omm-desktop" "$EVIDENCE" <<'PY'
-import json,pathlib,subprocess,sys
+import json,pathlib,subprocess,sys,os
 binary,evidence=sys.argv[1],pathlib.Path(sys.argv[2])
 with open(evidence/'runtime.log','w') as log:
     child=subprocess.Popen([binary],stdout=log,stderr=log)
-    try:code=child.wait(timeout=90)
+    timeout=240 if os.environ.get("OMM_WKWEBVIEW_SCENARIO")=="ui" else 90
+    expired=False
+    try:code=child.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
+        expired=True
         child.terminate()
         try:child.wait(timeout=15)
         except subprocess.TimeoutExpired:child.kill();child.wait()
-        raise SystemExit('private fixture timed out; owned app waited; inspect runtime log')
+        code=child.returncode
+    receipt=evidence/'owned-process.json'
+    receipt.write_text(json.dumps({'pid':child.pid,'exitCode':code,'waited':True,'timeoutSeconds':timeout,'terminatedOnTimeout':expired},indent=2))
+    receipt.chmod(0o600)
+    if expired:raise SystemExit('private fixture timed out; owned app waited; inspect runtime log')
 (evidence/'runtime.exit').write_text(str(code)+'\n')
 assert code==0,f'fixture exit {code}'
 result=json.loads((evidence/'bridge-result.json').read_text())
