@@ -1,0 +1,31 @@
+apps/desktop/src/bridge/validators.generated.d.ts
+  s_a264fe4abc41cf::t_1bd3d45f9abcc6 67-72
+apps/desktop/src/bridge/validators.generated.js
+  s_a264fe4abc41cf::t_85d5eee90a582d 5
+apps/desktop/src/features/diagnostics.tsx
+  s_a264fe4abc41cf::t_c52a86d4b52c54 5,72-73,98,170-173
+apps/desktop/src/features/settings.tsx
+  s_a264fe4abc41cf::t_df4c26d8bba4f7 189-190,212-216,239
+apps/desktop/tests/app-interactions.test.tsx
+  s_a264fe4abc41cf::t_6d1faf42885cfc 176,207
+apps/desktop/tests/lifecycle.test.tsx
+  s_a264fe4abc41cf::t_d1dfced8099662 1-321
+apps/desktop/tests/native-close.test.tsx
+  s_a264fe4abc41cf::t_51834d8da5dbbc 30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "11a0f306531afb8af3486374887ce3ea94a17c47",
+  "prompts": {},
+  "sessions": {
+    "s_a264fe4abc41cf": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14a57-1149-72a4-9c79-db3a380c6755",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
