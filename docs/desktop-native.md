@@ -28,6 +28,8 @@ The imported Swift/Yulu audio, PCM, synchronization, WAV and recovery code remai
 
 `omm-media://localhost/<grant>` is registered by the native host. Grants are finite, short-lived and owned by the trusted main window. There is no general path endpoint. Opening a grant verifies the stored artifact SHA-256 through an `openat`/`O_NOFOLLOW` descriptor chain and holds the audio maintenance reader lock. Reads remain bound to that descriptor. Metadata changes trigger re-verification; changes during a read fail rather than returning unverified bytes.
 
+`MediaGrant.revision` acknowledges the exact `MediaManifest.revision` supplied as `media_open.expectedRevision`, including when the manifest is paginated. It is not the selected segment's SHA-256. The verified descriptor independently retains the stored artifact hash for verification and HTTP ETag/If-Range; a current manifest revision cannot authorize corrupt audio. Source-named host regressions in `apps/desktop/src-tauri/src/host/media_revision.rs` cover the distinct revisions, incorrect/stale snapshots, independent hash checks and reader-lock release on `media_close`.
+
 The protocol supports GET/HEAD, one bounded byte range, suffix ranges, ETag/If-Range and finite responses. Invalid/multiple ranges, stale manifests, oversized responses, symlinks, unsafe ownership/modes and unknown grants are rejected. Closing the grant releases its reader lock. Native exports use the native save dialog and create a new 0600 file without replacing existing content; clipboard text comes only from a verified selected artifact, with a 1 MiB bound. Meeting Markdown is returned as inert text, never executable HTML.
 
 ## Reproducible component commands

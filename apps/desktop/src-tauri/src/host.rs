@@ -1,4 +1,7 @@
 //! Only the local main webview can invoke this closed, versioned command surface.
+#[cfg(test)]
+#[path = "host/media_revision.rs"]
+mod media_revision;
 use omm::{
     application::{self as app, media::VerifiedMedia, profile},
     core::{contracts::*, paths::Paths, store::Store},
@@ -274,7 +277,8 @@ impl Host {
                 )?;
                 let grant = Uuid::new_v4().simple().to_string();
                 let expires = chrono::Utc::now().timestamp_millis() + 300000;
-                let result = json!({"grantId":grant,"url":format!("omm-media://localhost/{grant}"),"expiresAtMs":expires,"revision":media.hash,"mime":media.mime,"byteLength":media.length});
+                // The grant acknowledges the manifest snapshot; VerifiedMedia retains the artifact hash/ETag.
+                let result = json!({"grantId":grant,"url":format!("omm-media://localhost/{grant}"),"expiresAtMs":expires,"revision":manifest["revision"],"mime":media.mime,"byteLength":media.length});
                 let mut grants = self.grants.lock().unwrap();
                 grants.retain(|_, g| g.expires > chrono::Utc::now().timestamp_millis());
                 if grants.len() >= 16 {
