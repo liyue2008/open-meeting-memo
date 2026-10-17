@@ -48,4 +48,16 @@ outside="$ROOT/target/ui-evidence-refusal-${FIXTURE##*/}"
 assert_exit 1 env OMM_DESKTOP_UI_EVIDENCE="$outside" bash "$FIXTURE/scripts/test-desktop-ui-wkwebview.sh"
 grep -q 'UI evidence requires a private /private/tmp root' "$FIXTURE/output"
 [[ ! -e "$outside" ]]
-echo 'Desktop entrypoints: argument/component routing and nonempty/symlink/outside-private UI evidence refusals passed.'
+cp "$ROOT/scripts/test-desktop-preferences-wkwebview.sh" "$FIXTURE/scripts/"
+assert_exit 1 env OMM_DESKTOP_PREFERENCES_EVIDENCE="$FIXTURE" bash "$FIXTURE/scripts/test-desktop-preferences-wkwebview.sh"
+grep -q 'Preference evidence requires a new empty owned directory' "$FIXTURE/output"
+assert_exit 1 env OMM_DESKTOP_PREFERENCES_EVIDENCE="$FIXTURE/evidence-link" bash "$FIXTURE/scripts/test-desktop-preferences-wkwebview.sh"
+grep -q 'canonical absolute path without symlinks' "$FIXTURE/output"
+long_evidence="$FIXTURE/long-evidence-name"
+assert_exit 1 env OMM_DESKTOP_PREFERENCES_EVIDENCE="$long_evidence" bash "$FIXTURE/scripts/test-desktop-preferences-wkwebview.sh"
+grep -q 'short private /private/tmp root' "$FIXTURE/output"
+[[ ! -e "$long_evidence" ]]
+assert_exit 1 env OMM_DESKTOP_PREFERENCES_EVIDENCE="$outside" bash "$FIXTURE/scripts/test-desktop-preferences-wkwebview.sh"
+grep -q 'short private /private/tmp root' "$FIXTURE/output"
+[[ ! -e "$outside" ]]
+echo 'Desktop entrypoints: argument/component routing and private UI/preference evidence refusals passed.'

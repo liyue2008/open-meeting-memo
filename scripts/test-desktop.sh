@@ -29,10 +29,11 @@ else
 fi
 if "$wkwebview"; then
   (
-    unset OMM_WKWEBVIEW_SCENARIO OMM_WKWEBVIEW_DRIVER OMM_WKWEBVIEW_EVIDENCE
+    unset OMM_WKWEBVIEW_SCENARIO OMM_WKWEBVIEW_DRIVER OMM_WKWEBVIEW_EVIDENCE OMM_WKWEBVIEW_STORE_MANIFEST
     desktop_component_script packaging/desktop/test-wkwebview.sh
     export OMM_WKWEBVIEW_SCENARIO=window-acl
     desktop_component_script packaging/desktop/test-wkwebview.sh
+    desktop_component_script scripts/test-desktop-ui-wkwebview.sh
+    desktop_component_script scripts/test-desktop-preferences-wkwebview.sh
   )
-  desktop_component_script scripts/test-desktop-ui-wkwebview.sh
 fi

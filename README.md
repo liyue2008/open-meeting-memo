@@ -4,7 +4,7 @@
 
 本地录音和转写，使用已配置的 Pi 生成会议纪要。现有 CLI 基线面向 macOS、Apple Silicon、飞书；录音 helper 编译目标是 macOS 13+，本指南固定的官方 ASR 库依赖 macOS 15.5+，较旧系统未验证完整链路。不包含实时字幕、说话人识别、浏览器版 WebUI 或 MCP 服务。
 
-**Tauri 2 桌面 App 正在独立分支整合验收**，支持目标为 Apple Silicon、macOS 15.5+。真实 React 界面、Rust 共享用例、受限媒体协议和原生包装组件已合入；正式独立评审、完整界面验收与最终用户安装仍以验收记录为准。参见[桌面开发与统一入口](docs/desktop.md)、[组件边界](docs/desktop-lanes.md)及[验收状态](docs/desktop-acceptance.md)。已确认的[静态设计](docs/webui-demo/index.html)仅作视觉依据，不是生产数据源。
+**Tauri 2 桌面 App 正在独立分支整合验收**，支持目标为 Apple Silicon、macOS 15.5+。真实 React 界面、Rust 共享用例、受限媒体协议和原生包装组件已合入；正式独立评审、完整界面验收与最终用户安装仍以验收记录为准。参见[桌面开发与统一入口](docs/desktop.md)、[组件边界](docs/desktop-lanes.md)、[能力与CLI映射](docs/desktop-capability-matrix.md)及[验收状态](docs/desktop-acceptance.md)。已确认的[静态设计](docs/webui-demo/index.html)仅作视觉依据，不是生产数据源。
 
 **当前为开发版本，不是已发布或验证过真实会议的产品。** 新分段版本待独立复审及用户级部署。录音按音频帧封存为最长30分钟的片段；每段封存后立即进入独立、可恢复的本地转写队列，会议结束后聚合转写并生成一次纪要。最终音频是48kHz、单声道的真实 Ogg/Opus（`.opus`），需要显式安装固定编码工具。受控测试及自产20/60秒语音基准没有验证真实录音、系统授权或长会议质量。
 
@@ -143,7 +143,7 @@ OMM_CAPTURE_TEST_BINARY="$PWD/target/capture/OMMCapture.app/Contents/MacOS/omm-c
 OMM_CAPTURE_TEST_BINARY="$PWD/target/capture/OMMCapture.app/Contents/MacOS/omm-capture" cargo test --locked --test core_integration review_r1_03_ -- --ignored
 ```
 
-项目源码采用 [Apache-2.0](LICENSE)，不改变依赖/模型的各自许可。Swift 内核与算法参考 Yulu 的 MIT 许可保留于 [录音许可](native/yulu-capture/LICENSE)、[录音来源及适配说明](native/yulu-capture/NOTICE.md)、[转写参考许可](workers/local-asr/LICENSE-Yulu)。sherpa 官方头文件的许可见 [LICENSE-sherpa-onnx](workers/local-asr/LICENSE-sherpa-onnx)。编码工具固定 FFmpeg 8.1.2（关闭GPL/网络/自动探测，LGPL-2.1-or-later）及 libopus 1.5.2（BSD-3-Clause）；源码hash与许可见 [编码工具清单](packaging/audio/sources.json) 和 [许可目录](packaging/audio/licenses)。显式用户级安装会保留完整校验源码和重建脚本。模型/动态库不随开发构建打包，重新分发时须另外核对其许可证。
+项目源码采用 [Apache-2.0](LICENSE)，不改变依赖/模型的各自许可。Swift 内核与算法参考 Yulu 的 MIT 许可保留于 [录音许可](native/yulu-capture/LICENSE)、[录音来源及适配说明](native/yulu-capture/NOTICE.md)、[转写参考许可](workers/local-asr/LICENSE-Yulu)。sherpa 官方头文件的许可见 [LICENSE-sherpa-onnx](workers/local-asr/LICENSE-sherpa-onnx)。编码工具固定 FFmpeg 8.1.2（关闭GPL/网络/自动探测，LGPL-2.1-or-later）及 libopus 1.5.2（BSD-3-Clause）；源码hash与许可见 [编码工具清单](packaging/audio/sources.json) 和 [许可目录](packaging/audio/licenses)。显式用户级安装会保留完整校验源码和重建脚本。CLI开发构建不复制模型/动态库。桌面release包另按固定清单携带CLI/worker/helper、sherpa/ONNX Runtime、codec及各自许可/来源；模型权重仍由hash清单和XDG目录管理，不随App暗中下载。实际再分发以当前包资源和许可证验证为准。
 
 ## 桌面状态通知
 

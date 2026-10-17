@@ -27,8 +27,9 @@ cd apps/desktop && npm ci && cd ../..
 bash scripts/dev-desktop.sh
 bash scripts/test-desktop.sh --foundation  # 有限组件门禁，不是全产品验收
 bash scripts/test-desktop.sh               # 全量 Rust/TS/指定 Swift fixture
-bash scripts/test-desktop.sh --wkwebview   # 额外原生桥、窗口权限负例与完整 React/WK fixture
-bash scripts/test-desktop-ui-wkwebview.sh  # 单独复验实际 React 交互；不重跑 Rust/Swift 单测
+bash scripts/test-desktop.sh --wkwebview   # 额外原生桥、窗口负例、完整React及专属存储两进程fixture
+bash scripts/test-desktop-ui-wkwebview.sh  # 单独复验实际React交互；不重跑Rust/Swift单测
+bash scripts/test-desktop-preferences-wkwebview.sh  # UUID隔离→两真实React进程→精确清理
 bash scripts/build-desktop.sh
 bash scripts/build-desktop.sh --release
 bash scripts/package-desktop.sh
@@ -36,7 +37,7 @@ bash scripts/install-desktop.sh --check
 bash scripts/install-desktop.sh --from /absolute/path/to/verified/OMM.app
 ```
 
-脚本接受参数见脚本源；统一执行 `--locked` 和契约漂移检查，用 `npm ci --ignore-scripts` 仅安装锁定的项目级依赖。开发服务器只监听127.0.0.1；release CSP 不允许开发地址。`bundle.active=false` 禁止 Tauri 自行发布不完整资源包；实际包装由 `packaging/desktop/package.sh` 组装并核验自有运行时、资源、许可证与内外签名。36 个业务命令逐项授予可信 main 窗口，没有任意文件/路径/shell 权限。package 要求已提交的干净源码，结果按完整 revision 放在 `target/desktop-package/<revision>/`。安装必须仅当前用户、检查旧元数据、保留配置/录音/认证/auto/consent；不复制秘密备份、不打断录制、不盲杀/擅重启个人 daemon。可以经过核验后 versioned side-by-side 安装生产包并用私有 profile 实际启动；个人服务切换另行准确报告。
+脚本接受参数见脚本源；统一执行 `--locked` 和契约漂移检查。统一依赖准备使用 `npm ci --ignore-scripts`，具体包装和WK fixture再按锁执行项目级 `npm ci`/build；不安装系统或全局工具。开发服务器只监听127.0.0.1；release CSP 不允许开发地址。`bundle.active=false` 禁止 Tauri 自行发布不完整资源包；实际包装由 `packaging/desktop/package.sh` 组装并核验自有运行时、资源、许可证与内外签名。36 个业务命令逐项授予可信 main 窗口，没有任意文件/路径/shell 权限。package 要求已提交的干净源码，结果按完整 revision 放在 `target/desktop-package/<revision>/`。安装必须仅当前用户、检查旧元数据、保留配置/录音/认证/auto/consent；不复制秘密备份、不打断录制、不盲杀/擅重启个人 daemon。可以经过核验后 versioned side-by-side 安装生产包并用私有 profile 实际启动；个人服务切换另行准确报告。
 
 ## 已确定的完整功能范围
 
@@ -56,9 +57,9 @@ native/frontend 从同一 Foundation 本地提交分别分叉，已按等价契�
 
 ## 统一门禁与证据边界
 
-完整测试入口会执行私有 wrapper 参数回归、锁定 npm 安装、36命令/100定义共享契约、格式/严格类型、UTC 与 America/Los_Angeles 两个时区的 DOM 测试、生产构建、root 与 workspace 的 Rust fmt/test/clippy/build、fixture-feature clippy，以及指定的 Swift synthetic IPC 17+3 项。`--foundation` 只运行有限组件子集；`--wkwebview` 额外启动私有合成 profile 的真实 macOS WKWebView，不能以 Chromium 或 DOM mocks 代替。
+需求/CLI用例与源码命名测试的逐项对应见[能力映射](desktop-capability-matrix.md)。完整测试入口会执行私有 wrapper 参数回归、锁定 npm 安装、36命令/100定义共享契约、格式/严格类型、UTC 与 America/Los_Angeles 两个时区的 DOM 测试、生产构建、root 与 workspace 的 Rust fmt/test/clippy/build、fixture-feature clippy，以及指定的 Swift synthetic IPC 17+3 项。`--foundation` 只运行有限组件子集；`--wkwebview` 额外启动私有合成 profile 的真实 macOS WKWebView，不能以 Chromium 或 DOM mocks 代替。
 
-实际 React fixture 使用 `scripts/fixtures/desktop-ui-probe.js` 驱动真实控件，保持生产 Tauri transport 不变。独立入口只接受全新空的私有 `/private/tmp` 证据根（可由 `OMM_DESKTOP_UI_EVIDENCE` 指定），记录运行前后源码 SHA256、实际 driver/dist/二进制/结果 hash 和 owned 进程退出回执；源码变化、业务断言失败、播放或超时均失败。测试中的 WKWebView 使用非持久网站数据存储，不复用个人 App 的缓存或偏好。偏好写入和当前窗口行为的检查，只覆盖本次私有运行；生产 App 重启后是否保留偏好需要单独验证。
+实际 React fixture 使用 `scripts/fixtures/desktop-ui-probe.js` 驱动真实控件，保持生产 Tauri transport 不变。独立入口只接受全新空的私有 `/private/tmp` 证据根（可由 `OMM_DESKTOP_UI_EVIDENCE` 指定），记录运行前后源码 SHA256、实际 driver/dist/二进制/结果 hash 和 owned 进程退出回执；源码变化、业务断言失败、播放或超时均失败。默认WKWebView fixture使用非持久网站数据存储，不复用个人App缓存/偏好。独立偏好入口先执行native A/B隔离证明，再从工具分配的新owned UUID运行两个独立React进程，第一进程通过真实主题/侧栏控件写入，第二进程在任何写/清除前核对初始dark/collapsed，均经合法dirty close退出；最后只精确清理分配的UUID。入口记录每阶段源码/实际binary/dist/hash/owned回执，可用 `OMM_DESKTOP_PREFERENCES_EVIDENCE` 指定全新canonical私有证据根（最长55字节，避免Unix socket路径超限）。不自造UUID/nonce、不clear localStorage、不读取personal/default store；这不是个人存量偏好的兼容性证明，也不改全局OS主题。
 
 真实React矩阵要求非空只读行动项（实际文本及列表、无checkbox），末尾经受限Rust入口请求真实关闭：取消保留草稿且磁盘未保存，确认前保存证据并arm，点击原React放弃按钮后，由native记录真实destroy、reader释放、服务关闭及owned helper等待。驱动不直接调用destroy/emit；证据入口独立核对关闭前记录与最终回执。native arm请求上限为64KiB，因此仅聚合诊断轮询、保留截图元数据，完整截图和关闭前DOM仍独立保存。
 

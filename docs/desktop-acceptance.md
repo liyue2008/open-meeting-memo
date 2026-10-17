@@ -1,6 +1,6 @@
 # 桌面版本验收记录
 
-**真实前端与原生组件已整合，完整产品验收尚未通过。** 生产校验器、最小关窗权限、私有网站数据隔离、媒体 revision 及受控关闭组件已整合至 `b8f5f9e`。当前实际 React/WKWebView 的146项矩阵通过：包含非空只读行动项、严格媒体断言和真实脏配置关窗取消/确认销毁及owned收尾。首次初始化/服务的真实React成功链、隔离的跨进程主题/侧栏保留及最终当前源全量门禁仍待直接证据，不能据此进入正式评审、用户目录安装或推送。下列状态区分组件证明与最终产品证明，不能用旧源结果、mock、编译成功或服务注册成功代替实际功能。
+**真实前端与原生组件已整合，完整产品验收尚未通过。** 既有146项React/WK矩阵包含非空只读行动项、严格媒体和真实脏配置关窗。测试专属持久store及受限lifecycle driver组件已摘取至 `fab32d7`：本阶段首次真实React成功/到期重检链、当前来源资源包及专属UUID两进程偏好准备验证通过；held busy/unknown/stale的真实React负例与最终当前源全量仍pending，不能进入正式评审、用户目录安装或推送。下列状态区分组件证明与最终产品证明，不能用旧源结果、mock、编译成功或服务注册成功代替实际功能。
 
 | 验收项 | 当前状态 | 最终需要的证据 |
 |---|---|---|
@@ -10,8 +10,8 @@
 | A4 Swift | 整合基线 build-dev 与指定17+3 synthetic通过 | `build-dev.sh`＋AGENTS两组指定synthetic IPC ignored；不运行所有ignored或硬件 |
 | A5 TypeScript/界面 | 基线101单时区；修复后102×UTC/洛杉矶通过；当前真实React146项通过，最终源须复验 | npm ci、严格类型、DOM交互、真实桥、日期/DST/分页/脏态/冲突、Markdown安全、明暗/侧栏全部设计 |
 | A6 媒体/受托窗口 | 原生41项通过；最小权限、隔离、revision修复已整合，真实React metadata/段内跨段暂停定位及当前媒体定向负例通过 | 最早实际WKWebView来源/driver证明；verified同FD/hash/读锁、grant失效、Range/HEAD/206/416/ETag与并发/缓冲预算fixture |
-| A7 全功能WKWebView | 当前146项含非空行动项及真实关闭通过；成功首用/服务的React链与跨进程偏好仍阻塞 | 私有profile＋真实new core/bridge＋fake helper/worker/Pi/notifier；实际窗口/交互/搜索/CRUD/版本/任务/配置/导出/明暗/侧栏；静音metadata/解码/暂停态段内跨段seek，禁止play |
-| A8 release包 | 最终整合包pending；旧原生组件包不可替代 | 锁定aarch64 release app/dmg；macOS≥15.5、CLI/worker/helper/sherpa/codec资源闭包、嵌套身份/entitlements、内外ad-hoc签名、MIT/LGPL等完整许可与源码义务 |
+| A7 全功能WKWebView | 既有146项通过；fab32实际首用/服务成功及到期链、专属UUID两进程准备验证通过；真实held负例/最终组合仍待 | 私有profile＋真实new core/bridge＋fake helper/worker/Pi/notifier；实际窗口/交互/搜索/CRUD/版本/任务/配置/导出/明暗/侧栏；静音metadata/解码/暂停态段内跨段seek，禁止play |
+| A8 release包 | fab32当前来源准备包2031资源验证通过；最终组合源码包仍pending，旧f139不能替代 | 锁定aarch64 release app/dmg；macOS≥15.5、CLI/worker/helper/sherpa/codec资源闭包、嵌套身份/entitlements、内外ad-hoc签名、MIT/LGPL等完整许可与源码义务 |
 | A9 实际安装/启动 | pending，未操作个人profile | metadata-only预检、非秘密元数据备份、用户目录真实生产包、保留录音/配置/认证/auto/consent；私有profile实际启动、窗口/正常桥验证、构建/安装来源hash及版本一致 |
 | A10 独立评审 | pending | fresh只读正式评审无阻塞；修复后在最终当前源重跑所需门禁 |
 | A11 SSH/PR | pending；当前禁止push | 最终clean commit经SSH推origin正式分支；远端full HEAD、PR API head、安装来源与源版本一致；创建PR不合并 |
@@ -48,7 +48,17 @@ bash scripts/test-desktop-ui-wkwebview.sh
 
 该运行不是最终clean release；真实首次启用/服务React操作仍待受限driver入口及当前候选包资源复验。偏好仍为nonpersistent同窗口证据，未做两进程保持或更改全局OS主题。此定向块完成不代表完整Goal候选就绪。
 
-依赖审计的外部限制：当前 `npm audit` 未取得报告。证据根中的 `npm-audit-current.exit`、`npm-audit-official-current.exit`、`npm-audit-system-ca.exit` 均为1：项目镜像审计API返回400；官方端点先遇证书链验证失败，使用现有系统信任后返回网络策略拦截页面。未关闭TLS、绕过网络策略或改动依赖。这是未完成的审计，不是“无漏洞”，也不是已发现漏洞。已知Vitest更新提示由原前端owner核对适用公告；正式评审必须考虑该验证限制。
+### 当前来源资源与新增准备证据（尚未完整候选）
+
+仅摘native `1cb3edf` 为 `fab32d7ccd5e8836d0e3fda3543080642cdde12d`；36schema/ACL/CSP和production持久策略未变。clean fab32实际打包exit0：`target/desktop-package/fab32d7ccd5e8836d0e3fda3543080642cdde12d/Open Meeting Memo.app`，2031资源verified=true，包含当前真实UI/CLI/worker/helper/sherpa/codec和许可证，owned包装进程已wait。完整证据 `/private/tmp/omm-candidate-current-kMHzGp`。这不是最终新增fixture/文档提交的release。
+
+该App实际作为 `OMM_LIFECYCLE_RESOURCE_APP`，受限as-is自有React driver运行于 `/private/tmp/omm-lifecycle-proof-T5aqvI`：run/owned wrapper exit0，36项真实按钮/取消初始化/初始化/自然到期拒绝和重检/启动/安全切换/停止通过，playCalls=0。两CLI40303/40665及capture40419已owned收尾；provenance明确sourceRevision=fab32、资源2031、实际CLI和manifest hash，不是旧f139。busy/unknown/stale当时只有native原4case直接证据，不能替代真实React负例；Main已批准同native补feature-only held控制，Root不自行改组件或竞态测试。
+
+专属存储新入口 `bash scripts/test-desktop-preferences-wkwebview.sh` 已实际exit0，证据 `/private/tmp/omm-pref-Cm4kfJ`：先A/B隔离proof、再工具分配新UUID，两个实际React进程第一次真实写dark/collapsed，第二次任何偏好写/清除前初始还原，两次真实dirty close/native销毁及owned收尾通过，最终exact cleanup removed=true。每阶段在cleanup重建前保存实际binary/dist/driver/result/owned hash，源码前后相等；运行时fab32加明确的自有fixture WIP，不冒称后续最终提交已全量重跑。
+
+准备期间保留两个driver失败：一个旧label选择器漏aria-label；一个证据路径太长导致Unix socket超限。均只修自有driver/改短私有根，失败进程已wait且分配UUID精确removed，没有产品改动或断言放宽。现入口先拒绝过长根，完整旧失败及新实际0分别保存。
+
+依赖审计的外部限制：当前 `npm audit` 未取得报告。证据根中的 `npm-audit-current.exit`、`npm-audit-official-current.exit`、`npm-audit-system-ca.exit` 均为1：项目镜像审计API返回400；官方端点先遇证书链验证失败，使用现有系统信任后返回网络策略拦截页面。未关闭TLS、绕过网络策略或改动依赖。这是未完成的审计，不是“无漏洞”，也不是已发现漏洞。本阶段通过官方公开GitHub Advisory API取回 [GHSA-9crc-q9x8-hgqq](https://github.com/advisories/GHSA-9crc-q9x8-hgqq)：公告修复版本为1.6.1/2.1.9/3.0.5，当前锁定Vitest5.0.5不在该公告受影响范围。证据 `vitest-advisory.json/.exit` 在当前准备根；没有关闭TLS或擅改依赖，也不把单个公告核对充作完整审计。正式评审必须收到仍失败的npm audit及网络限制。
 
 以下Foundation入口只是有限组件检查：
 
