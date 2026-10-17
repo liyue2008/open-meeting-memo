@@ -593,7 +593,9 @@ async fn paced_owned_progress_renews_one_second_lease_past_initial_expiry_and_ca
         )
         .unwrap();
         let started = Instant::now();
-        let deadline = tokio::time::sleep(Duration::from_secs(8));
+        // This outer budget includes process startup and 70 external sleeps under parallel load.
+        // The one-second lease, renewal gap and cancellation bounds remain asserted separately.
+        let deadline = tokio::time::sleep(Duration::from_secs(20));
         tokio::pin!(deadline);
         let mut operation = Box::pin(pipeline::run_one(
             &mut store,
@@ -611,10 +613,11 @@ async fn paced_owned_progress_renews_one_second_lease_past_initial_expiry_and_ca
         let mut ready = None;
         let mut child_pid = None;
         let mut metrics_table_ready = false;
+        let mut watchdog_expired = false;
         loop {
             tokio::select! {
                 result = &mut operation => {completed = Some(result.unwrap().unwrap());break;},
-                _ = &mut deadline => panic!("paced worker exceeded bounded fixture deadline"),
+                _ = &mut deadline => { watchdog_expired = true; break; },
                 _ = tick.tick() => {
                     let expiry: Option<i64> = db.query_row("SELECT expires FROM tasks WHERE id=?1", [task.id.to_string()], |r| r.get(0)).unwrap();
                     if let Some(expiry) = expiry {
@@ -657,6 +660,12 @@ async fn paced_owned_progress_renews_one_second_lease_past_initial_expiry_and_ca
             .unwrap()
             .unwrap();
         let elapsed = started.elapsed();
+        assert!(
+            !watchdog_expired,
+            "paced worker exceeded bounded fixture deadline after owned drain: cancel={cancel} elapsed_ms={} ready={} child_pid={child_pid:?} renewals={renewals} last_expiry={last_expiry:?}",
+            elapsed.as_millis(),
+            ready.is_some()
+        );
         if let Some(task) = &completed {
             assert_eq!(
                 task.status,
