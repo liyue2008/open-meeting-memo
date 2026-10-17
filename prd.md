@@ -13,6 +13,12 @@ Open meeting memo (OMM) 定位是开源 AI Native 的会议录音/转写/纪要 
 * 支持的模型接口: OpenAI 兼容接口; 支持调用本地Agent CLI: Claude code/Pi Agent/ codex / OpenCode.
 * 无需管理员/root/admin权限.
 
+## 已批准的桌面实施增量
+
+在上述最终目标及现有 CLI 基线之上，新增 Tauri 2 原生桌面 App，限 macOS Apple Silicon、macOS 15.5+，复用 Rust 核心与 Swift/Yulu 内核。已确认静态设计的会议库、搜索/日期/排序/分页、详情音频/逐字稿/纪要/只读行动项、保留式删除恢复、重处理版本与任务、真实配置/诊断/帮助均接真实逻辑；不是静态壳。浏览器 HTTP WebUI 和 MCP 仍未进入本次交付。
+
+当前只完成 Foundation 工程和契约，完整实现、独立正式评审、release 用户级安装和实际启动验证尚待完成。边界、写入兼容门禁、验收及所有权见[桌面开发](docs/desktop.md)与[冻结接口](contracts/desktop/v1/README.md)。
+
 ## 设计要求
 
 * 设计上充分使用插件/adapter设计模式, 第一版只支持: MacOS / Lark meeting / Pi Agent(调用大模型) / cli (mcp 和 webui 先放一放), 但架构上要方便后续扩展;

@@ -1,0 +1,58 @@
+{
+  "command": "import_commit",
+  "request": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "payload": {
+      "admission": {
+        "stateSchemaVersion": 1,
+        "ownerGeneration": "00000000-0000-4000-8000-000000000001",
+        "profileId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "token": "fixture_admission_000001",
+        "expiresAtMs": 1893456000000,
+        "mode": "service"
+      },
+      "selectionHandle": "fixture_handle_00000001",
+      "metadata": {
+        "title": "x",
+        "note": "x",
+        "tags": []
+      },
+      "startedAtMs": 0,
+      "timeZone": "x"
+    }
+  },
+  "response": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "data": {
+      "meeting": {
+        "meetingId": "00000000-0000-4000-8000-000000000001",
+        "metadata": {
+          "title": "x",
+          "note": "x",
+          "tags": []
+        },
+        "revision": 0,
+        "startedAtMs": null,
+        "sealedAtMs": null,
+        "timeSource": "exact",
+        "durationMs": null,
+        "source": "lark",
+        "status": "recording",
+        "trashed": false,
+        "capabilities": {
+          "edit": false,
+          "trash": false,
+          "restore": false,
+          "reprocess": false,
+          "reason": null
+        },
+        "currentTranscriptTaskId": null,
+        "currentSummaryTaskId": null
+      },
+      "operationId": null,
+      "duplicate": false
+    }
+  }
+}

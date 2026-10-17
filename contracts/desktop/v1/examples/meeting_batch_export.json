@@ -1,0 +1,22 @@
+{
+  "command": "meeting_batch_export",
+  "request": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "payload": {
+      "meetingIds": [
+        "00000000-0000-4000-8000-000000000001"
+      ],
+      "stage": "transcribe",
+      "format": "markdown"
+    }
+  },
+  "response": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "data": {
+      "outcome": "saved",
+      "fileName": null
+    }
+  }
+}

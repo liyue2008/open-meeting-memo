@@ -2,6 +2,12 @@
 
 这是源码开发安装，不是签名公证的发行包。首版目标是 macOS / Apple Silicon；录音 helper 编译目标为 macOS 13+，但**本指南固定的原生库所带 ONNX Runtime 1.24.4 要求 macOS 15.5+**，不能据此宣称完整链路兼容 macOS 13。较旧系统需另行验证兼容的同版库构建；Intel 及 Windows/Linux 尚未实机验收。所有步骤用普通用户执行，无 sudo、系统服务或驱动。
 
+## 桌面 App 状态
+
+Tauri 2 桌面工程面向 Apple Silicon/macOS 15.5+，当前 Foundation 尚无可安装的完整产品包。以下仍是既有 CLI 源码安装步骤，不能当成桌面安装验收。统一桌面 dev/test/build/package/install 入口及当前阻塞见[桌面开发](desktop.md)和[验收矩阵](desktop-acceptance.md)；package/install 在完整 native 资源与安全校验入口尚未交付时明确拒绝。
+
+后续 release 安装只进入当前用户目录，先只读检查安装元数据、备份非秘密元数据，保留所有录音/配置/认证/auto/consent，不打断在录会议、不盲杀未知进程、不因启动 App 迁移旧 profile。可安全并存版本化 App，并以实际生产包＋私有 profile 验证窗口和真实桥；个人旧 daemon 不兼容时准确报告显式切换路径。ad-hoc 签名不是公证，实际注册也不是权限/运行就绪。
+
 ## 1. 构建及复制到稳定位置
 
 需要已有 Rust、Xcode/Swift 工具链；发布构建及模型解包需留出数 GB 额外磁盘空间，安装后模型约 1.74GB，CPU 推理还需额外内存。Pi 需要它自己的 Node 运行时（当前 Pi 1.1.0 文档要求 Node 22.19+）。[Pi 官方项目](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent) 的安装/认证方式可能随版本改变，请核对本机 `pi --version`、`pi --help`，不要使用不明安装脚本。

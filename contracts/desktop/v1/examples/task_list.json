@@ -1,0 +1,22 @@
+{
+  "command": "task_list",
+  "request": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "payload": {
+      "meetingId": null,
+      "statuses": [],
+      "cursor": null,
+      "pageSize": 1
+    }
+  },
+  "response": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "data": {
+      "items": [],
+      "nextCursor": null,
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+}

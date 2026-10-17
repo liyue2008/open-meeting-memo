@@ -1,0 +1,6036 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openmeetingmemo.org/contracts/desktop/v1/schema.json",
+  "title": "OMM Desktop v1 bridge exchanges",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "desktop_info",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/desktop_info_request"
+        },
+        "response": {
+          "$ref": "#/$defs/desktop_info_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "meeting_list",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/meeting_list_request"
+        },
+        "response": {
+          "$ref": "#/$defs/meeting_list_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "meeting_get",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/meeting_get_request"
+        },
+        "response": {
+          "$ref": "#/$defs/meeting_get_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "meeting_update",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/meeting_update_request"
+        },
+        "response": {
+          "$ref": "#/$defs/meeting_update_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "meeting_trash",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/meeting_trash_request"
+        },
+        "response": {
+          "$ref": "#/$defs/meeting_trash_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "meeting_restore",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/meeting_restore_request"
+        },
+        "response": {
+          "$ref": "#/$defs/meeting_restore_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "import_select",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/import_select_request"
+        },
+        "response": {
+          "$ref": "#/$defs/import_select_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "import_commit",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/import_commit_request"
+        },
+        "response": {
+          "$ref": "#/$defs/import_commit_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "import_cancel",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/import_cancel_request"
+        },
+        "response": {
+          "$ref": "#/$defs/import_cancel_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "record_status",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/record_status_request"
+        },
+        "response": {
+          "$ref": "#/$defs/record_status_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "record_start",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/record_start_request"
+        },
+        "response": {
+          "$ref": "#/$defs/record_start_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "record_stop",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/record_stop_request"
+        },
+        "response": {
+          "$ref": "#/$defs/record_stop_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "record_auto_set",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/record_auto_set_request"
+        },
+        "response": {
+          "$ref": "#/$defs/record_auto_set_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "artifact_versions",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/artifact_versions_request"
+        },
+        "response": {
+          "$ref": "#/$defs/artifact_versions_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "artifact_read",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/artifact_read_request"
+        },
+        "response": {
+          "$ref": "#/$defs/artifact_read_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "artifact_export",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/artifact_export_request"
+        },
+        "response": {
+          "$ref": "#/$defs/artifact_export_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "meeting_batch_export",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/meeting_batch_export_request"
+        },
+        "response": {
+          "$ref": "#/$defs/meeting_batch_export_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "artifact_copy",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/artifact_copy_request"
+        },
+        "response": {
+          "$ref": "#/$defs/artifact_copy_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "processing_enqueue",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/processing_enqueue_request"
+        },
+        "response": {
+          "$ref": "#/$defs/processing_enqueue_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "processing_retry",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/processing_retry_request"
+        },
+        "response": {
+          "$ref": "#/$defs/processing_retry_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "processing_cancel",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/processing_cancel_request"
+        },
+        "response": {
+          "$ref": "#/$defs/processing_cancel_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "processing_requeue",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/processing_requeue_request"
+        },
+        "response": {
+          "$ref": "#/$defs/processing_requeue_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "task_list",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/task_list_request"
+        },
+        "response": {
+          "$ref": "#/$defs/task_list_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "task_get",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/task_get_request"
+        },
+        "response": {
+          "$ref": "#/$defs/task_get_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "config_get",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/config_get_request"
+        },
+        "response": {
+          "$ref": "#/$defs/config_get_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "config_validate",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/config_validate_request"
+        },
+        "response": {
+          "$ref": "#/$defs/config_validate_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "config_save",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/config_save_request"
+        },
+        "response": {
+          "$ref": "#/$defs/config_save_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "diagnostics_get",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/diagnostics_get_request"
+        },
+        "response": {
+          "$ref": "#/$defs/diagnostics_get_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "diagnostics_export",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/diagnostics_export_request"
+        },
+        "response": {
+          "$ref": "#/$defs/diagnostics_export_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "notification_history",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/notification_history_request"
+        },
+        "response": {
+          "$ref": "#/$defs/notification_history_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "media_manifest",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/media_manifest_request"
+        },
+        "response": {
+          "$ref": "#/$defs/media_manifest_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "media_open",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/media_open_request"
+        },
+        "response": {
+          "$ref": "#/$defs/media_open_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "media_close",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/media_close_request"
+        },
+        "response": {
+          "$ref": "#/$defs/media_close_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    }
+  ],
+  "$defs": {
+    "Id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "Revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "RequestId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+    },
+    "Cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "Handle": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{16,256}$"
+    },
+    "Empty": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    },
+    "ErrorCode": {
+      "type": "string",
+      "enum": [
+        "invalid_input",
+        "unavailable",
+        "permission",
+        "consent_required",
+        "interaction_required",
+        "timeout",
+        "conflict",
+        "corrupt",
+        "io",
+        "backend"
+      ]
+    },
+    "ErrorReason": {
+      "type": "string",
+      "enum": [
+        "not_found",
+        "cancelled",
+        "incomplete",
+        "incompatible_service",
+        "incompatible_schema",
+        "stale_revision",
+        "busy",
+        "unsafe_path",
+        "dependency_missing",
+        "indexing_pending",
+        "invalid_grant",
+        "budget_exceeded"
+      ]
+    },
+    "FieldError": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "required": [
+        "field",
+        "message"
+      ]
+    },
+    "BridgeError": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "fieldErrors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FieldError"
+          },
+          "maxItems": 64
+        }
+      },
+      "required": [
+        "code",
+        "reason",
+        "retryable",
+        "message",
+        "fieldErrors"
+      ]
+    },
+    "MeetingStatus": {
+      "type": "string",
+      "enum": [
+        "recording",
+        "unsealed",
+        "queued",
+        "transcribing",
+        "transcript_committed",
+        "summarizing",
+        "completed",
+        "blocked",
+        "failed",
+        "interrupted",
+        "cancelled",
+        "empty",
+        "unknown"
+      ]
+    },
+    "SourceKind": {
+      "type": "string",
+      "enum": [
+        "lark",
+        "manual",
+        "imported",
+        "legacy",
+        "unknown"
+      ]
+    },
+    "TimeSource": {
+      "type": "string",
+      "enum": [
+        "exact",
+        "estimated",
+        "unknown"
+      ]
+    },
+    "Stage": {
+      "type": "string",
+      "enum": [
+        "transcribe",
+        "summary"
+      ]
+    },
+    "ProcessingStage": {
+      "type": "string",
+      "enum": [
+        "all",
+        "transcribe",
+        "summary"
+      ]
+    },
+    "TaskStatus": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "transcribing",
+        "transcript_committed",
+        "summarizing",
+        "completed",
+        "blocked",
+        "failed",
+        "interrupted",
+        "cancelled"
+      ]
+    },
+    "ArtifactStatus": {
+      "type": "string",
+      "enum": [
+        "missing",
+        "partial",
+        "committed",
+        "invalid",
+        "historical"
+      ]
+    },
+    "Visibility": {
+      "type": "string",
+      "enum": [
+        "active",
+        "trash",
+        "all"
+      ]
+    },
+    "SearchScope": {
+      "type": "string",
+      "enum": [
+        "title",
+        "content"
+      ]
+    },
+    "MeetingSort": {
+      "type": "string",
+      "enum": [
+        "started_desc",
+        "started_asc",
+        "duration_desc",
+        "duration_asc"
+      ]
+    },
+    "CompatibilityState": {
+      "type": "string",
+      "enum": [
+        "compatible",
+        "read_only",
+        "requires_switch",
+        "unavailable",
+        "unknown"
+      ]
+    },
+    "Capability": {
+      "type": "string",
+      "enum": [
+        "metadata_v1",
+        "trash_v1",
+        "import_mix_v1",
+        "processing_v1",
+        "cancellation_v1",
+        "config_cas_v1",
+        "media_v1"
+      ]
+    },
+    "ServiceCompatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocolVersion": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "serviceGeneration": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stateSchemaVersion": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "minReaderVersion": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          },
+          "maxItems": 7
+        },
+        "state": {
+          "$ref": "#/$defs/CompatibilityState"
+        },
+        "writesAllowed": {
+          "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "safeSwitchRequired": {
+          "type": "boolean"
+        },
+        "admissionMode": {
+          "type": "string",
+          "enum": [
+            "none",
+            "service",
+            "offline"
+          ]
+        },
+        "writeAdmission": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WriteAdmission"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "serviceGeneration",
+        "stateSchemaVersion",
+        "minReaderVersion",
+        "capabilities",
+        "state",
+        "writesAllowed",
+        "reason",
+        "safeSwitchRequired",
+        "admissionMode",
+        "writeAdmission"
+      ]
+    },
+    "WriteAdmission": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ownerGeneration": {
+          "$ref": "#/$defs/Id"
+        },
+        "profileId": {
+          "$ref": "#/$defs/Revision"
+        },
+        "stateSchemaVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "token": {
+          "$ref": "#/$defs/Handle"
+        },
+        "expiresAtMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "service",
+            "offline"
+          ]
+        }
+      },
+      "required": [
+        "ownerGeneration",
+        "profileId",
+        "stateSchemaVersion",
+        "token",
+        "expiresAtMs",
+        "mode"
+      ]
+    },
+    "DesktopInfo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "appVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "sourceRevision": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "contractVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "platform": {
+          "const": "macos-arm64",
+          "type": "string"
+        },
+        "minimumOs": {
+          "const": "15.5",
+          "type": "string"
+        },
+        "compatibility": {
+          "$ref": "#/$defs/ServiceCompatibility"
+        }
+      },
+      "required": [
+        "appVersion",
+        "sourceRevision",
+        "contractVersion",
+        "platform",
+        "minimumOs",
+        "compatibility"
+      ]
+    },
+    "DateRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fromLocalDate": {
+          "type": "string",
+          "format": "date"
+        },
+        "toLocalDateExclusive": {
+          "type": "string",
+          "format": "date"
+        },
+        "timeZone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "fromUtcMs": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "toUtcMsExclusive": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "fromLocalDate",
+        "toLocalDateExclusive",
+        "timeZone",
+        "fromUtcMs",
+        "toUtcMsExclusive"
+      ]
+    },
+    "MeetingFilter": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 512
+        },
+        "scope": {
+          "$ref": "#/$defs/SearchScope"
+        },
+        "date": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DateRange"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SourceKind"
+          },
+          "maxItems": 5
+        },
+        "statuses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MeetingStatus"
+          },
+          "maxItems": 13
+        },
+        "sort": {
+          "$ref": "#/$defs/MeetingSort"
+        },
+        "visibility": {
+          "$ref": "#/$defs/Visibility"
+        }
+      },
+      "required": [
+        "query",
+        "scope",
+        "date",
+        "sources",
+        "statuses",
+        "sort",
+        "visibility"
+      ]
+    },
+    "MeetingListRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "filter": {
+          "$ref": "#/$defs/MeetingFilter"
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "expectedRevision": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Revision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "filter",
+        "cursor",
+        "pageSize",
+        "expectedRevision"
+      ]
+    },
+    "MeetingCapabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "edit": {
+          "type": "boolean"
+        },
+        "trash": {
+          "type": "boolean"
+        },
+        "restore": {
+          "type": "boolean"
+        },
+        "reprocess": {
+          "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "edit",
+        "trash",
+        "restore",
+        "reprocess",
+        "reason"
+      ]
+    },
+    "MeetingMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "note": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 16384
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "maxItems": 32,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "title",
+        "note",
+        "tags"
+      ]
+    },
+    "MeetingRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "meetingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "metadata": {
+          "$ref": "#/$defs/MeetingMetadata"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "startedAtMs": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sealedAtMs": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timeSource": {
+          "$ref": "#/$defs/TimeSource"
+        },
+        "durationMs": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/SourceKind"
+        },
+        "status": {
+          "$ref": "#/$defs/MeetingStatus"
+        },
+        "trashed": {
+          "type": "boolean"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/MeetingCapabilities"
+        },
+        "currentTranscriptTaskId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "currentSummaryTaskId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "meetingId",
+        "metadata",
+        "revision",
+        "startedAtMs",
+        "sealedAtMs",
+        "timeSource",
+        "durationMs",
+        "source",
+        "status",
+        "trashed",
+        "capabilities",
+        "currentTranscriptTaskId",
+        "currentSummaryTaskId"
+      ]
+    },
+    "SearchProgress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "indexed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "pending": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "complete",
+        "indexed",
+        "pending"
+      ]
+    },
+    "MeetingPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MeetingRow"
+          },
+          "maxItems": 100
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "search": {
+          "$ref": "#/$defs/SearchProgress"
+        },
+        "total": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "items",
+        "nextCursor",
+        "revision",
+        "search",
+        "total"
+      ]
+    },
+    "MeetingIdRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "meetingId": {
+          "$ref": "#/$defs/Id"
+        }
+      },
+      "required": [
+        "meetingId"
+      ]
+    },
+    "MeetingDetail": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "meeting": {
+          "$ref": "#/$defs/MeetingRow"
+        },
+        "completedSegments": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "totalSegments": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "hasPartialTranscript": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "meeting",
+        "completedSegments",
+        "totalSegments",
+        "hasPartialTranscript"
+      ]
+    },
+    "MeetingUpdateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "admission": {
+          "$ref": "#/$defs/WriteAdmission"
+        },
+        "meetingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "metadata": {
+          "$ref": "#/$defs/MeetingMetadata"
+        }
+      },
+      "required": [
+        "admission",
+        "meetingId",
+        "expectedRevision",
+        "metadata"
+      ]
+    },
+    "MeetingRevision": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "meetingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "meetingId",
+        "expectedRevision"
+      ]
+    },
+    "MeetingBatchRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "admission": {
+          "$ref": "#/$defs/WriteAdmission"
+        },
+        "meetings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MeetingRevision"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "admission",
+        "meetings"
+      ]
+    },
+    "MeetingBatchResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "meetings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MeetingRow"
+          },
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "meetings"
+      ]
+    },
+    "ImportSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "selectionHandle": {
+          "$ref": "#/$defs/Handle"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483648
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "wav",
+            "ogg_opus"
+          ]
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 28800000
+        },
+        "channels": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2
+        },
+        "sampleRate": {
+          "type": "integer",
+          "minimum": 8000,
+          "maximum": 96000
+        },
+        "expiresAtMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "selectionHandle",
+        "displayName",
+        "byteLength",
+        "format",
+        "durationMs",
+        "channels",
+        "sampleRate",
+        "expiresAtMs"
+      ]
+    },
+    "ImportSelectResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "selection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImportSelection"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "selection"
+      ]
+    },
+    "ImportCommitRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "admission": {
+          "$ref": "#/$defs/WriteAdmission"
+        },
+        "selectionHandle": {
+          "$ref": "#/$defs/Handle"
+        },
+        "metadata": {
+          "$ref": "#/$defs/MeetingMetadata"
+        },
+        "startedAtMs": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "timeZone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "admission",
+        "selectionHandle",
+        "metadata",
+        "startedAtMs",
+        "timeZone"
+      ]
+    },
+    "ImportCancelRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "selectionHandle": {
+          "$ref": "#/$defs/Handle"
+        }
+      },
+      "required": [
+        "selectionHandle"
+      ]
+    },
+    "ImportResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "meeting": {
+          "$ref": "#/$defs/MeetingRow"
+        },
+        "operationId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "duplicate": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "meeting",
+        "operationId",
+        "duplicate"
+      ]
+    },
+    "Acknowledgement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "acknowledged"
+      ]
+    },
+    "RecordStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "idle",
+            "recording",
+            "sealing",
+            "unknown"
+          ]
+        },
+        "meetingId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "startedAtMs": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "autoRecord": {
+          "type": "boolean"
+        },
+        "recordingConsent": {
+          "type": "boolean"
+        },
+        "compatibility": {
+          "$ref": "#/$defs/ServiceCompatibility"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BridgeError"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "meetingId",
+        "startedAtMs",
+        "autoRecord",
+        "recordingConsent",
+        "compatibility",
+        "error"
+      ]
+    },
+    "RecordStartRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "admission": {
+          "$ref": "#/$defs/WriteAdmission"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "confirmRecordingConsent": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "admission",
+        "title",
+        "confirmRecordingConsent"
+      ]
+    },
+    "AdmissionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "admission": {
+          "$ref": "#/$defs/WriteAdmission"
+        }
+      },
+      "required": [
+        "admission"
+      ]
+    },
+    "RecordAutoRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "admission": {
+          "$ref": "#/$defs/WriteAdmission"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "confirmRecordingConsent": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "admission",
+        "enabled",
+        "confirmRecordingConsent"
+      ]
+    },
+    "ArtifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "meetingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "taskId": {
+          "$ref": "#/$defs/Id"
+        },
+        "stage": {
+          "$ref": "#/$defs/Stage"
+        }
+      },
+      "required": [
+        "meetingId",
+        "taskId",
+        "stage"
+      ]
+    },
+    "ArtifactVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "status": {
+          "$ref": "#/$defs/ArtifactStatus"
+        },
+        "taskStatus": {
+          "$ref": "#/$defs/TaskStatus"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Revision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "byteLength": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "createdAtMs": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sourceTranscriptTaskId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sourceTranscriptHash": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Revision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "modelVersion": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 256
+        },
+        "configHash": {
+          "$ref": "#/$defs/Revision"
+        },
+        "current": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "artifact",
+        "attempt",
+        "status",
+        "taskStatus",
+        "sha256",
+        "byteLength",
+        "createdAtMs",
+        "sourceTranscriptTaskId",
+        "sourceTranscriptHash",
+        "modelVersion",
+        "configHash",
+        "current"
+      ]
+    },
+    "ArtifactVersionsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "meetingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "meetingId",
+        "cursor",
+        "pageSize"
+      ]
+    },
+    "ArtifactVersionPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ArtifactVersion"
+          },
+          "maxItems": 100
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        }
+      },
+      "required": [
+        "items",
+        "nextCursor",
+        "revision"
+      ]
+    },
+    "ArtifactReadRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1048576
+        }
+      },
+      "required": [
+        "artifact",
+        "cursor",
+        "maxBytes"
+      ]
+    },
+    "TranscriptLine": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "startMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "endMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "speaker": {
+          "type": "string",
+          "enum": [
+            "mic",
+            "system",
+            "mix",
+            "unknown"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 65536
+        }
+      },
+      "required": [
+        "startMs",
+        "endMs",
+        "speaker",
+        "text"
+      ]
+    },
+    "ArtifactChunk": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "status": {
+          "$ref": "#/$defs/ArtifactStatus"
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "transcript",
+            "markdown"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 1048576
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TranscriptLine"
+          },
+          "maxItems": 4096
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "complete": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "artifact",
+        "revision",
+        "status",
+        "format",
+        "text",
+        "lines",
+        "nextCursor",
+        "complete"
+      ]
+    },
+    "ExportFormat": {
+      "type": "string",
+      "enum": [
+        "markdown",
+        "text",
+        "json"
+      ]
+    },
+    "ArtifactExportRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "format": {
+          "$ref": "#/$defs/ExportFormat"
+        }
+      },
+      "required": [
+        "artifact",
+        "format"
+      ]
+    },
+    "BatchExportRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "meetingIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Id"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "stage": {
+          "$ref": "#/$defs/Stage"
+        },
+        "format": {
+          "$ref": "#/$defs/ExportFormat"
+        }
+      },
+      "required": [
+        "meetingIds",
+        "stage",
+        "format"
+      ]
+    },
+    "DialogResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "saved",
+            "cancelled"
+          ]
+        },
+        "fileName": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "outcome",
+        "fileName"
+      ]
+    },
+    "ProcessingEnqueueRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "admission": {
+          "$ref": "#/$defs/WriteAdmission"
+        },
+        "meetingIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Id"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "stage": {
+          "$ref": "#/$defs/ProcessingStage"
+        },
+        "sourceTranscriptTaskId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "admission",
+        "meetingIds",
+        "stage",
+        "sourceTranscriptTaskId"
+      ]
+    },
+    "TaskMutationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "admission": {
+          "$ref": "#/$defs/WriteAdmission"
+        },
+        "taskId": {
+          "$ref": "#/$defs/Id"
+        }
+      },
+      "required": [
+        "admission",
+        "taskId"
+      ]
+    },
+    "OperationOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "meetingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "taskId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "operationId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BridgeError"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "meetingId",
+        "taskId",
+        "operationId",
+        "error"
+      ]
+    },
+    "OperationBatchResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OperationOutcome"
+          },
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "items"
+      ]
+    },
+    "TaskRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "taskId": {
+          "$ref": "#/$defs/Id"
+        },
+        "meetingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "generationId": {
+          "$ref": "#/$defs/Id"
+        },
+        "stage": {
+          "$ref": "#/$defs/Stage"
+        },
+        "status": {
+          "$ref": "#/$defs/TaskStatus"
+        },
+        "cancelRequested": {
+          "type": "boolean"
+        },
+        "completedSegments": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "totalSegments": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "retryCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "nextRetryAtMs": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BridgeError"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "canRetry": {
+          "type": "boolean"
+        },
+        "canCancel": {
+          "type": "boolean"
+        },
+        "canRequeue": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "taskId",
+        "meetingId",
+        "attempt",
+        "generationId",
+        "stage",
+        "status",
+        "cancelRequested",
+        "completedSegments",
+        "totalSegments",
+        "retryCount",
+        "nextRetryAtMs",
+        "error",
+        "canRetry",
+        "canCancel",
+        "canRequeue"
+      ]
+    },
+    "TaskListRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "meetingId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "statuses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TaskStatus"
+          },
+          "maxItems": 9
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "meetingId",
+        "statuses",
+        "cursor",
+        "pageSize"
+      ]
+    },
+    "TaskPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TaskRow"
+          },
+          "maxItems": 100
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        }
+      },
+      "required": [
+        "items",
+        "nextCursor",
+        "revision"
+      ]
+    },
+    "TaskIdRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "taskId": {
+          "$ref": "#/$defs/Id"
+        }
+      },
+      "required": [
+        "taskId"
+      ]
+    },
+    "TaskDetail": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "task": {
+          "$ref": "#/$defs/TaskRow"
+        },
+        "versions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ArtifactVersion"
+          },
+          "maxItems": 100
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 1024
+          },
+          "maxItems": 64
+        }
+      },
+      "required": [
+        "task",
+        "versions",
+        "diagnostics"
+      ]
+    },
+    "NotificationEvent": {
+      "type": "string",
+      "enum": [
+        "recording_started",
+        "recording_stopped",
+        "summary_ready",
+        "recording_failed",
+        "asr_failed",
+        "summary_failed",
+        "test"
+      ]
+    },
+    "EditableConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opusBitrateKbps": {
+          "type": "integer",
+          "enum": [
+            32,
+            48,
+            64,
+            96
+          ]
+        },
+        "notificationsEnabled": {
+          "type": "boolean"
+        },
+        "notificationsShowMeetingTitle": {
+          "type": "boolean"
+        },
+        "notificationEvents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NotificationEvent"
+          },
+          "maxItems": 7,
+          "uniqueItems": true
+        },
+        "captureExecutable": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "workerExecutable": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "larkExecutable": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "rtcLogDirs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 4096
+          },
+          "maxItems": 8
+        },
+        "startDelayMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "endGraceMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "pollMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 60000
+        },
+        "segmentMs": {
+          "type": "integer",
+          "minimum": 60000,
+          "maximum": 1800000
+        },
+        "asrLibraryPath": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "asrEncoderPath": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "asrDecoderPath": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "asrTokensPath": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "asrVadPath": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "asrThreads": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "asrTimeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "piExecutable": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "piNodeExecutable": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "piProvider": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 256
+        },
+        "piModel": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 256
+        },
+        "piPromptVersion": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 256
+        },
+        "piTimeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "piMaxInputBytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 9007199254740991
+        },
+        "piMaxOutputBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "opusBitrateKbps",
+        "notificationsEnabled",
+        "notificationsShowMeetingTitle",
+        "notificationEvents",
+        "captureExecutable",
+        "workerExecutable",
+        "larkExecutable",
+        "rtcLogDirs",
+        "startDelayMs",
+        "endGraceMs",
+        "pollMs",
+        "segmentMs",
+        "asrLibraryPath",
+        "asrEncoderPath",
+        "asrDecoderPath",
+        "asrTokensPath",
+        "asrVadPath",
+        "asrThreads",
+        "asrTimeoutMs",
+        "piExecutable",
+        "piNodeExecutable",
+        "piProvider",
+        "piModel",
+        "piPromptVersion",
+        "piTimeoutMs",
+        "piMaxInputBytes",
+        "piMaxOutputBytes"
+      ]
+    },
+    "ConfigPatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opusBitrateKbps": {
+          "type": "integer",
+          "enum": [
+            32,
+            48,
+            64,
+            96
+          ]
+        },
+        "notificationsEnabled": {
+          "type": "boolean"
+        },
+        "notificationsShowMeetingTitle": {
+          "type": "boolean"
+        },
+        "notificationEvents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NotificationEvent"
+          },
+          "maxItems": 7,
+          "uniqueItems": true
+        },
+        "captureExecutable": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "workerExecutable": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "larkExecutable": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "rtcLogDirs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 4096
+          },
+          "maxItems": 8
+        },
+        "startDelayMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "endGraceMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "pollMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 60000
+        },
+        "segmentMs": {
+          "type": "integer",
+          "minimum": 60000,
+          "maximum": 1800000
+        },
+        "asrLibraryPath": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "asrEncoderPath": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "asrDecoderPath": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "asrTokensPath": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "asrVadPath": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "asrThreads": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "asrTimeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "piExecutable": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "piNodeExecutable": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "piProvider": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 256
+        },
+        "piModel": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 256
+        },
+        "piPromptVersion": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 256
+        },
+        "piTimeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "piMaxInputBytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 9007199254740991
+        },
+        "piMaxOutputBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": []
+    },
+    "StorageRoots": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "data": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "state": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "cache": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        },
+        "runtime": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "config",
+        "data",
+        "state",
+        "cache",
+        "runtime"
+      ]
+    },
+    "ConfigSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Revision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "values": {
+          "$ref": "#/$defs/EditableConfig"
+        },
+        "initialized": {
+          "type": "boolean"
+        },
+        "structurallyComplete": {
+          "type": "boolean"
+        },
+        "modelVersion": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 256
+        },
+        "roots": {
+          "$ref": "#/$defs/StorageRoots"
+        },
+        "autoRecord": {
+          "type": "boolean"
+        },
+        "recordingConsent": {
+          "type": "boolean"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 1024
+          },
+          "maxItems": 64
+        },
+        "compatibility": {
+          "$ref": "#/$defs/ServiceCompatibility"
+        }
+      },
+      "required": [
+        "revision",
+        "values",
+        "initialized",
+        "structurallyComplete",
+        "modelVersion",
+        "roots",
+        "autoRecord",
+        "recordingConsent",
+        "warnings",
+        "compatibility"
+      ]
+    },
+    "ConfigValidateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "patch": {
+          "$ref": "#/$defs/ConfigPatch"
+        }
+      },
+      "required": [
+        "patch"
+      ]
+    },
+    "ConfigSaveRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "admission": {
+          "$ref": "#/$defs/WriteAdmission"
+        },
+        "expectedRevision": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Revision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "patch": {
+          "$ref": "#/$defs/ConfigPatch"
+        }
+      },
+      "required": [
+        "admission",
+        "expectedRevision",
+        "patch"
+      ]
+    },
+    "ConfigEffect": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "takesEffect": {
+          "type": "string",
+          "enum": [
+            "new_task",
+            "new_segment",
+            "service_reload",
+            "service_restart",
+            "immediate"
+          ]
+        }
+      },
+      "required": [
+        "field",
+        "takesEffect"
+      ]
+    },
+    "ConfigValidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        },
+        "fieldErrors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FieldError"
+          },
+          "maxItems": 64
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ConfigEffect"
+          },
+          "maxItems": 32
+        },
+        "structurallyComplete": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "valid",
+        "fieldErrors",
+        "effects",
+        "structurallyComplete"
+      ]
+    },
+    "DiagnosticState": {
+      "type": "string",
+      "enum": [
+        "ready",
+        "unavailable",
+        "blocked",
+        "unknown"
+      ]
+    },
+    "DiagnosticItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "state": {
+          "$ref": "#/$defs/DiagnosticState"
+        },
+        "code": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorCode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 1024
+        },
+        "action": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "key",
+        "state",
+        "code",
+        "message",
+        "action"
+      ]
+    },
+    "Diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "compatibility": {
+          "$ref": "#/$defs/ServiceCompatibility"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DiagnosticItem"
+          },
+          "maxItems": 100
+        },
+        "generatedAtMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "compatibility",
+        "items",
+        "generatedAtMs"
+      ]
+    },
+    "NotificationHistoryRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "meetingId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "meetingId",
+        "cursor",
+        "pageSize"
+      ]
+    },
+    "NotificationHistoryItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "meetingId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "event": {
+          "$ref": "#/$defs/NotificationEvent"
+        },
+        "occurredAtMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "sent",
+            "failed",
+            "timed_out",
+            "disabled",
+            "deduplicated",
+            "throttled"
+          ]
+        },
+        "visibility": {
+          "const": "unknown",
+          "type": "string"
+        },
+        "safeReason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorCode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "meetingId",
+        "event",
+        "occurredAtMs",
+        "status",
+        "visibility",
+        "safeReason"
+      ]
+    },
+    "NotificationPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NotificationHistoryItem"
+          },
+          "maxItems": 100
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "items",
+        "nextCursor"
+      ]
+    },
+    "MediaManifestRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "meetingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "meetingId",
+        "cursor",
+        "pageSize"
+      ]
+    },
+    "MediaSegment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "segmentId": {
+          "$ref": "#/$defs/Id"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "offsetMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "mime": {
+          "type": "string",
+          "enum": [
+            "audio/ogg",
+            "audio/wav"
+          ]
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "sha256": {
+          "$ref": "#/$defs/Revision"
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "segmentId",
+        "sequence",
+        "offsetMs",
+        "durationMs",
+        "mime",
+        "byteLength",
+        "sha256",
+        "available",
+        "reason"
+      ]
+    },
+    "MediaManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "meetingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "segments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MediaSegment"
+          },
+          "maxItems": 100
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "complete": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "meetingId",
+        "revision",
+        "segments",
+        "nextCursor",
+        "durationMs",
+        "complete"
+      ]
+    },
+    "MediaOpenRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "meetingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "segmentId": {
+          "$ref": "#/$defs/Id"
+        },
+        "expectedRevision": {
+          "$ref": "#/$defs/Revision"
+        }
+      },
+      "required": [
+        "meetingId",
+        "segmentId",
+        "expectedRevision"
+      ]
+    },
+    "MediaGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "grantId": {
+          "$ref": "#/$defs/Handle"
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^omm-media://localhost/[A-Za-z0-9_-]{16,256}$"
+        },
+        "expiresAtMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "revision": {
+          "$ref": "#/$defs/Revision"
+        },
+        "mime": {
+          "type": "string",
+          "enum": [
+            "audio/ogg",
+            "audio/wav"
+          ]
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "grantId",
+        "url",
+        "expiresAtMs",
+        "revision",
+        "mime",
+        "byteLength"
+      ]
+    },
+    "MediaCloseRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "grantId": {
+          "$ref": "#/$defs/Handle"
+        }
+      },
+      "required": [
+        "grantId"
+      ]
+    },
+    "desktop_info_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/Empty"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "desktop_info_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/DesktopInfo"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "meeting_list_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/MeetingListRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "meeting_list_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/MeetingPage"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "meeting_get_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/MeetingIdRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "meeting_get_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/MeetingDetail"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "meeting_update_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/MeetingUpdateRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "meeting_update_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/MeetingRow"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "meeting_trash_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/MeetingBatchRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "meeting_trash_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/MeetingBatchResult"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "meeting_restore_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/MeetingBatchRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "meeting_restore_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/MeetingBatchResult"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "import_select_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/Empty"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "import_select_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/ImportSelectResult"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "import_commit_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/ImportCommitRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "import_commit_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/ImportResult"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "import_cancel_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/ImportCancelRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "import_cancel_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/Acknowledgement"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "record_status_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/Empty"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "record_status_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/RecordStatus"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "record_start_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/RecordStartRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "record_start_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/RecordStatus"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "record_stop_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/AdmissionRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "record_stop_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/RecordStatus"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "record_auto_set_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/RecordAutoRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "record_auto_set_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/RecordStatus"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "artifact_versions_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/ArtifactVersionsRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "artifact_versions_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/ArtifactVersionPage"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "artifact_read_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/ArtifactReadRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "artifact_read_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/ArtifactChunk"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "artifact_export_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/ArtifactExportRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "artifact_export_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/DialogResult"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "meeting_batch_export_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/BatchExportRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "meeting_batch_export_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/DialogResult"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "artifact_copy_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/ArtifactCopyRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "artifact_copy_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/Acknowledgement"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "processing_enqueue_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/ProcessingEnqueueRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "processing_enqueue_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/OperationBatchResult"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "processing_retry_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/TaskMutationRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "processing_retry_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/TaskRow"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "processing_cancel_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/TaskMutationRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "processing_cancel_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/TaskRow"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "processing_requeue_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/TaskMutationRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "processing_requeue_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/TaskRow"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "task_list_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/TaskListRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "task_list_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/TaskPage"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "task_get_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/TaskIdRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "task_get_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/TaskDetail"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "config_get_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/Empty"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "config_get_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/ConfigSnapshot"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "config_validate_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/ConfigValidateRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "config_validate_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/ConfigValidation"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "config_save_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/ConfigSaveRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "config_save_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/ConfigSnapshot"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "diagnostics_get_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/Empty"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "diagnostics_get_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/Diagnostics"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "diagnostics_export_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/Empty"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "diagnostics_export_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/DialogResult"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "notification_history_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/NotificationHistoryRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "notification_history_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/NotificationPage"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "media_manifest_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/MediaManifestRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "media_manifest_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/MediaManifest"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "media_open_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/MediaOpenRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "media_open_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/MediaGrant"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "media_close_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/MediaCloseRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "media_close_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/Acknowledgement"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "ArtifactCopyRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/ArtifactRef"
+        }
+      },
+      "required": [
+        "artifact"
+      ]
+    },
+    "ServiceCapabilityRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocolVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "desktopContractVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "requiredCapabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          },
+          "maxItems": 7,
+          "uniqueItems": true
+        },
+        "intent": {
+          "type": "string",
+          "enum": [
+            "read_only",
+            "mutation"
+          ]
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "desktopContractVersion",
+        "requiredCapabilities",
+        "intent"
+      ]
+    },
+    "ServiceCapabilityResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocolVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "compatibility": {
+          "$ref": "#/$defs/ServiceCompatibility"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "compatibility"
+      ]
+    }
+  },
+  "x-commands": {
+    "desktop_info": {
+      "request": "Empty",
+      "response": "DesktopInfo",
+      "mutation": false
+    },
+    "meeting_list": {
+      "request": "MeetingListRequest",
+      "response": "MeetingPage",
+      "mutation": false
+    },
+    "meeting_get": {
+      "request": "MeetingIdRequest",
+      "response": "MeetingDetail",
+      "mutation": false
+    },
+    "meeting_update": {
+      "request": "MeetingUpdateRequest",
+      "response": "MeetingRow",
+      "mutation": true
+    },
+    "meeting_trash": {
+      "request": "MeetingBatchRequest",
+      "response": "MeetingBatchResult",
+      "mutation": true
+    },
+    "meeting_restore": {
+      "request": "MeetingBatchRequest",
+      "response": "MeetingBatchResult",
+      "mutation": true
+    },
+    "import_select": {
+      "request": "Empty",
+      "response": "ImportSelectResult",
+      "mutation": false
+    },
+    "import_commit": {
+      "request": "ImportCommitRequest",
+      "response": "ImportResult",
+      "mutation": true
+    },
+    "import_cancel": {
+      "request": "ImportCancelRequest",
+      "response": "Acknowledgement",
+      "mutation": false
+    },
+    "record_status": {
+      "request": "Empty",
+      "response": "RecordStatus",
+      "mutation": false
+    },
+    "record_start": {
+      "request": "RecordStartRequest",
+      "response": "RecordStatus",
+      "mutation": true
+    },
+    "record_stop": {
+      "request": "AdmissionRequest",
+      "response": "RecordStatus",
+      "mutation": true
+    },
+    "record_auto_set": {
+      "request": "RecordAutoRequest",
+      "response": "RecordStatus",
+      "mutation": true
+    },
+    "artifact_versions": {
+      "request": "ArtifactVersionsRequest",
+      "response": "ArtifactVersionPage",
+      "mutation": false
+    },
+    "artifact_read": {
+      "request": "ArtifactReadRequest",
+      "response": "ArtifactChunk",
+      "mutation": false
+    },
+    "artifact_export": {
+      "request": "ArtifactExportRequest",
+      "response": "DialogResult",
+      "mutation": false
+    },
+    "meeting_batch_export": {
+      "request": "BatchExportRequest",
+      "response": "DialogResult",
+      "mutation": false
+    },
+    "artifact_copy": {
+      "request": "ArtifactCopyRequest",
+      "response": "Acknowledgement",
+      "mutation": false
+    },
+    "processing_enqueue": {
+      "request": "ProcessingEnqueueRequest",
+      "response": "OperationBatchResult",
+      "mutation": true
+    },
+    "processing_retry": {
+      "request": "TaskMutationRequest",
+      "response": "TaskRow",
+      "mutation": true
+    },
+    "processing_cancel": {
+      "request": "TaskMutationRequest",
+      "response": "TaskRow",
+      "mutation": true
+    },
+    "processing_requeue": {
+      "request": "TaskMutationRequest",
+      "response": "TaskRow",
+      "mutation": true
+    },
+    "task_list": {
+      "request": "TaskListRequest",
+      "response": "TaskPage",
+      "mutation": false
+    },
+    "task_get": {
+      "request": "TaskIdRequest",
+      "response": "TaskDetail",
+      "mutation": false
+    },
+    "config_get": {
+      "request": "Empty",
+      "response": "ConfigSnapshot",
+      "mutation": false
+    },
+    "config_validate": {
+      "request": "ConfigValidateRequest",
+      "response": "ConfigValidation",
+      "mutation": false
+    },
+    "config_save": {
+      "request": "ConfigSaveRequest",
+      "response": "ConfigSnapshot",
+      "mutation": true
+    },
+    "diagnostics_get": {
+      "request": "Empty",
+      "response": "Diagnostics",
+      "mutation": false
+    },
+    "diagnostics_export": {
+      "request": "Empty",
+      "response": "DialogResult",
+      "mutation": false
+    },
+    "notification_history": {
+      "request": "NotificationHistoryRequest",
+      "response": "NotificationPage",
+      "mutation": false
+    },
+    "media_manifest": {
+      "request": "MediaManifestRequest",
+      "response": "MediaManifest",
+      "mutation": false
+    },
+    "media_open": {
+      "request": "MediaOpenRequest",
+      "response": "MediaGrant",
+      "mutation": false
+    },
+    "media_close": {
+      "request": "MediaCloseRequest",
+      "response": "Acknowledgement",
+      "mutation": false
+    }
+  },
+  "x-budgets": {
+    "mutationJsonBytes": 131072,
+    "bridgeBodyBytes": 1048576,
+    "blockingRequestsPerWindow": 4,
+    "mediaRequestsGlobal": 8,
+    "mediaRequestsPerWindow": 2,
+    "mediaResponseBytes": 8388608,
+    "importBytes": 2147483648,
+    "importDurationMs": 28800000,
+    "queuePollMs": 2000,
+    "passivePollMs": 10000,
+    "defaultPageSize": 25,
+    "maxPageSize": 100,
+    "bulkItems": 100,
+    "titleCharacters": 256,
+    "noteUtf8Bytes": 16384,
+    "queryCharacters": 512
+  },
+  "x-service-capability": {
+    "command": "desktop_capabilities_v1",
+    "request": "ServiceCapabilityRequest",
+    "response": "ServiceCapabilityResponse",
+    "transport": "existing_identity_bound_unix_socket",
+    "unknownCommandMeans": "read_only_requires_switch"
+  }
+}

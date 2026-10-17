@@ -1,0 +1,192 @@
+[
+  {
+    "command": "desktop_info",
+    "request": {
+      "schemaVersion": 1,
+      "requestId": "error-0",
+      "payload": {}
+    },
+    "response": {
+      "schemaVersion": 1,
+      "requestId": "error-0",
+      "error": {
+        "code": "invalid_input",
+        "reason": "incompatible_service",
+        "retryable": false,
+        "message": "Synthetic bounded diagnostic",
+        "fieldErrors": []
+      }
+    }
+  },
+  {
+    "command": "desktop_info",
+    "request": {
+      "schemaVersion": 1,
+      "requestId": "error-1",
+      "payload": {}
+    },
+    "response": {
+      "schemaVersion": 1,
+      "requestId": "error-1",
+      "error": {
+        "code": "unavailable",
+        "reason": null,
+        "retryable": false,
+        "message": "Synthetic bounded diagnostic",
+        "fieldErrors": []
+      }
+    }
+  },
+  {
+    "command": "desktop_info",
+    "request": {
+      "schemaVersion": 1,
+      "requestId": "error-2",
+      "payload": {}
+    },
+    "response": {
+      "schemaVersion": 1,
+      "requestId": "error-2",
+      "error": {
+        "code": "permission",
+        "reason": null,
+        "retryable": false,
+        "message": "Synthetic bounded diagnostic",
+        "fieldErrors": []
+      }
+    }
+  },
+  {
+    "command": "desktop_info",
+    "request": {
+      "schemaVersion": 1,
+      "requestId": "error-3",
+      "payload": {}
+    },
+    "response": {
+      "schemaVersion": 1,
+      "requestId": "error-3",
+      "error": {
+        "code": "consent_required",
+        "reason": null,
+        "retryable": false,
+        "message": "Synthetic bounded diagnostic",
+        "fieldErrors": []
+      }
+    }
+  },
+  {
+    "command": "desktop_info",
+    "request": {
+      "schemaVersion": 1,
+      "requestId": "error-4",
+      "payload": {}
+    },
+    "response": {
+      "schemaVersion": 1,
+      "requestId": "error-4",
+      "error": {
+        "code": "interaction_required",
+        "reason": null,
+        "retryable": false,
+        "message": "Synthetic bounded diagnostic",
+        "fieldErrors": []
+      }
+    }
+  },
+  {
+    "command": "desktop_info",
+    "request": {
+      "schemaVersion": 1,
+      "requestId": "error-5",
+      "payload": {}
+    },
+    "response": {
+      "schemaVersion": 1,
+      "requestId": "error-5",
+      "error": {
+        "code": "timeout",
+        "reason": null,
+        "retryable": false,
+        "message": "Synthetic bounded diagnostic",
+        "fieldErrors": []
+      }
+    }
+  },
+  {
+    "command": "desktop_info",
+    "request": {
+      "schemaVersion": 1,
+      "requestId": "error-6",
+      "payload": {}
+    },
+    "response": {
+      "schemaVersion": 1,
+      "requestId": "error-6",
+      "error": {
+        "code": "conflict",
+        "reason": null,
+        "retryable": false,
+        "message": "Synthetic bounded diagnostic",
+        "fieldErrors": []
+      }
+    }
+  },
+  {
+    "command": "desktop_info",
+    "request": {
+      "schemaVersion": 1,
+      "requestId": "error-7",
+      "payload": {}
+    },
+    "response": {
+      "schemaVersion": 1,
+      "requestId": "error-7",
+      "error": {
+        "code": "corrupt",
+        "reason": null,
+        "retryable": false,
+        "message": "Synthetic bounded diagnostic",
+        "fieldErrors": []
+      }
+    }
+  },
+  {
+    "command": "desktop_info",
+    "request": {
+      "schemaVersion": 1,
+      "requestId": "error-8",
+      "payload": {}
+    },
+    "response": {
+      "schemaVersion": 1,
+      "requestId": "error-8",
+      "error": {
+        "code": "io",
+        "reason": null,
+        "retryable": false,
+        "message": "Synthetic bounded diagnostic",
+        "fieldErrors": []
+      }
+    }
+  },
+  {
+    "command": "desktop_info",
+    "request": {
+      "schemaVersion": 1,
+      "requestId": "error-9",
+      "payload": {}
+    },
+    "response": {
+      "schemaVersion": 1,
+      "requestId": "error-9",
+      "error": {
+        "code": "backend",
+        "reason": null,
+        "retryable": false,
+        "message": "Synthetic bounded diagnostic",
+        "fieldErrors": []
+      }
+    }
+  }
+]

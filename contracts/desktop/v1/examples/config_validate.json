@@ -1,0 +1,20 @@
+{
+  "command": "config_validate",
+  "request": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "payload": {
+      "patch": {}
+    }
+  },
+  "response": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "data": {
+      "valid": false,
+      "fieldErrors": [],
+      "effects": [],
+      "structurallyComplete": false
+    }
+  }
+}

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 43 43" role="img" aria-labelledby="logo-title">
+  <title id="logo-title">Open Meeting Memo（omm）Logo</title>
+  <!-- Original OMM artwork, Apache-2.0. Matches docs/webui-demo; no external resources. -->
+  <style>
+    .base { fill: #008573; }
+    .letters { fill: none; stroke: #ffffff; }
+    .letters [data-letter="o"] { stroke: #000304; }
+    @media (prefers-color-scheme: dark) {
+      .base { fill: #27c2a4; }
+      .letters { stroke: #27302d; }
+      .letters [data-letter="o"] { stroke: #213b78; }
+    }
+  </style>
+  <rect class="base" width="43" height="43" rx="12"/>
+  <svg class="letters" x="3.44" y="12.0774" width="36.12" height="18.8452" viewBox="0 0 46 24" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+    <path data-letter="o" d="M7 6.5h1.5L11 9v4.5c0 2.2-1.8 4-4 4s-4-1.8-4-4v-3c0-2.2 1.8-4 4-4Z"/>
+    <path data-letter="m" d="M15 17.5v-10 M15 10.5c0-4.8 6-4.8 6 0v7 M21 10.5c0-4.8 6-4.8 6 0v7"/>
+    <path data-letter="m" d="M31 17.5v-10 M31 10.5c0-4.8 6-4.8 6 0v7 M37 10.5c0-4.8 6-4.8 6 0v7"/>
+  </svg>
+</svg>

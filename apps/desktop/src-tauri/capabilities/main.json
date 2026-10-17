@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Foundation deny-default capability; native owner grants reviewed individual commands only.",
+  "windows": ["main"],
+  "local": true,
+  "permissions": []
+}

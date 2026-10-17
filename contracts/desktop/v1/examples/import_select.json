@@ -1,0 +1,15 @@
+{
+  "command": "import_select",
+  "request": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "payload": {}
+  },
+  "response": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "data": {
+      "selection": null
+    }
+  }
+}

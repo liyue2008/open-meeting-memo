@@ -1,0 +1,44 @@
+{
+  "command": "meeting_get",
+  "request": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "payload": {
+      "meetingId": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "response": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "data": {
+      "meeting": {
+        "meetingId": "00000000-0000-4000-8000-000000000001",
+        "metadata": {
+          "title": "x",
+          "note": "x",
+          "tags": []
+        },
+        "revision": 0,
+        "startedAtMs": null,
+        "sealedAtMs": null,
+        "timeSource": "exact",
+        "durationMs": null,
+        "source": "lark",
+        "status": "recording",
+        "trashed": false,
+        "capabilities": {
+          "edit": false,
+          "trash": false,
+          "restore": false,
+          "reprocess": false,
+          "reason": null
+        },
+        "currentTranscriptTaskId": null,
+        "currentSummaryTaskId": null
+      },
+      "completedSegments": 0,
+      "totalSegments": 0,
+      "hasPartialTranscript": false
+    }
+  }
+}

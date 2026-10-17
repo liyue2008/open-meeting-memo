@@ -9,6 +9,12 @@
 - **已确认**：逐字稿生成后直接调用已配置的 Pi 模型生成纪要，不再设置文本外发二次确认或授权阻塞步骤。
 - **实施状态**：用户已要求继续首版实施；飞书检测配置及启停参数按下述建议实现并验证。真实系统授权、后台服务安装、模型下载及录音仍由显式运行操作触发，开发与测试不自动执行这些操作或调用付费模型。
 
+## 桌面实施增量
+
+现有 CLI/录音/ASR/Pi 分层保持不变；新增 `apps/desktop` 的 Tauri 2＋React/TypeScript，使用系统 WKWebView，支持 Apple Silicon/macOS 15.5+。Rust 核心继续拥有持久状态和最终产物，`src/application` 复用共享用例，Tauri 仅实现受托窗口、受限原生操作与有界 mix 媒体协议。不开放浏览器产品 HTTP 服务，不改写 Swift/Yulu 内核。
+
+已确认设计全部业务将接真实核心；当前 Foundation 只建立可编译工程及冻结 schema/Rust/TS 接口，未交付完整功能。旧 profile 打开只读无隐式迁移，版本化 capability 与锁内 generation 校验保护所有 mutation；受限 offline admission 仅供显式新/隔离/已安全接管 profile 保存安全配置。见[完整桌面边界](desktop.md)、[接口安全语义](../contracts/desktop/v1/README.md)及[当前验收矩阵](desktop-acceptance.md)。上文“首版不做 WebUI”描述既有 CLI 基线；浏览器版仍延期，新增桌面目标已批准。
+
 ## 一、范围、录音与检测事实
 
 **PRD 确定事项**：自动感知会议启停、获取信息、录音、封存片段后转写及会后聚合纪要；后台运行；产物本地存储；无需管理员权限；录音实现务必照搬 Yulu。首版不做 MCP/WebUI，不能删除最终 Windows/Ubuntu、多会议软件与多模型接口目标。用户现已确定目录须遵循 XDG，此项不再列入批准清单。

@@ -1,0 +1,38 @@
+{
+  "request": {
+    "schema_version": 1,
+    "command": "desktop_capabilities_v1",
+    "instance_id": "00000000-0000-4000-8000-000000000001",
+    "desktop_capability": {
+      "protocolVersion": 1,
+      "desktopContractVersion": 1,
+      "requiredCapabilities": [
+        "config_cas_v1"
+      ],
+      "intent": "read_only"
+    }
+  },
+  "response": {
+    "ok": true,
+    "data": {
+      "protocolVersion": 1,
+      "compatibility": {
+        "protocolVersion": 1,
+        "serviceGeneration": "00000000-0000-4000-8000-000000000001",
+        "stateSchemaVersion": 1,
+        "minReaderVersion": 1,
+        "capabilities": [
+          "config_cas_v1"
+        ],
+        "state": "compatible",
+        "writesAllowed": true,
+        "reason": null,
+        "safeSwitchRequired": false,
+        "admissionMode": "service",
+        "writeAdmission": null
+      }
+    },
+    "error": null,
+    "service_instance": "00000000-0000-4000-8000-000000000001"
+  }
+}

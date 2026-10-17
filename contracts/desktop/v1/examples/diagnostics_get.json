@@ -1,0 +1,44 @@
+{
+  "command": "diagnostics_get",
+  "request": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "payload": {}
+  },
+  "response": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "data": {
+      "compatibility": {
+        "protocolVersion": 1,
+        "serviceGeneration": "00000000-0000-4000-8000-000000000001",
+        "stateSchemaVersion": 1,
+        "minReaderVersion": 1,
+        "capabilities": [
+          "metadata_v1",
+          "trash_v1",
+          "import_mix_v1",
+          "processing_v1",
+          "cancellation_v1",
+          "config_cas_v1",
+          "media_v1"
+        ],
+        "state": "compatible",
+        "writesAllowed": true,
+        "reason": null,
+        "safeSwitchRequired": false,
+        "admissionMode": "service",
+        "writeAdmission": {
+          "stateSchemaVersion": 1,
+          "ownerGeneration": "00000000-0000-4000-8000-000000000001",
+          "profileId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "token": "fixture_admission_000001",
+          "expiresAtMs": 1893456000000,
+          "mode": "service"
+        }
+      },
+      "items": [],
+      "generatedAtMs": 0
+    }
+  }
+}

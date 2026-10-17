@@ -1,0 +1,30 @@
+{
+  "command": "meeting_restore",
+  "request": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "payload": {
+      "admission": {
+        "stateSchemaVersion": 1,
+        "ownerGeneration": "00000000-0000-4000-8000-000000000001",
+        "profileId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "token": "fixture_admission_000001",
+        "expiresAtMs": 1893456000000,
+        "mode": "service"
+      },
+      "meetings": [
+        {
+          "meetingId": "00000000-0000-4000-8000-000000000001",
+          "expectedRevision": 0
+        }
+      ]
+    }
+  },
+  "response": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "data": {
+      "meetings": []
+    }
+  }
+}
