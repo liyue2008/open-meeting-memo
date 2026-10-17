@@ -1031,3 +1031,138 @@ async fn audio_maintenance_reader_survives_worker_cancel_until_owned_child_reape
     );
     assert!(a.path.exists());
 }
+
+#[test]
+fn desktop_partial_artifact_uses_verified_parent_snapshot_cursor_and_final_transition() {
+    use omm::application::{self as app, artifacts};
+    use serde_json::json;
+    let (_temp, paths, mut meeting) = fixture();
+    let mut store = Store::open(&paths).unwrap();
+    let mut config = omm::core::config::AppConfig::default();
+    config.notifications.enabled = false;
+    config.save(&paths).unwrap();
+    let cfg = config.snapshot();
+    let parent = store.begin_segmented(&meeting, &cfg).unwrap();
+    let first = audio(&meeting, 0);
+    let second = audio(&meeting, 1);
+    store.admit_segment(meeting.session_id, 0, &first).unwrap();
+    store.admit_segment(meeting.session_id, 1, &second).unwrap();
+    let make = |text: &str| Transcript {
+        schema_version: 1,
+        model_version: cfg.asr.model_version.clone(),
+        duration_ms: 100,
+        segments: (0..3)
+            .map(|i| TranscriptSegment {
+                source: AudioSource::Mic,
+                start_ms: i * 30,
+                end_ms: i * 30 + 20,
+                text: format!("{text} synthetic line {i}"),
+            })
+            .collect(),
+    };
+    let claim = store.claim_segment(100, 1000).unwrap().unwrap();
+    store.commit_segment(&claim, &make("first"), 101).unwrap();
+    let failed = store.claim_segment(102, 1000).unwrap().unwrap();
+    store
+        .fail_segment(
+            &failed,
+            &OmmError::new(ErrorCode::Corrupt, false, "synthetic pending failure"),
+            103,
+        )
+        .unwrap();
+    let reference = json!({"meetingId":meeting.session_id,"taskId":parent.id,"stage":"transcribe"});
+    let versions = app::read(
+        &store,
+        "artifact_versions",
+        &json!({"meetingId":meeting.session_id,"cursor":null,"pageSize":100}),
+    )
+    .unwrap();
+    assert!(
+        versions["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v["artifact"] == reference && v["status"] == "partial"),
+        "successful segment must have a real partial version"
+    );
+    let payload = json!({"artifact":reference,"cursor":null,"maxBytes":150});
+    let page = artifacts::read(&store, &payload).unwrap();
+    let readonly = Store::open_read_only(&paths).unwrap();
+    assert_eq!(
+        artifacts::read(&readonly, &payload).unwrap(),
+        page,
+        "partial snapshots must support the read-only desktop connection"
+    );
+    drop(readonly);
+    assert_eq!(page["status"], "partial");
+    assert_eq!(page["complete"], false);
+    assert_eq!(page["lines"][0]["startMs"], 0);
+    let cursor = page["nextCursor"].clone();
+    assert!(cursor.is_string());
+    let mut next = payload.clone();
+    next["cursor"] = cursor.clone();
+    let page2 = artifacts::read(&store, &next).unwrap();
+    assert_ne!(page["lines"][0], page2["lines"][0]);
+    assert_eq!(page["revision"], page2["revision"]);
+    let mut foreign = reference.clone();
+    foreign["meetingId"] = json!(Uuid::new_v4());
+    assert!(artifacts::read(&store, &json!({"artifact":foreign,"maxBytes":150})).is_err());
+    assert!(
+        artifacts::full(&store, &reference).is_err(),
+        "partial is not a committed export/copy"
+    );
+    let db = rusqlite::Connection::open(paths.state.join("state.sqlite")).unwrap();
+    let checkpoint: String = db
+        .query_row(
+            "SELECT destination FROM segment_jobs WHERE session=?1 AND sequence=0",
+            [meeting.session_id.to_string()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let original = std::fs::read(&checkpoint).unwrap();
+    std::fs::write(&checkpoint, b"corrupt").unwrap();
+    assert!(artifacts::read(&store, &payload).is_err());
+    std::fs::write(&checkpoint, &original).unwrap();
+    let foreign_dir = paths.data.join("foreign-owned");
+    private_dir(&foreign_dir).unwrap();
+    let foreign_file = foreign_dir.join("copy.json");
+    write_private_new(&foreign_file, &original).unwrap();
+    db.execute(
+        "UPDATE segment_jobs SET destination=?2 WHERE session=?1 AND sequence=0",
+        [
+            meeting.session_id.to_string(),
+            foreign_file.to_str().unwrap().to_owned(),
+        ],
+    )
+    .unwrap();
+    assert!(
+        artifacts::read(&store, &payload).is_err(),
+        "same hash outside actual parent/segment directory must be rejected"
+    );
+    db.execute(
+        "UPDATE segment_jobs SET destination=?2 WHERE session=?1 AND sequence=0",
+        [meeting.session_id.to_string(), checkpoint],
+    )
+    .unwrap();
+    store.retry_segment_failures(meeting.session_id).unwrap();
+    let claim = store.claim_segment(2000, 1000).unwrap().unwrap();
+    store.commit_segment(&claim, &make("second"), 2001).unwrap();
+    assert_eq!(
+        artifacts::read(&store, &next).unwrap_err().code,
+        ErrorCode::Conflict
+    );
+    let final_partial = artifacts::read(&store, &payload).unwrap();
+    let mut stale_final = payload.clone();
+    stale_final["cursor"] = final_partial["nextCursor"].clone();
+    meeting.segments = vec![first, second];
+    meeting.sealed_at_ms = 2002;
+    store.seal_segmented(&meeting).unwrap();
+    let aggregate = store.partial_transcript(meeting.session_id).unwrap();
+    let claim = store.claim_asr(2100, 1000).unwrap().unwrap();
+    store.commit_transcript(&claim, &aggregate, 2101).unwrap();
+    let final_page = artifacts::read(&store, &payload).unwrap();
+    assert_eq!(final_page["status"], "committed");
+    assert_ne!(final_page["revision"], final_partial["revision"]);
+    assert!(artifacts::read(&store, &stale_final).is_err());
+    assert!(artifacts::full(&store, &reference).is_ok());
+}

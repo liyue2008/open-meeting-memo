@@ -142,6 +142,9 @@ impl Controller {
         owner: &crate::application::profile::ProfileOwner,
         generation: Option<Uuid>,
         message: &Value,
+        native: &MacCaptureAdapter,
+        helper: &mut HelperProcess,
+        service_socket: &std::path::Path,
     ) -> Result<Value> {
         use crate::application::{profile, validation};
         if generation != Some(owner.generation) {
@@ -222,6 +225,9 @@ impl Controller {
                 ));
             }
             if current.is_none() && store.meeting(session)?.is_none() {
+                let cfg = AppConfig::load(&self.paths)?;
+                cfg.validate_policy()?;
+                ensure_helper(native, &cfg, service_socket, helper, &self.paths).await?;
                 self.start_inner(
                     request["payload"]["title"].as_str().unwrap().into(),
                     None,
@@ -826,6 +832,8 @@ pub async fn run_at_with_notifier(
     let listener = UnixListener::bind(&socket)?;
     std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600))?;
     let mut store = Store::open(&paths)?;
+    // RuntimeGuard proves the previous service exited; only this explicit service start reopens claims.
+    store.clear_state("desktop_service_stopping")?;
     let instance = match store.state::<Uuid>("capture_instance")? {
         Some(id) => id,
         None => {
@@ -861,6 +869,14 @@ pub async fn run_at_with_notifier(
     }
     store.recover(chrono::Utc::now().timestamp_millis())?;
     store.clean_abandoned_cache(chrono::Utc::now().timestamp_millis())?;
+    store.set_state(
+        "desktop_import_cache_recovery",
+        &crate::application::imports::reap_expired(
+            &paths,
+            &desktop_owner,
+            chrono::Utc::now().timestamp_millis(),
+        )?,
+    )?;
     let pi = Arc::new(PiAdapter::new(paths.clone()));
     store.set_state(
         "pi_cache_recovery",
@@ -916,6 +932,7 @@ pub async fn run_at_with_notifier(
     let worker_pi = pi.clone();
     let worker_paths = paths.clone();
     let worker_notifications = notifications.clone();
+    let import_owner = desktop_owner.clone();
     let worker = tokio::spawn(async move {
         let asr = worker_asr;
         let mut store = Store::open(&worker_paths)?;
@@ -932,6 +949,14 @@ pub async fn run_at_with_notifier(
                 Some(_) => {}
                 None => tokio::time::sleep(Duration::from_millis(250)).await,
             };
+            store.set_state(
+                "desktop_import_cache_recovery",
+                &crate::application::imports::reap_expired(
+                    &worker_paths,
+                    &import_owner,
+                    chrono::Utc::now().timestamp_millis(),
+                )?,
+            )?;
             store.cleanup_archived_sources_for_queue()?;
             store.clean_abandoned_cache(chrono::Utc::now().timestamp_millis())?;
             store.set_state(
@@ -966,13 +991,13 @@ pub async fn run_at_with_notifier(
                         helper.observe_endpoint(&native,&paths)?;
                         let action=match req.command.as_str(){
                             "desktop_capabilities_v1"=>{let capability=req.desktop_capability.ok_or_else(||OmmError::invalid("missing capability request"));capability.and_then(|capability|{if capability.protocol_version!=1||capability.desktop_contract_version!=1||capability.required_capabilities.iter().any(|required|!crate::application::profile::CAPABILITIES.contains(&serde_json::to_value(required).ok().and_then(|v|v.as_str().map(str::to_owned)).unwrap_or_default().as_str())){return Err(OmmError::new(ErrorCode::Conflict,false,"unsupported desktop capability"));}Ok(json!({"protocolVersion":1,"compatibility":crate::application::profile::compatible(&desktop_owner,"service")}))})},
-                            "desktop_dispatch_v1"=>{let message=req.desktop_request.clone().unwrap_or_default();if matches!(message["command"].as_str(),Some("record_start"|"record_stop")){controller.desktop_control(&desktop_owner,req.instance_id,&message).await}else{crate::application::service_mutation(&paths,&desktop_owner,req.instance_id,req.desktop_request)}},
+                            "desktop_dispatch_v1"=>{let message=req.desktop_request.clone().unwrap_or_default();if matches!(message["command"].as_str(),Some("record_start"|"record_stop")){controller.desktop_control(&desktop_owner,req.instance_id,&message,&native,&mut helper,&socket).await}else{crate::application::service_mutation(&paths,&desktop_owner,req.instance_id,req.desktop_request)}},
                             "status"=>Ok(json!({"running":true,"paths":paths,"runtime":location,"serviceInstanceId":guard.owner.instance_id,"serviceUid":guard.owner.uid,"servicePid":guard.owner.pid,"singleServiceScope":"selected runtime and persistent STATE; explicitly isolated roots may run independently","capture":native.status().await.ok(),"recording":controller.recording()?.map(|r|json!({"sessionId":r.session_id,"sourceId":r.source_id})),"pipelineHealthy":!worker.is_finished()&&!summary_worker.is_finished()&&!encoder.is_finished(),"asrQueueHealthy":!worker.is_finished(),"summaryQueueHealthy":!summary_worker.is_finished(),"archiveQueueHealthy":!encoder.is_finished(),"piCacheRecovery":Store::open(&paths)?.state::<serde_json::Value>("pi_cache_recovery")?,"lastCaptureError":Store::open(&paths)?.state::<OmmError>("capture_error")?,"lastMeetingObservation":Store::open(&paths)?.state::<serde_json::Value>("meeting_observation")?,"notificationDiagnostic":Store::open(&paths)?.state::<serde_json::Value>("notification_diagnostic")?})),
                             "capture_auto_stop"=>controller.callback(&req).await,
                             "record_status"=>native.status().await.map(|s|json!(s)),
                             "record_start"=>{async {if let Err(e)=ensure_helper(&native,&cfg,&socket,&mut helper,&paths).await {controller.recording_failed(&e);return Err(e);}controller.start(req.title.unwrap_or_else(||"Meeting".into()),None).await}.await},
                             "record_stop"=>controller.seal(true).await,
-                            "desktop_idle_shutdown_v1"=>{if req.instance_id!=Some(guard.owner.instance_id)||controller.recording()?.is_some(){Err(OmmError::new(ErrorCode::Conflict,false,"service generation changed or recording became active"))}else{let stopped=helper.shutdown(&native,&paths).await.map(|()|json!({"stopped":true}));if stopped.is_ok(){shutdown_reply=Some(stream);break stopped;}stopped}},
+                            "desktop_idle_shutdown_v1"=>{if req.instance_id!=Some(guard.owner.instance_id)||controller.recording()?.is_some(){Err(OmmError::new(ErrorCode::Conflict,false,"service generation changed or recording became active"))}else if let Err(error)=store.desktop_begin_idle_shutdown(guard.owner.instance_id){Err(error)}else{let stopped=helper.shutdown(&native,&paths).await.map(|()|json!({"stopped":true}));if stopped.is_ok(){shutdown_reply=Some(stream);break stopped;}store.desktop_abort_idle_shutdown(guard.owner.instance_id)?;stopped}},
                              "shutdown"=>{let sealed=controller.seal(false).await;let stopped=match sealed{Ok(value)=>helper.shutdown(&native,&paths).await.map(|()|value),Err(e)=>Err(e)};if stopped.is_ok(){shutdown_reply=Some(stream);break stopped;}stopped},
                             _=>Err(OmmError::invalid("unsupported service command"))};
                         Reply::result(action)

@@ -191,9 +191,7 @@ async fn inspect(paths: &Paths, bundle: Option<&Bundle>, action: &str) -> Result
             let busy = status["recording"].is_object()
                 || status["state"] == "recording"
                 || store.state::<Value>("recording")?.is_some()
-                || store.tasks()?.iter().any(|t| {
-                    matches!(t.status, TaskStatus::Transcribing | TaskStatus::Summarizing)
-                });
+                || store.desktop_processing_busy()?;
             if busy {
                 state = "busy";
                 reasons.push("service_busy");

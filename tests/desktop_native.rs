@@ -691,3 +691,152 @@ async fn desktop_cli_reads_retained_success_and_shares_metadata_and_trash() {
         assert!(Cli::try_parse_from(args).is_ok());
     }
 }
+
+#[test]
+fn desktop_review_requeue_trash_and_other_attempt_admission_is_atomic() {
+    let mut f = Fixture::new();
+    f.settled();
+    let id = f.meeting.session_id;
+    let item = dto::MeetingRevision {
+        meeting_id: id.to_string(),
+        expected_revision: 0,
+    };
+    f.store.desktop_trash(&[item], true).unwrap();
+    assert_eq!(
+        f.store.desktop_task(f.task.id).unwrap()["canRequeue"],
+        false,
+        "trash projects a forbidden requeue"
+    );
+    let p = json!({"taskId":f.task.id});
+    let req = request(p.clone());
+    assert!(f
+        .store
+        .desktop_atomic("processing_requeue", &req, |s| app::mutate(
+            s,
+            &f.paths,
+            "processing_requeue",
+            &p
+        ))
+        .is_err());
+    f.store
+        .desktop_trash(
+            &[dto::MeetingRevision {
+                meeting_id: id.to_string(),
+                expected_revision: 1,
+            }],
+            false,
+        )
+        .unwrap();
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let writers: Vec<_> = (0..2)
+        .map(|_| {
+            let paths = f.paths.clone();
+            let barrier = barrier.clone();
+            let p = p.clone();
+            std::thread::spawn(move || {
+                let mut s = Store::open(&paths).unwrap();
+                barrier.wait();
+                let req = request(p.clone());
+                s.desktop_atomic("processing_requeue", &req, |s| {
+                    app::mutate(s, &paths, "processing_requeue", &p)
+                })
+            })
+        })
+        .collect();
+    let results: Vec<_> = writers.into_iter().map(|t| t.join().unwrap()).collect();
+    assert_eq!(
+        results.iter().filter(|r| r.is_ok()).count(),
+        1,
+        "two different requestIds queued duplicate attempts"
+    );
+    assert_eq!(
+        f.store.desktop_task(f.task.id).unwrap()["canRequeue"],
+        false
+    );
+}
+#[test]
+fn desktop_review_retry_refuses_another_active_attempt_and_projects_false() {
+    let mut f = Fixture::new();
+    let claim = f.store.claim_asr(1, 10000).unwrap().unwrap();
+    f.store
+        .fail(&claim, &OmmError::unavailable("synthetic blocked"), 2)
+        .unwrap();
+    let cfg = AppConfig::load(&f.paths).unwrap();
+    let next = f.store.enqueue(&f.meeting, &cfg.snapshot(), true).unwrap();
+    assert_eq!(f.store.desktop_task(f.task.id).unwrap()["canRetry"], false);
+    let p = json!({"taskId":f.task.id});
+    let req = request(p.clone());
+    assert!(f
+        .store
+        .desktop_atomic("processing_retry", &req, |s| app::mutate(
+            s,
+            &f.paths,
+            "processing_retry",
+            &p
+        ))
+        .is_err());
+    assert_eq!(f.store.task(next.id).unwrap().status, TaskStatus::Queued);
+}
+#[test]
+fn desktop_review_content_scope_search_includes_title() {
+    let mut f = Fixture::new();
+    f.transcript("unrelated synthetic words");
+    let mut query: Value = serde_json::from_slice(include_bytes!(
+        "../contracts/desktop/v1/examples/meeting_list.json"
+    ))
+    .unwrap();
+    query = query["request"]["payload"].clone();
+    query["filter"]["scope"] = json!("content");
+    query["filter"]["query"] = json!("synthetic-only");
+    let list = f
+        .store
+        .desktop_list(&serde_json::from_value(query).unwrap())
+        .unwrap();
+    assert_eq!(
+        list["items"].as_array().unwrap().len(),
+        1,
+        "content scope omitted title-only match"
+    );
+}
+
+#[test]
+fn desktop_review_shutdown_gate_serializes_all_claim_lanes_and_restart_release() {
+    for _ in 0..6 {
+        let f = Fixture::new();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let instance = Uuid::new_v4();
+        let paths = f.paths.clone();
+        let gate = barrier.clone();
+        let claim = std::thread::spawn(move || {
+            let mut store = Store::open(&paths).unwrap();
+            gate.wait();
+            store.claim_asr(1, 10_000).unwrap().is_some()
+        });
+        let paths = f.paths.clone();
+        let shutdown = std::thread::spawn(move || {
+            let mut store = Store::open(&paths).unwrap();
+            barrier.wait();
+            store.desktop_begin_idle_shutdown(instance).is_ok()
+        });
+        let claimed = claim.join().unwrap();
+        let stopping = shutdown.join().unwrap();
+        assert_ne!(
+            claimed, stopping,
+            "exactly one of claim/shutdown may win the shared writer transaction"
+        );
+    }
+    let mut f = Fixture::new();
+    let instance = Uuid::new_v4();
+    f.store.desktop_begin_idle_shutdown(instance).unwrap();
+    assert!(f.store.claim_asr(1, 10_000).unwrap().is_none());
+    assert!(f.store.claim_summary(1, 10_000).unwrap().is_none());
+    assert!(f.store.claim_segment(1, 10_000).unwrap().is_none());
+    assert!(f.store.claim_archive(1, 10_000).unwrap().is_none());
+    f.store.desktop_abort_idle_shutdown(Uuid::new_v4()).unwrap();
+    assert!(
+        f.store.claim_asr(1, 10_000).unwrap().is_none(),
+        "other service identity cannot remove gate"
+    );
+    f.store.desktop_abort_idle_shutdown(instance).unwrap();
+    assert!(f.store.claim_asr(1, 10_000).unwrap().is_some());
+}

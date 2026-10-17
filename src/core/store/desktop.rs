@@ -4,6 +4,16 @@ use crate::application::desktop_contracts as dto;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
+pub(super) fn service_stopping(conn: &Connection) -> Result<bool> {
+    Ok(conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM settings WHERE key='desktop_service_stopping')",
+        [],
+        |r| r.get(0),
+    )?)
+}
+fn processing_busy(conn: &Connection) -> Result<bool> {
+    Ok(conn.query_row("SELECT EXISTS(SELECT 1 FROM tasks WHERE lease IS NOT NULL OR status IN ('transcribing','summarizing')) OR EXISTS(SELECT 1 FROM segment_jobs WHERE lease IS NOT NULL OR status='running') OR EXISTS(SELECT 1 FROM segment_archives WHERE lease IS NOT NULL)",[],|r|r.get(0))?)
+}
 fn missing() -> OmmError {
     OmmError::new(ErrorCode::Unavailable, false, "meeting not found")
 }
@@ -288,7 +298,7 @@ impl Store {
             }
             let scope = serde_json::to_value(request.filter.scope)?;
             let mut haystack = if scope == "content" {
-                String::new()
+                row["metadata"]["title"].as_str().unwrap_or("").to_owned()
             } else {
                 format!(
                     "{} {} {}",
@@ -436,6 +446,89 @@ impl Store {
             json!({"meetings":originals.keys().map(|id|self.desktop_row(*id)).collect::<Result<Vec<_>>>()?}),
         )
     }
+    pub fn desktop_processing_busy(&self) -> Result<bool> {
+        processing_busy(&self.conn)
+    }
+    /// The same IMMEDIATE writer boundary as every worker claim closes the final-check race.
+    pub fn desktop_begin_idle_shutdown(&mut self, instance: Uuid) -> Result<()> {
+        let tx = self.conn.write_transaction()?;
+        let recording: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM settings WHERE key='recording')",
+            [],
+            |r| r.get(0),
+        )?;
+        if recording || processing_busy(&tx)? || service_stopping(&tx)? {
+            return Err(OmmError::new(
+                ErrorCode::Conflict,
+                false,
+                "recording or processing became active before shutdown",
+            ));
+        }
+        tx.execute(
+            "INSERT INTO settings(key,document) VALUES('desktop_service_stopping',?1)",
+            [encode(&instance)?],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn desktop_abort_idle_shutdown(&self, instance: Uuid) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM settings WHERE key='desktop_service_stopping' AND document=?1",
+            [encode(&instance)?],
+        )?;
+        Ok(())
+    }
+    fn desktop_task_work_available(&self, task: &Task) -> Result<bool> {
+        let trashed = self
+            .conn
+            .query_row(
+                "SELECT trashed FROM desktop_metadata WHERE meeting=?1",
+                [task.session_id.to_string()],
+                |r| r.get::<_, bool>(0),
+            )
+            .optional()?
+            .unwrap_or(false);
+        let other = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM tasks WHERE session=?1 AND id!=?2 AND status IN ('queued','transcribing','transcript_committed','summarizing'))",params![task.session_id.to_string(),task.id.to_string()],|r|r.get::<_,bool>(0))?;
+        Ok(!trashed && !other)
+    }
+    pub fn desktop_retry(&mut self, id: Uuid) -> Result<Value> {
+        if self.conn.is_autocommit() {
+            return Err(OmmError::invalid(
+                "desktop task mutation requires an admitted transaction",
+            ));
+        }
+        let task = self.task(id)?;
+        if self.cancel_requested(id)? || !self.desktop_task_work_available(&task)? {
+            return Err(OmmError::new(
+                ErrorCode::Conflict,
+                false,
+                "restore meeting and settle other attempts before retry",
+            ));
+        }
+        self.retry(id)?;
+        self.retry_segment_failures(task.session_id)?;
+        self.desktop_task(id)
+    }
+    pub fn desktop_requeue(&mut self, id: Uuid, config: &ConfigSnapshot) -> Result<Value> {
+        if self.conn.is_autocommit() {
+            return Err(OmmError::invalid(
+                "desktop task mutation requires an admitted transaction",
+            ));
+        }
+        let task = self.task(id)?;
+        if self.desktop_task(id)?["canRequeue"] != true
+            || !self.desktop_task_work_available(&task)?
+        {
+            return Err(OmmError::new(
+                ErrorCode::Conflict,
+                false,
+                "only settled cancelled tasks in restored idle meetings can requeue",
+            ));
+        }
+        let meeting = self.meeting(task.session_id)?.ok_or_else(missing)?;
+        let next = self.enqueue(&meeting, config, true)?;
+        self.desktop_task(next.id)
+    }
     pub fn desktop_task(&self, id: Uuid) -> Result<Value> {
         let task = self.task(id)?;
         let cancelled = self.cancel_requested(id)?;
@@ -465,13 +558,14 @@ impl Store {
                 | TaskStatus::TranscriptCommitted
                 | TaskStatus::Summarizing
         );
+        let work_available = self.desktop_task_work_available(&task)?;
         let status = if settled {
             "cancelled"
         } else {
             status_name(task.status)
         };
         Ok(
-            json!({"taskId":id,"meetingId":task.session_id,"attempt":task.attempt,"generationId":id,"stage":stage_name(task.stage),"status":status,"cancelRequested":cancelled,"completedSegments":progress.iter().filter(|p|p.status=="done").count(),"totalSegments":progress.len(),"retryCount":retry_count,"nextRetryAtMs":next_retry,"error":task.error.as_ref().map(crate::application::error),"canRetry":!cancelled&&matches!(task.status,TaskStatus::Blocked|TaskStatus::Failed|TaskStatus::Interrupted),"canCancel":active&&!cancelled,"canRequeue":cancelled&&settled}),
+            json!({"taskId":id,"meetingId":task.session_id,"attempt":task.attempt,"generationId":id,"stage":stage_name(task.stage),"status":status,"cancelRequested":cancelled,"completedSegments":progress.iter().filter(|p|p.status=="done").count(),"totalSegments":progress.len(),"retryCount":retry_count,"nextRetryAtMs":next_retry,"error":task.error.as_ref().map(crate::application::error),"canRetry":work_available&&!cancelled&&matches!(task.status,TaskStatus::Blocked|TaskStatus::Failed|TaskStatus::Interrupted),"canCancel":active&&!cancelled,"canRequeue":work_available&&cancelled&&settled}),
         )
     }
     pub fn desktop_tasks(&self, payload: &Value) -> Result<Value> {
@@ -508,6 +602,14 @@ impl Store {
             let config: ConfigSnapshot = decode(&config)?;
             for stage in [Stage::Transcribe, Stage::Summary] {
                 let content = self.read_artifact(task.id, stage).ok();
+                let partial = if stage == Stage::Transcribe && content.is_none() {
+                    self.desktop_partial_artifact(task.id)?
+                } else {
+                    None
+                };
+                let bytes = content
+                    .as_deref()
+                    .or_else(|| partial.as_ref().map(|(bytes, _)| bytes.as_slice()));
                 let current = if stage == Stage::Transcribe {
                     row["currentTranscriptTaskId"] == task.id.to_string()
                 } else {
@@ -517,10 +619,10 @@ impl Store {
                                 row["currentTranscriptTaskId"] == s.task_id.to_string()
                             }))
                 };
-                if content.is_none() && stage != task.stage {
+                if bytes.is_none() && stage != task.stage {
                     continue;
                 }
-                versions.push(json!({"artifact":{"meetingId":meeting,"taskId":task.id,"stage":stage_name(stage)},"attempt":task.attempt,"status":if content.is_some(){"committed"}else{"missing"},"taskStatus":self.desktop_task(task.id)?["status"],"sha256":content.as_deref().map(hash_bytes),"byteLength":content.as_ref().map(Vec::len),"createdAtMs":null,"sourceTranscriptTaskId":task.transcript_source.as_ref().map(|s|s.task_id).or((stage==Stage::Summary).then_some(task.id)),"sourceTranscriptHash":task.transcript_source.as_ref().map(|s|s.sha256.clone()).or_else(||(stage==Stage::Summary).then(||self.read_artifact(task.id,Stage::Transcribe).ok().map(|b|hash_bytes(&b))).flatten()),"modelVersion":config.asr.model_version,"configHash":task.config_hash,"current":current}));
+                versions.push(json!({"artifact":{"meetingId":meeting,"taskId":task.id,"stage":stage_name(stage)},"attempt":task.attempt,"status":if content.is_some(){"committed"}else if partial.is_some(){"partial"}else{"missing"},"taskStatus":self.desktop_task(task.id)?["status"],"sha256":bytes.map(hash_bytes),"byteLength":bytes.map(<[u8]>::len),"createdAtMs":null,"sourceTranscriptTaskId":task.transcript_source.as_ref().map(|s|s.task_id).or((stage==Stage::Summary).then_some(task.id)),"sourceTranscriptHash":task.transcript_source.as_ref().map(|s|s.sha256.clone()).or_else(||(stage==Stage::Summary).then(||self.read_artifact(task.id,Stage::Transcribe).ok().map(|b|hash_bytes(&b))).flatten()),"modelVersion":config.asr.model_version,"configHash":task.config_hash,"current":current}));
             }
         }
         Ok(versions)

@@ -44,6 +44,7 @@ mod archives;
 mod asr_measurements;
 mod attempt_errors;
 pub mod desktop;
+mod desktop_partial;
 mod notification_events;
 pub use attempt_errors::{StageAttemptError, StageErrorPhase};
 mod segments;
@@ -489,6 +490,9 @@ impl Store {
         }
         self.recover(now_ms)?;
         let tx = self.conn.write_transaction()?;
+        if desktop::service_stopping(&tx)? {
+            return Ok(None);
+        }
         if !aggregate_only && lane!=Some(Stage::Summary) && super::resources::CpuBudget::current().shared_encoder_slot && tx.query_row("SELECT EXISTS(SELECT 1 FROM segment_archives WHERE lease IS NOT NULL AND expires>?1)",[now_ms],|r|r.get::<_,bool>(0))?{return Ok(None);}
         let running: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM tasks WHERE lease IS NOT NULL AND expires>?1 AND (?2 IS NULL OR stage=?2))",

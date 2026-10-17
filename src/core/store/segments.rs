@@ -431,6 +431,9 @@ impl Store {
         self.recover_segment_commits()?;
         self.repair_segment_checkpoints()?;
         let tx = self.conn.write_transaction()?;
+        if super::desktop::service_stopping(&tx)? {
+            return Ok(None);
+        }
         if crate::core::resources::CpuBudget::current().shared_encoder_slot && tx.query_row("SELECT EXISTS(SELECT 1 FROM segment_archives WHERE lease IS NOT NULL AND expires>?1)",[now],|r|r.get::<_,bool>(0))?{return Ok(None);}
         tx.execute("UPDATE segment_jobs SET status='queued',lease=NULL,expires=NULL WHERE status='running' AND expires<=?1",[now])?;
         let busy:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM segment_jobs WHERE lease IS NOT NULL AND expires>?1) OR EXISTS(SELECT 1 FROM tasks WHERE lease IS NOT NULL AND expires>?1 AND stage='transcribe')",[now],|r|r.get(0))?;

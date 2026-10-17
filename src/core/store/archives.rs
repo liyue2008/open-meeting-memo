@@ -40,6 +40,9 @@ impl Store {
             return Err(OmmError::invalid("archive lease invalid"));
         }
         let tx = self.conn.write_transaction()?;
+        if super::desktop::service_stopping(&tx)? {
+            return Ok(None);
+        }
         if crate::core::resources::CpuBudget::current().shared_encoder_slot {
             let busy:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM segment_jobs WHERE lease IS NOT NULL AND expires>?1) OR EXISTS(SELECT 1 FROM tasks WHERE stage='transcribe' AND lease IS NOT NULL AND expires>?1)",[now],|r|r.get(0))?;
             if busy {

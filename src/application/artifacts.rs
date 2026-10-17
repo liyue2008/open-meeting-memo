@@ -55,8 +55,24 @@ pub fn text(store: &Store, reference: &Value, format: &str) -> Result<Vec<u8>> {
         .into_bytes())
 }
 pub fn read(store: &Store, payload: &Value) -> Result<Value> {
-    let (bytes, stage) = full(store, &payload["artifact"])?;
-    let revision = hash_bytes(&bytes);
+    let (meeting, task, stage) = reference(&payload["artifact"])?;
+    if store.task(task)?.session_id != meeting {
+        return Err(OmmError::invalid(
+            "artifact does not belong to this meeting",
+        ));
+    }
+    let partial = if stage == Stage::Transcribe && !store.artifact_committed(task, stage)? {
+        store.desktop_partial_artifact(task)?
+    } else {
+        None
+    };
+    let (bytes, revision, status) = if let Some((bytes, revision)) = partial {
+        (bytes, revision, "partial")
+    } else {
+        let (bytes, _) = full(store, &payload["artifact"])?;
+        let revision = hash_bytes(&bytes);
+        (bytes, revision, "committed")
+    };
     let cursor = payload["cursor"].as_str();
     let offset = crate::core::store::desktop::decode_cursor(cursor, &revision)?;
     let limit = payload["maxBytes"].as_u64().unwrap_or(65536) as usize;
@@ -100,6 +116,6 @@ pub fn read(store: &Store, payload: &Value) -> Result<Value> {
         next = (end < content.len()).then(|| format!("{revision}:{end}"));
     }
     Ok(
-        json!({"artifact":payload["artifact"],"revision":revision,"status":"committed","format":if stage==Stage::Transcribe{"transcript"}else{"markdown"},"text":text,"lines":lines,"nextCursor":next,"complete":next.is_none()}),
+        json!({"artifact":payload["artifact"],"revision":revision,"status":status,"format":if stage==Stage::Transcribe{"transcript"}else{"markdown"},"text":text,"lines":lines,"nextCursor":next,"complete":next.is_none()}),
     )
 }

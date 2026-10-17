@@ -14,6 +14,8 @@ use std::{
     path::{Path, PathBuf},
 };
 use uuid::Uuid;
+mod promotion;
+mod staging;
 const MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -117,7 +119,7 @@ fn opus(path: &Path) -> Result<(u64, u16, u32)> {
 }
 pub async fn select(paths: &Paths, owner: &ProfileOwner, path: &Path) -> Result<Value> {
     let canonical = path.canonicalize()?;
-    let mut input = OpenOptions::new()
+    let input = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
         .open(&canonical)?;
@@ -127,10 +129,37 @@ pub async fn select(paths: &Paths, owner: &ProfileOwner, path: &Path) -> Result<
             "import requires a regular audio file no larger than 2 GiB",
         ));
     }
-    private_dir(&root(paths))?;
+    let _lock = staging::required_lock(paths)?;
+    staging::reap_locked(paths, owner, chrono::Utc::now().timestamp_millis())?;
     let handle = Uuid::new_v4().simple().to_string();
+    staging::create(paths, owner, &handle)?;
     let dir = directory(paths, &handle)?;
-    private_dir(&dir)?;
+    let result = select_inner(
+        paths,
+        owner,
+        canonical,
+        input,
+        metadata.len(),
+        &handle,
+        &dir,
+    )
+    .await;
+    if result.is_err() {
+        if let Err(error) = staging::remove(paths, owner, &handle) {
+            tracing::warn!(code=?error.code,"owned failed import staging retained after cleanup refusal");
+        }
+    }
+    result
+}
+async fn select_inner(
+    paths: &Paths,
+    owner: &ProfileOwner,
+    canonical: PathBuf,
+    mut input: File,
+    expected_size: u64,
+    handle: &str,
+    dir: &Path,
+) -> Result<Value> {
     let source = dir.join("source");
     let mut output = OpenOptions::new()
         .write(true)
@@ -142,7 +171,7 @@ pub async fn select(paths: &Paths, owner: &ProfileOwner, path: &Path) -> Result<
         &mut output,
     )?;
     output.sync_all()?;
-    if size != metadata.len() || size > MAX_BYTES {
+    if size != expected_size || size > MAX_BYTES {
         return Err(OmmError::new(
             ErrorCode::Conflict,
             false,
@@ -229,8 +258,19 @@ pub async fn select(paths: &Paths, owner: &ProfileOwner, path: &Path) -> Result<
             .map_err(|_| OmmError::invalid("WAV finalize failed"))?;
     } else {
         let codec = crate::adapters::asr::codec::AudioCodec::from_paths(paths)?;
-        codec.import_mix(&source, &mix, &dir).await?;
-        std::fs::set_permissions(&mix, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+        let result = codec.import_mix(&source, &mix, dir).await;
+        // A failed decoder can leave its output with the process umask. Only normalize
+        // this call's known output slot after the owned decoder has drained.
+        if std::fs::symlink_metadata(&mix).is_ok() {
+            controlled_file(dir, &mix)?;
+            use std::os::unix::fs::MetadataExt;
+            let metadata = std::fs::symlink_metadata(&mix)?;
+            if metadata.uid() != unsafe { libc::geteuid() } || metadata.nlink() != 1 {
+                return Err(OmmError::invalid("decoder output ownership changed"));
+            }
+            std::fs::set_permissions(&mix, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+        }
+        result?;
     }
     File::open(&mix)?.sync_all()?;
     let (actual, _, _) = wav(&mix)?;
@@ -243,7 +283,7 @@ pub async fn select(paths: &Paths, owner: &ProfileOwner, path: &Path) -> Result<
     }
     let source_hash = hash_file(&source)?;
     let selection = Selection {
-        handle: handle.clone(),
+        handle: handle.into(),
         generation: owner.generation,
         profile_id: owner.profile_id.clone(),
         display_name: canonical
@@ -268,23 +308,14 @@ pub async fn select(paths: &Paths, owner: &ProfileOwner, path: &Path) -> Result<
         &serde_json::to_vec(&selection)?,
     )?;
     std::fs::remove_file(source)?;
-    sync_dir(&dir)?;
+    sync_dir(dir)?;
     Ok(
         json!({"selection":{"selectionHandle":handle,"displayName":selection.display_name,"byteLength":size,"format":format,"durationMs":actual,"channels":channels,"sampleRate":sample_rate,"expiresAtMs":selection.expires_at_ms}}),
     )
 }
 pub fn load(paths: &Paths, owner: &ProfileOwner, handle: &str) -> Result<Selection> {
-    let dir = directory(paths, handle)?;
-    validate_private_dir(&dir)?;
-    let path = dir.join("selection.json");
-    validate_private_file(&path)?;
-    if std::fs::metadata(&path)?.len() > 8192 {
-        return Err(OmmError::invalid("import selection exceeds budget"));
-    }
-    let selection: Selection = serde_json::from_slice(&std::fs::read(path)?)?;
-    if selection.handle != handle
-        || selection.profile_id != owner.profile_id
-        || selection.generation != owner.generation
+    let selection = staging::selection(paths, owner, handle)?;
+    if selection.generation != owner.generation
         || selection.expires_at_ms < chrono::Utc::now().timestamp_millis()
     {
         return Err(OmmError::new(
@@ -296,15 +327,16 @@ pub fn load(paths: &Paths, owner: &ProfileOwner, handle: &str) -> Result<Selecti
     Ok(selection)
 }
 pub fn cancel(paths: &Paths, owner: &ProfileOwner, handle: &str) -> Result<Value> {
-    let _selection = load(paths, owner, handle)?;
-    let dir = directory(paths, handle)?;
-    for file in ["selection.json", "imported-mix.wav"] {
-        let path = dir.join(file);
-        validate_private_file(&path)?;
-        std::fs::remove_file(path)?;
-    }
-    std::fs::remove_dir(dir)?;
+    let _lock = staging::required_lock(paths)?;
+    staging::remove(paths, owner, handle)?;
     Ok(json!({"acknowledged":true}))
+}
+/// Explicit import operations and an already-compatible service may reclaim owned expired staging.
+pub fn reap_expired(paths: &Paths, owner: &ProfileOwner, now_ms: i64) -> Result<Value> {
+    let Some(_lock) = staging::lock(paths)? else {
+        return Ok(json!({"removed":0,"retained":0}));
+    };
+    staging::reap_locked(paths, owner, now_ms)
 }
 /// File promotion precedes DB admission; an uncommitted directory is not a meeting manifest.
 pub fn commit(paths: &Paths, owner: &ProfileOwner, request: &Value) -> Result<Value> {
@@ -312,7 +344,6 @@ pub fn commit(paths: &Paths, owner: &ProfileOwner, request: &Value) -> Result<Va
     let handle = payload["selectionHandle"]
         .as_str()
         .ok_or_else(|| OmmError::invalid("missing selection handle"))?;
-    let selection = load(paths, owner, handle)?;
     let metadata: MeetingMetadata = serde_json::from_value(payload["metadata"].clone())?;
     let _: chrono_tz::Tz = payload["timeZone"]
         .as_str()
@@ -322,57 +353,31 @@ pub fn commit(paths: &Paths, owner: &ProfileOwner, request: &Value) -> Result<Va
     let start = payload["startedAtMs"]
         .as_i64()
         .ok_or_else(|| OmmError::invalid("missing import time"))?;
+    let _lock = staging::required_lock(paths)?;
     let mut store = Store::open(paths)?;
     let mut body = request.clone();
     body["payload"].as_object_mut().unwrap().remove("admission");
     let key = format!("import_commit:{}", request["requestId"].as_str().unwrap());
     let hash = hash_bytes(&serde_json::to_vec(&body)?);
     if let Some(result) = store.desktop_request(&key, &hash)? {
+        staging::remove(paths, owner, handle)?;
         return Ok(result);
     }
+    let selection = load(paths, owner, handle)?;
     if let Some(duplicate) = store.desktop_import_duplicate(&selection.source_hash)? {
         let result =
             json!({"meeting":store.desktop_row(duplicate)?,"operationId":null,"duplicate":true});
-        return store.desktop_atomic("import_commit", request, |_| Ok(result));
+        let result = store.desktop_atomic("import_commit", request, |_| Ok(result))?;
+        staging::remove(paths, owner, handle)?;
+        return Ok(result);
     }
     let dir = paths
         .data
         .join("meetings")
         .join("imports")
         .join(selection.meeting_id.to_string());
-    private_dir(&dir)?;
-    let target = dir.join("imported-mix.wav");
-    if !target.try_exists()? {
-        let source = directory(paths, handle)?.join("imported-mix.wav");
-        validate_private_file(&source)?;
-        if hash_file(&source)? != selection.mix_hash {
-            return Err(OmmError::new(
-                ErrorCode::Corrupt,
-                false,
-                "staged import hash mismatch",
-            ));
-        }
-        let mut input = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&source)?;
-        let mut output = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&target)?;
-        std::io::copy(&mut input, &mut output)?;
-        output.sync_all()?;
-        sync_dir(&dir)?;
-    }
-    validate_private_file(&target)?;
-    if hash_file(&target)? != selection.mix_hash {
-        return Err(OmmError::new(
-            ErrorCode::Corrupt,
-            false,
-            "promoted import hash mismatch",
-        ));
-    }
+    let source = directory(paths, handle)?.join("imported-mix.wav");
+    let target = promotion::promote(paths, owner, &selection, &source, &dir)?;
     let meeting = SealedMeeting {
         session_id: selection.meeting_id,
         title: metadata.title.clone(),
@@ -387,5 +392,8 @@ pub fn commit(paths: &Paths, owner: &ProfileOwner, request: &Value) -> Result<Va
             .checked_add(selection.duration_ms as i64)
             .ok_or_else(|| OmmError::invalid("import time overflow"))?,
     };
-    store.desktop_atomic("import_commit",request,|store|{if let Some(duplicate)=store.desktop_import_duplicate(&selection.source_hash)?{return Ok(json!({"meeting":store.desktop_row(duplicate)?,"operationId":null,"duplicate":true}));}let config=crate::core::config::AppConfig::load(paths)?;let task=store.enqueue(&meeting,&config.snapshot(),false)?;store.desktop_import_metadata(meeting.session_id,&metadata,start,&selection.source_hash)?;Ok(json!({"meeting":store.desktop_row(meeting.session_id)?,"operationId":task.id,"duplicate":false}))})
+    let result=store.desktop_atomic("import_commit",request,|store|{if let Some(duplicate)=store.desktop_import_duplicate(&selection.source_hash)?{return Ok(json!({"meeting":store.desktop_row(duplicate)?,"operationId":null,"duplicate":true}));}let config=crate::core::config::AppConfig::load(paths)?;let task=store.enqueue(&meeting,&config.snapshot(),false)?;store.desktop_import_metadata(meeting.session_id,&metadata,start,&selection.source_hash)?;Ok(json!({"meeting":store.desktop_row(meeting.session_id)?,"operationId":task.id,"duplicate":false}))})
+?;
+    staging::remove(paths, owner, handle)?;
+    Ok(result)
 }

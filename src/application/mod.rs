@@ -99,42 +99,10 @@ pub fn mutate(store: &mut Store, paths: &Paths, command: &str, payload: &Value) 
             command == "meeting_trash",
         ),
         "processing_cancel" => store.desktop_cancel(id(payload, "taskId")?),
-        "processing_retry" => {
-            let task = id(payload, "taskId")?;
-            if store.cancel_requested(task)? {
-                return Err(OmmError::new(
-                    ErrorCode::Conflict,
-                    false,
-                    "cancelled tasks require a new generation",
-                ));
-            }
-            let meeting = store.task(task)?.session_id;
-            if store.desktop_row(meeting)?["trashed"] == true {
-                return Err(OmmError::new(
-                    ErrorCode::Conflict,
-                    false,
-                    "restore meeting before retry",
-                ));
-            }
-            store.retry(task)?;
-            store.retry_segment_failures(meeting)?;
-            store.desktop_task(task)
-        }
+        "processing_retry" => store.desktop_retry(id(payload, "taskId")?),
         "processing_requeue" => {
-            let task = store.task(id(payload, "taskId")?)?;
-            if store.desktop_task(task.id)?["canRequeue"] != true {
-                return Err(OmmError::new(
-                    ErrorCode::Conflict,
-                    false,
-                    "only settled cancelled tasks can requeue",
-                ));
-            }
-            let meeting = store
-                .meeting(task.session_id)?
-                .ok_or_else(|| OmmError::unavailable("meeting not found"))?;
             let config = AppConfig::load(paths)?;
-            let next = store.enqueue(&meeting, &config.snapshot(), true)?;
-            store.desktop_task(next.id)
+            store.desktop_requeue(id(payload, "taskId")?, &config.snapshot())
         }
         "processing_enqueue" => {
             let config = AppConfig::load(paths)?;
