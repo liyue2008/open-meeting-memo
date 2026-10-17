@@ -1,0 +1,14 @@
+scripts/test-desktop.sh
+  h_b4d40596eab523 35-46,48-49,55-56,65,70,76-81,84-92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c04a87de786c9228d45c29ca0153f18da4837605",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
