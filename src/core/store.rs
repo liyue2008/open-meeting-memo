@@ -176,11 +176,14 @@ impl Store {
         }
     }
     pub fn active_audio_readers(&self) -> Result<bool> {
-        let path = self.paths.state.join("audio-readers.lock");
+        Self::active_audio_readers_at(&self.paths)
+    }
+    fn active_audio_readers_at(paths: &Paths) -> Result<bool> {
+        let path = paths.state.join("audio-readers.lock");
         if !path.exists() {
             return Ok(false);
         }
-        controlled_file(&self.paths.state, &path)?;
+        controlled_file(&paths.state, &path)?;
         let file = fs::OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NOFOLLOW)

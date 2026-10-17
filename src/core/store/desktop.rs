@@ -447,17 +447,22 @@ impl Store {
         )
     }
     pub fn desktop_processing_busy(&self) -> Result<bool> {
-        processing_busy(&self.conn)
+        Ok(processing_busy(&self.conn)? || self.active_audio_readers()?)
     }
     /// The same IMMEDIATE writer boundary as every worker claim closes the final-check race.
     pub fn desktop_begin_idle_shutdown(&mut self, instance: Uuid) -> Result<()> {
+        let paths = self.paths.clone();
         let tx = self.conn.write_transaction()?;
         let recording: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM settings WHERE key='recording')",
             [],
             |r| r.get(0),
         )?;
-        if recording || processing_busy(&tx)? || service_stopping(&tx)? {
+        if recording
+            || processing_busy(&tx)?
+            || Self::active_audio_readers_at(&paths)?
+            || service_stopping(&tx)?
+        {
             return Err(OmmError::new(
                 ErrorCode::Conflict,
                 false,

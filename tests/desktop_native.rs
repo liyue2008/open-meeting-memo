@@ -840,3 +840,26 @@ fn desktop_review_shutdown_gate_serializes_all_claim_lanes_and_restart_release()
     f.store.desktop_abort_idle_shutdown(instance).unwrap();
     assert!(f.store.claim_asr(1, 10_000).unwrap().is_some());
 }
+
+#[test]
+fn desktop_review_shutdown_rejects_reader_after_lease_recovery() {
+    let mut f = Fixture::new();
+    let claim = f.store.claim_asr(1000, 1000).unwrap().unwrap();
+    let reader = f.store.audio_read_lock().unwrap();
+    f.store.recover(claim.lease.expires_at_ms + 1).unwrap();
+    assert_eq!(
+        f.store.task(f.task.id).unwrap().status,
+        TaskStatus::Interrupted
+    );
+    assert!(f.store.active_audio_readers().unwrap());
+    assert!(
+        f.store.desktop_processing_busy().unwrap(),
+        "a child-owned reader can outlive an expired SQL lease"
+    );
+    let instance = Uuid::new_v4();
+    assert!(f.store.desktop_begin_idle_shutdown(instance).is_err());
+    drop(reader);
+    assert!(!f.store.desktop_processing_busy().unwrap());
+    f.store.desktop_begin_idle_shutdown(instance).unwrap();
+    f.store.desktop_abort_idle_shutdown(instance).unwrap();
+}
