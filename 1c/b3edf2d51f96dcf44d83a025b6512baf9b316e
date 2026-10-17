@@ -1,0 +1,25 @@
+Cargo.lock
+  s_b51f0316cfa2ff::t_ffdf58d512695a 2392
+apps/desktop/src-tauri/src/bridge_fixture/store.rs
+  s_b51f0316cfa2ff::t_b1d42452d62083 1-364
+docs/desktop-native.md
+  s_b51f0316cfa2ff::t_e4b087bafe079b 241-327
+packaging/desktop/test-stores.sh
+  s_b51f0316cfa2ff::t_66e9edf140957c 1-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1cb3edf2d51f96dcf44d83a025b6512baf9b316e",
+  "prompts": {},
+  "sessions": {
+    "s_b51f0316cfa2ff": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14a57-1149-74de-90d2-383adb76b2f3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
