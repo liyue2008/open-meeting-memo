@@ -21,7 +21,13 @@
 
 私有证据根 `/private/tmp/omm-desktop-integration-8KrEI9`（0700）中的 `full-gate.log` / `full-gate.exit` 记录基线全量门禁 exit 0；`bridge-initial/bridge-result.json` 为41项原生WK fixture，`ok=true`、`playCalls=0`。`bridge-snapshot/bridge-result.json` 同时抓取真实React DOM，确认库校验失败；详细可复现命令与环境见该目录 `component-handoff.md`。原生fixture通过不能解除实际React阻塞。
 
-修复交接后必须在新整合提交重跑完整门禁和全业务真实WK测试，并在本页替换为最终当前源码与工件证据。以下Foundation入口只是有限组件检查：
+修复交接后必须在新整合提交重跑完整门禁和全业务真实WK测试，并在本页替换为最终当前源码与工件证据。
+
+WK测试隔离待证实：只将HOME/XDG指向私有目录不足以证明macOS网站数据仓库隔离。原生owner须提供test-only非持久仓库或明确独立受控仓库及A/B互不读取sentinel的证据，生产持久外观行为不变。在此之前暂停写主题/侧栏网站偏好的WK测试；不读取或清空既有个人网站数据。非持久仓库中同窗口reload不证明生产跨进程持久化。
+
+依赖审计的外部限制：当前 `npm audit` 未取得报告。证据根中的 `npm-audit-current.exit`、`npm-audit-official-current.exit`、`npm-audit-system-ca.exit` 均为1：项目镜像审计API返回400；官方端点先遇证书链验证失败，使用现有系统信任后返回网络策略拦截页面。未关闭TLS、绕过网络策略或改动依赖。这是未完成的审计，不是“无漏洞”，也不是已发现漏洞。已知Vitest更新提示由原前端owner核对适用公告；正式评审必须考虑该验证限制。
+
+以下Foundation入口只是有限组件检查：
 
 ```sh
 bash scripts/test-desktop.sh --foundation
