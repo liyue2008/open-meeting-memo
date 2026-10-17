@@ -1,0 +1,21 @@
+apps/desktop/src/features/artifacts.tsx
+  s_ae02d12992cb1d::t_36e1772b9ee2fd 106
+apps/desktop/src/features/detail.tsx
+  s_ae02d12992cb1d::t_cd978734908043 2,8,27-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b612c5c1bf8a0a48fc4e08b9b59cc5ab82b358d5",
+  "prompts": {},
+  "sessions": {
+    "s_ae02d12992cb1d": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14acf-e318-76cd-a43b-6bd5ff8c8bfe",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
