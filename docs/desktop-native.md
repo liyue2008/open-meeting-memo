@@ -166,3 +166,35 @@ permitted destruction. It does not destroy/recreate a label while asynchronous
 WK teardown is still settling. Readiness requires both injected IPC and the
 exact expected origin. The private HTTP fixture serves only an actual GET;
 empty/speculative connections do not consume its one response.
+
+### Owned native close request (feature-only UI scene)
+
+In the `ui` scene only, set `window.__ommFixtureCloseRequest` to
+`{id:'cancel-1',action:'close'}`. Poll `window.__ommFixtureCloseResult` for the
+matching bounded receipt `{ok:true,id,nativeCloseRequested:true}`. This calls
+Rust's actual `Window.close()` on the current local `main`, so React's existing
+`onCloseRequested` and dirty-form confirmation decide whether the window stays.
+The fixture never grants production close/emit permissions or destroys main.
+Unknown windows, nonlocal origins, unknown keys/actions, duplicate IDs and more
+than 16 requests are refused. IDs are 1–64 ASCII letters/digits/hyphens.
+
+Before clicking React's actual final discard button, submit
+`{id:'finish-1',action:'arm-destroy',result:{ok:true,checks:['...'],playCalls:0}}`
+and wait for `{ok:true,armed:true}`. This writes new private
+`close-before-destroy.json` with the actual pre-confirmation DOM, then observes
+main's native destruction. A hidden, incognito, unprivileged keeper exists only
+so the fixture can shut down the owned service, wait the fake capture child and
+verify all audio readers were released before writing `bridge-result.json` and
+exiting. Missing destruction, timeout or failed cleanup reports failure. WK
+callbacks hand native window operations to a worker rather than blocking the WK
+event thread. Production has none of this channel.
+
+Direct evidence: `/private/tmp/omm-native-owned-close-mIIkni/close-v2` contains a
+real React settings edit → native close → cancel (draft retained, configuration
+unchanged) → second native close → actual React discard → native destroy,
+`playCalls=0`, acknowledged shutdown, waited capture child and released readers.
+The original failed attempts are retained beside it: their driver incorrectly
+looked for a settings button instead of the actual navigation link; a temporary
+stage diagnostic localized the failure. `close-acl` directly rejects this new
+fixture request from an unknown local window and a navigated remote main.
+These are component proofs, not a replacement for the final combined UI gate.

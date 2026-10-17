@@ -182,6 +182,7 @@ pub fn start(view: tauri::Webview<tauri::Wry>, paths: Paths) {
                 "store A must not see B's update"
             );
             let unknown_result = probe(&unknown_view, NEGATIVE);
+            super::close::assert_untrusted(&unknown_view);
             // Navigate the same owned main window: label remains trusted, origin must not.
             // Destroy/recreate of that label races asynchronous native WK teardown and is not required.
             eprintln!("ACL stage: remote main navigation");
@@ -193,6 +194,7 @@ pub fn start(view: tauri::Webview<tauri::Wry>, paths: Paths) {
                 .unwrap();
             ready_at(&view, &expected_origin);
             let remote_result = probe(&view, NEGATIVE);
+            super::close::assert_untrusted(&view);
             assert_eq!(remote_result["origin"], expected_origin);
             server.join().unwrap();
             app.get_webview_window("main")
@@ -212,7 +214,7 @@ pub fn start(view: tauri::Webview<tauri::Wry>, paths: Paths) {
                 app.get_webview_window("main").is_none(),
                 "permitted main destroy must actually close its window"
             );
-            json!({"ok":true,"playCalls":0,"allowed":allowed,"storageIsolation":{"incognito":true,"sameOriginIndependentWindows":true,"aSeesA":true,"bInitiallyEmpty":true,"bSeesB":true,"crossProcessPersistenceTested":false},"pendingClosePreserved":true,"unlistenRemovedCallback":true,"mainActuallyDestroyed":true,"unknownLocalWindow":unknown_result,"remoteMainWindow":remote_result})
+            json!({"ok":true,"playCalls":0,"allowed":allowed,"storageIsolation":{"incognito":true,"sameOriginIndependentWindows":true,"aSeesA":true,"bInitiallyEmpty":true,"bSeesB":true,"crossProcessPersistenceTested":false},"pendingClosePreserved":true,"unlistenRemovedCallback":true,"mainActuallyDestroyed":true,"unknownLocalWindow":unknown_result,"remoteMainWindow":remote_result,"fixtureCloseUnknownDenied":true,"fixtureCloseRemoteDenied":true})
         }));
         let result = result.unwrap_or_else(|_| json!({"ok":false,"error":"native WK ACL assertion failed; inspect runtime.log","playCalls":0}));
         write_private_new(

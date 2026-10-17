@@ -18,6 +18,7 @@ use std::{
 use tauri::Manager;
 use uuid::Uuid;
 pub mod capture;
+mod close;
 mod snapshot;
 mod window_acl;
 pub fn scenario() -> String {
@@ -202,8 +203,10 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
     let stop = paths.clone();
     let started = Arc::new(AtomicBool::new(false));
     let helper = capture::start(paths);
+    let close = Arc::new(close::Controller::new());
+    let close_events = close.clone();
     builder
-        .manage(std::sync::Mutex::new(helper))
+        .manage(std::sync::Mutex::new(Some(helper)))
         .setup(move |app| {
             if scenario() == "window-acl" {
                 // Same local origin and capability, but no React listener competes with this API-level probe.
@@ -218,6 +221,11 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
                     .expect("private service fixture");
             });
             Ok(())
+        })
+        .on_window_event(move |window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                close_events.destroyed();
+            }
         })
         .on_page_load(move |view, event| {
             if event.event() != tauri::webview::PageLoadEvent::Finished
@@ -237,6 +245,7 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
             let view = view.clone();
             let root = root.clone();
             let stop = stop.clone();
+            let close = close.clone();
             std::thread::spawn(move || {
                 let done = Arc::new(AtomicBool::new(false));
                 for _ in 0..if scenario() == "ui" { 360 } else { 70 } {
@@ -244,15 +253,34 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
                         break;
                     }
                     std::thread::sleep(std::time::Duration::from_millis(500));
+                    if scenario() == "ui" {
+                        if let Some(result) = close.completion(view.app_handle()) {
+                            done.store(true, Ordering::SeqCst);
+                            close::finish(view.app_handle().clone(), stop.clone(), result);
+                            break;
+                        }
+                        close.poll(&view);
+                        if close.armed() {
+                            continue;
+                        }
+                    }
                     snapshot::poll(&view);
                     let root = root.clone();
                     let paths = stop.clone();
                     let done = done.clone();
                     let app = view.app_handle().clone();
+                    let close = close.clone();
                     view.eval_with_callback("JSON.stringify(window.__ommFixtureResult||null)", move |text| {
                         let Ok(serde_json::Value::String(text)) = serde_json::from_str(&text) else { return; };
                         let Ok(result) = serde_json::from_str::<serde_json::Value>(&text) else { return; };
                         if !result.is_object() || done.swap(true, Ordering::SeqCst) { return; }
+                        if close.used() {
+                            let mut result = result;
+                            result["ok"] = serde_json::json!(false);
+                            result["error"] = serde_json::json!("driver completed before native close observation");
+                            close::finish(app.clone(), paths.clone(), result);
+                            return;
+                        }
                         write_private_new(
                             &root.join("bridge-result.json"),
                             &serde_json::to_vec_pretty(&serde_json::json!({"result":result,"profile":"private synthetic fixture"})).unwrap(),
@@ -264,6 +292,9 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
                             app.exit(if result["ok"] == true { 0 } else { 1 });
                         });
                     }).unwrap();
+                }
+                if !done.load(Ordering::SeqCst) && close.used() {
+                    close::finish(view.app_handle().clone(), stop, serde_json::json!({"ok":false,"playCalls":0,"error":"native close fixture exceeded 180 second budget"}));
                 }
             });
         })
