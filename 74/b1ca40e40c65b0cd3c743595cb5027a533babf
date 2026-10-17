@@ -1,0 +1,97 @@
+apps/desktop/.prettierignore
+  s_a264fe4abc41cf::t_7fabb5c417f5f4 1-5
+apps/desktop/.prettierrc.json
+  s_a264fe4abc41cf::t_c94d3920219209 1-5
+apps/desktop/package-lock.json
+  s_a264fe4abc41cf::t_ccec25a8da76aa 16-18,22-24,29-30,40-305,892-998,1010-1018,1030-1062,1094-1105,1207-1210,1213,1215,1218-1221,1224,1226-1229,1232-1235,1238-1470,1480-1501,1522-1527,1583-1773,2053-2056,2058-2060,2063-2985,3012-3051,3103-3154,3176-3290,3334-3346,3363-3372,3380-3431,3469-3534,3549-3558,3566-3680,3842-3889,3902-3928
+apps/desktop/package.json
+  s_a264fe4abc41cf::t_733ae5163a9300 6-9,15-23,31-33,37-39,44-45
+apps/desktop/public/RADIX-COLORS-LICENSE.txt
+  s_a264fe4abc41cf::t_0dfc36fe383275 1-22
+apps/desktop/public/THIRD-PARTY-NOTICES.txt
+  s_a264fe4abc41cf::t_2bdbc50d0dd6ea 1-3353
+apps/desktop/public/omm-logo.svg
+  s_a264fe4abc41cf::t_9db40ba2cee7f2 1-20
+apps/desktop/scripts/generate-validators.mjs
+  s_a264fe4abc41cf::t_da51f57addd8a3 1-61
+apps/desktop/src/App.tsx
+  s_a264fe4abc41cf::t_f523eb0eba6885 1-367
+apps/desktop/src/app/context.tsx
+  s_a264fe4abc41cf::t_484222aee27210 1-92
+apps/desktop/src/app/dates.ts
+  s_a264fe4abc41cf::t_e63ba19fffedc8 1-47
+apps/desktop/src/app/preferences.ts
+  s_a264fe4abc41cf::t_473d15ba5394a1 1-68
+apps/desktop/src/bridge/client.ts
+  s_a264fe4abc41cf::t_df024eed72dbe7 1-123
+apps/desktop/src/bridge/validators.generated.d.ts
+  s_a264fe4abc41cf::t_2018ae4cab215b 1-66
+apps/desktop/src/bridge/validators.generated.js
+  s_a264fe4abc41cf::t_e64c508fa127df 1-5
+apps/desktop/src/components/ui.tsx
+  s_a264fe4abc41cf::t_be7755bcaec267 1-195
+apps/desktop/src/features/artifacts.tsx
+  s_a264fe4abc41cf::t_060ef236808817 1-423
+apps/desktop/src/features/detail.tsx
+  s_a264fe4abc41cf::t_818835cacb412b 1-142
+apps/desktop/src/features/diagnostics.tsx
+  s_a264fe4abc41cf::t_0a6c6e4c36075e 1-219
+apps/desktop/src/features/library.tsx
+  s_a264fe4abc41cf::t_1857492921317d 1-393
+apps/desktop/src/features/meeting-actions.tsx
+  s_a264fe4abc41cf::t_68b2fc3211e14a 1-425
+apps/desktop/src/features/player.tsx
+  s_a264fe4abc41cf::t_84c60937223ad0 1-223
+apps/desktop/src/features/queue.tsx
+  s_a264fe4abc41cf::t_da296ac41c21c5 1-204
+apps/desktop/src/features/settings.tsx
+  s_a264fe4abc41cf::t_3fda239f9244b8 1-362
+apps/desktop/src/main.tsx
+  s_a264fe4abc41cf::t_be230f88ef1ae2 3,9
+apps/desktop/src/styles.css
+  s_a264fe4abc41cf::t_f403cdc35e9211 1-602
+apps/desktop/src/styles/demo.css
+  s_a264fe4abc41cf::t_c9758eab2de448 1-482
+apps/desktop/src/styles/palette.css
+  s_a264fe4abc41cf::t_013e8ce131c2b3 1-150
+apps/desktop/tests/app-interactions.test.tsx
+  s_a264fe4abc41cf::t_0412dcd2ca9387 1-271
+apps/desktop/tests/bridge-client.test.ts
+  s_a264fe4abc41cf::t_664b9bdf8a82af 1-172
+apps/desktop/tests/dates.test.ts
+  s_a264fe4abc41cf::t_fc32a77784e990 1-50
+apps/desktop/tests/detail-media.test.tsx
+  s_a264fe4abc41cf::t_cc1a5590667a27 1-223
+apps/desktop/tests/fixtures.ts
+  s_a264fe4abc41cf::t_568ab98981c636 1-89
+apps/desktop/tests/native-close.test.tsx
+  s_a264fe4abc41cf::t_147b10aebe3016 1-58
+apps/desktop/tests/pagination-races.test.tsx
+  s_a264fe4abc41cf::t_1ca759d25dc390 1-68
+apps/desktop/tests/preferences-safety.test.tsx
+  s_a264fe4abc41cf::t_04cc3d444b2e50 1-97
+apps/desktop/tests/recording-recovery.test.tsx
+  s_a264fe4abc41cf::t_965b59cac1ab41 1-146
+apps/desktop/tests/setup.ts
+  s_a264fe4abc41cf::t_8285f0db256866 1-50
+apps/desktop/vite.config.ts
+  s_a264fe4abc41cf::t_d4ad89ecc46113 6-10
+docs/desktop-ui.md
+  s_a264fe4abc41cf::t_c20f05eb2208c3 1-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "74b1ca40e40c65b0cd3c743595cb5027a533babf",
+  "prompts": {},
+  "sessions": {
+    "s_a264fe4abc41cf": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14a57-1149-72a4-9c79-db3a380c6755",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
