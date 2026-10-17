@@ -8,7 +8,7 @@ build = "build.rs"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
-native-bridge-fixture = ["dep:objc2", "dep:block2", "dep:libc"]
+native-bridge-fixture = ["dep:objc2", "dep:block2", "dep:libc", "dep:serde"]
 
 [lib]
 name = "omm_desktop"
@@ -27,6 +27,7 @@ arboard = { version = "=3.6.1", default-features = false }
 tauri = { version = "=2.12.4", default-features = false, features = ["wry", "compression"] }
 omm = { package = "open-meeting-memo", path = "../../.." }
 serde_json = "1"
+serde = { version = "1", features = ["derive"], optional = true }
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
 

@@ -238,3 +238,90 @@ and service-button acceptance remains the integrator's responsibility.
 The synthetic summary now has an `Action items` heading above its existing
 checkbox-source list item. This makes read-only action extraction nonempty;
 older container-only UI evidence is not reclassified as a nonempty-list proof.
+
+#### Owned lifecycle driver override
+
+`OMM_LIFECYCLE_DRIVER=/private/tmp/owned-case/react-lifecycle.js` optionally
+replaces the built-in lifecycle driver in `test-lifecycle.sh`. The default is
+unchanged. Overrides must be canonical, nonsymlink, singly-linked regular files,
+owned by this user with no group/other permissions, valid UTF-8 and smaller than
+128 KiB. The wrapper opens without following links, copies the captured bytes
+into its fresh private profile and records `driver`/`driverHash` in
+`provenance.json`. JavaScript is evaluated as-is (no sample substitution).
+The resource verification, CLI launcher, isolated HOME/XDG roots, disabled
+notifications/auto recording, native negative receipts and owned cleanup are
+unchanged. An actual React driver must still use the documented four native
+case checkpoints around its real first-use/start/switch/stop buttons; the
+built-in driver is the reference for ordering and final result shape.
+
+```sh
+OMM_LIFECYCLE_RESOURCE_APP='/absolute/path/to/current-clean-candidate.app' \
+OMM_LIFECYCLE_DRIVER='/private/tmp/owned-case/react-lifecycle.js' \
+  bash packaging/desktop/test-lifecycle.sh
+```
+
+### Explicit persistent WK test stores (feature-only)
+
+The default fixture remains **nonpersistent**. An explicit `store` scene uses
+macOS's public UUID website-store API, available on this deployment target.
+It creates two fresh random UUIDs, first checking only their absence in the
+identifier registry. Before any local page navigation, the fixture checks the
+actual WKWebView's `websiteDataStore.isPersistent` and actual `identifier`
+against the requested UUID. It never opens the default store or another
+identifier's data. A/B begin empty; distinct localStorage nonce markers prove
+that a write in A is absent from B and a write in B cannot replace A's marker.
+The storage location is OS-managed, selected by that exact native UUID, not by
+HOME/XDG, bundle-name guesses, a custom filesystem path or global cache removal.
+
+```sh
+# Requires the already-built frontend distribution; only the locked fixture
+# host is incrementally built. Each command owns a fresh private evidence root.
+bash packaging/desktop/test-stores.sh proof
+bash packaging/desktop/test-stores.sh allocate
+# Use ONLY owned-wk-store.json emitted by that allocate invocation.
+export OMM_WKWEBVIEW_STORE_MANIFEST=/private/tmp/omm-wk-owned-XXXXXX/owned-wk-store.json
+bash packaging/desktop/test-stores.sh write
+bash packaging/desktop/test-stores.sh read
+bash packaging/desktop/test-stores.sh cleanup
+```
+
+`proof` creates A/B, verifies actual identity/isolation, destroys their views,
+removes exactly those two stores with the native completion API and verifies
+both identifiers are absent. `allocate` performs the same isolation checks but
+retains the pair. `write` and `read` are independent App processes proving a
+synthetic marker survives process exit. `cleanup` rechecks each owned nonce,
+closes its view, removes only the exact identifiers and records `removed:true`
+in the private manifest. A removed/foreign/malformed manifest, unknown action,
+noncanonical path or concurrent manifest lease is rejected; there is no default
+fallback. The manifest is 0600, its parent 0700, and a process-lifetime exclusive
+lease prevents simultaneous reuse. Keep a failed run's manifest for this exact
+cleanup command; do not clear global WebKit caches. Use the same fixture
+executable/application identity for allocation, UI runs and cleanup.
+
+For the real React UI, retain an allocated manifest and run **two separate**
+`OMM_WKWEBVIEW_SCENARIO=ui` App processes with that environment and the existing
+owned driver interface. Only this explicit combination replaces the default
+main with a UUID-identified persistent main. Native identity is verified while
+it is still `about:blank`, before navigating to React. Drivers can wait for
+`window.__ommOwnedStoreAttached` (`actualPersistent`, `actualIdentifier`,
+`ownedMarkerVerified`); the same receipt is `owned-store-attached.json`.
+Set theme/sidebar using the actual controls in process one, close it with the
+owned close seam, and assert their **initial render** in process two before
+changing them. Do not clear localStorage: the ownership marker must survive.
+Then run exact `cleanup`. No production permissions, CSP, schema, storage policy
+or frontend source changes are involved.
+
+Direct component evidence: `/private/tmp/omm-wk-owned-HCUeOG` contains final
+A/B proof (`proof-2.log` → `/private/tmp/omm-wk-owned-0VPHtA`), independent
+write/read processes and precise cleanup (`allocate.log`, `write.log`,
+`read.log`, `cleanup.log`). `ui-process-1` and `ui-process-2` are different PIDs
+using UUID `c4b86d17-e5e1-408a-aee0-4d56d0920b47`: actual React writes dark /
+collapsed, exits through dirty-close cancel/confirm, and the next process
+restores dark / collapsed before any preference writes. Both report 0 play,
+real main destruction, acknowledged shutdown, waited fake capture and released
+readers. `ui-cleanup.log` confirms exact A/B removal. All allocated pairs were
+removed; a removed-manifest negative fails with exit 1. The lifecycle override
+positive also passed with two actual CLI processes and all native negatives;
+a nonprivate override was rejected before launching the fixture. These proofs
+are not final current integrated/release UI acceptance or personal permission,
+ASR, authentication, audible playback or long-meeting validation.

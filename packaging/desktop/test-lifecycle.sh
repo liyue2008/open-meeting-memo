@@ -26,10 +26,23 @@ for name,digest in value['files'].items():
 profile=evidence/'profile';profile.mkdir(mode=0o700)
 for name in ['home','runtime']:(profile/name).mkdir(mode=0o700)
 assert not (profile/'home/Library/LaunchAgents').exists()
-shutil.copyfile(root/'apps/desktop/src-tauri/fixtures/lifecycle-probe.js',profile/'driver.js');(profile/'driver.js').chmod(0o600)
+driver=root/'apps/desktop/src-tauri/fixtures/lifecycle-probe.js'
+if os.environ.get('OMM_LIFECYCLE_DRIVER'):
+ driver=pathlib.Path(os.environ['OMM_LIFECYCLE_DRIVER'])
+ assert driver.is_absolute() and driver.resolve(strict=True)==driver and driver.is_relative_to('/private/tmp'), 'override driver must be canonical owned /private/tmp file'
+fd=os.open(driver,os.O_RDONLY|os.O_NOFOLLOW)
+try:
+ import stat
+ metadata=os.fstat(fd)
+ assert stat.S_ISREG(metadata.st_mode) and metadata.st_uid==os.geteuid() and metadata.st_nlink==1 and (not os.environ.get('OMM_LIFECYCLE_DRIVER') or metadata.st_mode&0o077==0), 'private owned driver required'
+ script=os.read(fd,128*1024)
+ assert len(script)<128*1024 and len(script)==metadata.st_size, 'driver exceeds bounded fixture budget'
+ script.decode('utf-8')
+finally:os.close(fd)
+(profile/'driver.js').write_bytes(script);(profile/'driver.js').chmod(0o600)
 env=os.environ.copy();env.update(HOME=str(profile/'home'),OMM_NATIVE_FIXTURE_ROOT=str(profile),OMM_WKWEBVIEW_SCENARIO='lifecycle',XDG_RUNTIME_DIR=str(profile/'runtime'))
 for key,name in [('CONFIG','config'),('DATA','data'),('STATE','state'),('CACHE','cache')]:env['XDG_'+key+'_HOME']=str(profile/('xdg-'+name))
-(evidence/'provenance.json').write_text(json.dumps({'sourceRevision':revision,'sourceResourceApp':str(source),'resourceManifestHash':sha(manifest),'cliHash':sha(cli),'fixtureHash':sha(binary),'resourceFiles':len(value['files']),'privateHome':str(profile/'home')},indent=2))
+(evidence/'provenance.json').write_text(json.dumps({'sourceRevision':revision,'sourceResourceApp':str(source),'driver':str(driver),'driverHash':hashlib.sha256(script).hexdigest(),'resourceManifestHash':sha(manifest),'cliHash':sha(cli),'fixtureHash':sha(binary),'resourceFiles':len(value['files']),'privateHome':str(profile/'home')},indent=2))
 with (profile/'runtime.log').open('w') as log:
  child=subprocess.Popen([str(binary)],env=env,stdout=log,stderr=log);expired=False
  try:code=child.wait(timeout=420)

@@ -2389,6 +2389,7 @@ dependencies = [
  "objc2",
  "open-meeting-memo",
  "rfd",
+ "serde",
  "serde_json",
  "tauri",
  "tauri-build",

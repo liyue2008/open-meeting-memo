@@ -21,13 +21,14 @@ pub mod capture;
 mod close;
 mod lifecycle;
 mod snapshot;
+pub mod store;
 mod window_acl;
 pub fn scenario() -> String {
     let scenario = std::env::var("OMM_WKWEBVIEW_SCENARIO").unwrap_or_else(|_| "native".into());
     assert!(
         matches!(
             scenario.as_str(),
-            "native" | "window-acl" | "ui" | "lifecycle"
+            "native" | "window-acl" | "ui" | "lifecycle" | "store"
         ),
         "unknown private fixture scenario"
     );
@@ -58,6 +59,9 @@ pub fn prepare() -> Paths {
         !paths.state.join("state.sqlite").exists(),
         "fixture profile must be new"
     );
+    if scenario() == "store" {
+        return paths;
+    }
     if scenario() == "lifecycle" {
         let home = PathBuf::from(std::env::var_os("HOME").unwrap())
             .canonicalize()
@@ -218,6 +222,9 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
     if scenario() == "lifecycle" {
         return lifecycle::builder(builder, paths);
     }
+    if scenario() == "store" {
+        return store::builder(builder);
+    }
     let root = PathBuf::from(std::env::var_os("OMM_NATIVE_FIXTURE_ROOT").unwrap())
         .canonicalize()
         .unwrap();
@@ -232,6 +239,7 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
     builder
         .manage(std::sync::Mutex::new(Some(helper)))
         .setup(move |app| {
+            store::ui_setup(app.handle());
             if scenario() == "window-acl" {
                 // Same local origin and capability, but no React listener competes with this API-level probe.
                 tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
@@ -254,6 +262,7 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
         .on_page_load(move |view, event| {
             if event.event() != tauri::webview::PageLoadEvent::Finished
                 || view.label() != "main"
+                || !view.app_handle().get_webview_window("main").is_some_and(|w| crate::host::trusted(&w))
                 || started.swap(true, Ordering::SeqCst)
             {
                 return;

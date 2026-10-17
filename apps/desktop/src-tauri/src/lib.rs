@@ -314,6 +314,7 @@ pub fn run() {
     {
         // Never attach controlled fixtures to the user's persistent WebKit data store.
         context.config_mut().app.windows[0].incognito = true;
+        bridge_fixture::store::configure(&mut context);
         if bridge_fixture::scenario() == "window-acl" {
             context.config_mut().app.windows[0].create = false;
         }
