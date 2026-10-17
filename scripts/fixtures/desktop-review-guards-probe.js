@@ -4,7 +4,7 @@
   HTMLMediaElement.prototype.play = function () { playCalls++; return Promise.reject(new Error('playback forbidden')); };
   const text = () => document.body.innerText;
   const modal = () => document.querySelector('dialog[open],[role=dialog]');
-  const elements = (selector, root = document) => [...root.querySelectorAll(selector)];
+  const elements = (selector, root = document) => [...root.querySelectorAll(selector)].filter(e => !e.closest('[hidden]') && e.getClientRects().length > 0);
   const check = (name, value) => { if (!value) throw new Error(name); checks.push(name); };
   const raw = async (command, payload) => {
     const reply = await window.__TAURI_INTERNALS__.invoke(command, { request: { schemaVersion: 1, requestId: crypto.randomUUID(), payload } });
@@ -44,7 +44,7 @@
     check('failed fixture has no successful content to match', tasks.items.length === 1 && tasks.items[0].status === 'failed');
     taskId = tasks.items[0].taskId;
     await click('UI failed task fixture');
-    await wait('actual failed meeting detail', () => document.querySelector('h1')?.textContent === 'UI failed task fixture' && text().includes('本场处理任务'));
+    await wait('actual failed meeting detail', () => elements('h1').some(e => e.textContent === 'UI failed task fixture') && text().includes('本场处理任务'));
     await click('编辑'); await wait('edit dialog', () => modal());
     change(label('会议标题'), title);
     await click('保存', modal());
