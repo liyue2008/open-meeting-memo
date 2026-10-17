@@ -12,6 +12,7 @@
     "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:production-wkwebview": "node scripts/test-production-wkwebview.mjs",
     "contracts:check": "node ../../scripts/generate-desktop-contracts.mjs --check && node tests/desktop_contracts.test.mjs && npm run validators:check",
     "build": "npm run typecheck && npm run validators:check && npm run notices:check && vite build",
     "tauri": "tauri",

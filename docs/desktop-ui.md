@@ -116,6 +116,14 @@ Markdown 使用本地 `react-markdown` 和 GFM 解析器：禁用原始 HTML，�
 原生需要仅对受托主窗口允许事件 listen/unlisten 和 window destroy；不需要 remote capability、通用 window 创建或 shell。
 能力范围及最终 CSP 由 native owner 实现并做真实测试，前端单测中的 mock 不证明这些权限可用。
 
+## 生产构建互操作回归
+
+AJV 静态校验器依赖的 CommonJS 运行时在 Vite/Rolldown 生产构建中保留 `exports` 对象，而源级测试加载器可能直接解包函数。前端生成器显式解析 `ucs2length` 与 `equal` 的函数或单层 `default`，未知形状立即抛错；schema、验证规则、预算和原生授权不变。
+
+- `npm test` 包含 `tests/production-validators.test.ts`：使用实际 Vite 生产配置编译校验器，执行输出资源，覆盖全部共享交换、Unicode 长度、对象重复项与非法 DTO，不是源级验证器 mock。
+- `npm run test:production-wkwebview`：在新的 `/private/tmp` 私有 profile 重建本树生产 React/dist 和 native fixture，复用原生 41 项检查，再验证真实 React 会议库、`desktop_info` 版本及生命周期计划。来源必须为 `tauri://localhost`，`playCalls` 必须为 0。日志、DOM 和源码/资源 hash 保留在命令打印的证据目录。
+- 此命令不安装个人 App、不连接个人数据或模型。原生关窗权限是独立组件修复；该回归保留全部 DOM alerts，不能代替双方合并后的脏态关窗及完整最终验收。
+
 ## 前端测试证据边界
 
 当前测试包括共享 48 个合成交换的真实适配器参数/响应验证、共享 schema 断言、UTF-8/正文预算、
@@ -125,5 +133,5 @@ CRUD/导入 handle/录音同意、封存/自动录音失败、任务重试/取�
 首次设置与服务另覆盖无副作用打开、初始化确认/冲突/已有目录、独立启动、停止/切换、忙态/未知归属/旧版本拒绝、单次计划失败后重新确认、过期/错动作和配置脏态守卫。
 测试将 `HTMLMediaElement.play()` 设置为抛错，禁止隐式播放。
 
-这些是 UI 组件及合成传输证据。完整产品仍须整合后在真实 WKWebView 私有 fixture 下运行当前版本、
+除单独记录的生产互操作真实 WKWebView 回归外，上述是 UI 组件及合成传输证据。完整产品仍须整合后在真实 WKWebView 私有 fixture 下运行当前版本、
 原生安全/资源闭包/release/用户目录安装及 fresh 独立评审；不能据此宣称真实权限、ASR、Pi 认证、通知可见性或长会议质量已经通过。

@@ -34,7 +34,15 @@ code = code
   .replace(/require\("ajv-formats\/dist\/formats"\)\.fullFormats/g, 'fullFormats')
   .replace(/require\("ajv\/dist\/runtime\/equal"\)\.default/g, 'equal');
 code =
-  'import ucs2length from "ajv/dist/runtime/ucs2length.js";\nimport { fullFormats } from "ajv-formats/dist/formats.js";\nimport equal from "ajv/dist/runtime/equal.js";\n' +
+  'import ucs2lengthRuntime from "ajv/dist/runtime/ucs2length.js";\nimport { fullFormats } from "ajv-formats/dist/formats.js";\nimport equalRuntime from "ajv/dist/runtime/equal.js";\n' +
+  '// Node-compatible bundlers preserve the CommonJS exports object; source test loaders may unwrap it.\n' +
+  'function runtimeFunction(value, name) {\n' +
+  '  const fn = typeof value === "function" ? value : value?.default;\n' +
+  '  if (typeof fn !== "function") throw new TypeError(`Invalid AJV runtime: ${name}`);\n' +
+  '  return fn;\n' +
+  '}\n' +
+  'const ucs2length = runtimeFunction(ucs2lengthRuntime, "ucs2length");\n' +
+  'const equal = runtimeFunction(equalRuntime, "equal");\n' +
   code;
 if (code.includes('require('))
   throw new Error(
