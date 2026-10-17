@@ -138,6 +138,28 @@ tbody tr:hover {
   background: var(--amber3);
   color: var(--orange);
 }
+/* Keep the service entry readable even when WebKit would paint a native light button.
+   Hover changes the border, not the explicitly paired text/background colors. */
+.compatibility-banner .service-entry,
+.compatibility-banner .service-entry:hover:not(:disabled),
+.compatibility-banner .service-entry:focus-visible {
+  -webkit-appearance: none;
+  appearance: none;
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--control-line);
+  transition: border-color 0.15s;
+}
+.compatibility-banner .service-entry:hover:not(:disabled) {
+  border-color: var(--teal);
+}
+.player-playback {
+  -webkit-appearance: none;
+  appearance: none;
+  color: var(--ink);
+  background: var(--surface);
+  transition: border-color 0.15s;
+}
 .recording-bar button {
   font-size: 11px;
   padding: 5px 9px;

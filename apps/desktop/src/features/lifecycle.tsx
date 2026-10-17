@@ -63,7 +63,7 @@ export function ServiceBanner({ open }: { open: () => void }) {
               ? '首次使用：尚未初始化本机资料库。打开设置不会自动创建资料或启动录音。'
               : `后台服务：${stateLabel[plan.state]}。请查看可执行的服务操作和逐项就绪诊断。`}
       </span>
-      <button onClick={open}>
+      <button className="service-entry" onClick={open}>
         {plan?.state === 'uninitialized' ? '打开首次设置' : '打开服务设置'}
       </button>
     </section>

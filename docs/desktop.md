@@ -20,7 +20,7 @@
 
 ## 可重复入口
 
-需要现有 Apple Silicon macOS/Xcode/Rust、Node 22.19–22.x、npm 11.x（锁由 npm 11.21.0 生成）。脚本不安装系统工具、模型、用户服务或权限。首次明确安装项目依赖：
+需要现有 Apple Silicon macOS/Xcode/Rust、Node 22.19–22.x、npm 11.x（锁由 npm 11.21.0 生成）。脚本不安装系统工具、模型、用户服务或权限。首次明确安装项目依赖（锁中的官方包下载地址使用公开 `registry.npmjs.org`，不要求项目私有镜像或认证；版本/依赖图/integrity保持固定）：
 
 ```sh
 cd apps/desktop && npm ci && cd ../..
@@ -49,7 +49,7 @@ bash scripts/install-desktop.sh --from /absolute/path/to/verified/OMM.app
 - 持久队列、有限重试、真实取消/等待 owned children、失败恢复；配置全白名单原子保存、脏态和外部写冲突；诊断/帮助及 CLI 合理配套。
 - 批准设计的浅色、柔和炭灰深色与鲜明青绿强调；实时随 OS＋手动覆盖；统一图标、持久侧栏收缩、双色自绘 omm Logo。会议内容不进入浏览器持久存储。
 
-生产不使用静态 demo-data、硬编码成功、任意路径/通用 shell 或认证继承。会议 Markdown 禁 HTML/脚本/远程资源。真实音频仅用户点击播放；本开发验收**禁止播放、录音硬件、真实通知、个人会议数据/认证及真实模型调用**。
+生产不使用静态 demo-data、硬编码成功、任意路径/通用 shell 或认证继承。会议 Markdown 禁 HTML/脚本/远程资源。真实音频保留原生controls及明确的“播放录音/暂停录音”按钮；grant/metadata未就绪时按钮禁用，仅用户明确点击播放，换段/定位不自动播放。播放器事件接线的单测使用mock，真实WK只验证可见入口、metadata及暂停定位，不验证可听发声。本开发验收**禁止播放、录音硬件、真实通知、个人会议数据/认证及真实模型调用**。
 
 ## 共享契约和兼容性
 

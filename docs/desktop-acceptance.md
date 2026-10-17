@@ -1,6 +1,6 @@
 # 桌面版本验收记录
 
-**真实前端与原生组件、完整候选门禁入口已整合，最终产品验收仍须正式评审和用户安装。** 既有146项React/WK矩阵包含非空只读行动项、严格媒体和真实脏配置关窗；测试专属UUID两进程偏好及真实React首用/服务入口也已接线。后续held busy/unknown/stale受限控制和原包CLI字节保留已采用native `1d27d271`，不改生产schema/权限。每次候选的精确commit、当前源完整运行结果、实际exit/owned回执及资源hash，必须由随候选交接的证据矩阵确认；本页的历史通过不能追认为新源通过。A9–A11仍须Main另行编排，不因组件通过或候选就绪而自动完成。
+**首轮正式业务与安全评审均要求修复，当前不允许安装或发布。** 已有候选门禁不能覆盖正式评审发现；UI可读性、明确播放入口与公开依赖锁修复正定向验证，后端修复仍由native owner独立处理，组合后须重跑当前源门禁并由新的独立席位复审。 既有146项React/WK矩阵包含非空只读行动项、严格媒体和真实脏配置关窗；测试专属UUID两进程偏好及真实React首用/服务入口也已接线。后续held busy/unknown/stale受限控制和原包CLI字节保留已采用native `1d27d271`，不改生产schema/权限。每次候选的精确commit、当前源完整运行结果、实际exit/owned回执及资源hash，必须由随候选交接的证据矩阵确认；本页的历史通过不能追认为新源通过。A9–A11仍须Main另行编排，不因组件通过或候选就绪而自动完成。
 
 | 验收项 | 当前状态 | 最终需要的证据 |
 |---|---|---|
@@ -13,9 +13,15 @@
 | A7 全功能WKWebView | 既有146项及fab32首用/偏好准备通过；完整React held负例/原包CLI入口已接，当前组合结果须另行实证 | 私有profile＋真实new core/bridge＋fake helper/worker/Pi/notifier；实际窗口/交互/搜索/CRUD/版本/任务/配置/导出/明暗/侧栏；静音metadata/解码/暂停态段内跨段seek，禁止play |
 | A8 release包 | fab32准备包2031资源验证通过；每次最终包须绑定当前clean revision及原CLI字节，旧包不能替代 | 锁定aarch64 release app/dmg；macOS≥15.5、CLI/worker/helper/sherpa/codec资源闭包、嵌套身份/entitlements、内外ad-hoc签名、MIT/LGPL等完整许可与源码义务 |
 | A9 实际安装/启动 | pending，未操作个人profile | metadata-only预检、非秘密元数据备份、用户目录真实生产包、保留录音/配置/认证/auto/consent；私有profile实际启动、窗口/正常桥验证、构建/安装来源hash及版本一致 |
-| A10 独立评审 | pending | fresh只读正式评审无阻塞；修复后在最终当前源重跑所需门禁 |
+| A10 独立评审 | 首轮needs_changes；修复组合及新fresh席复审pending | fresh只读正式评审无阻塞；修复后在最终当前源重跑所需门禁 |
 | A11 SSH/PR | pending；当前禁止push | 最终clean commit经SSH推origin正式分支；远端full HEAD、PR API head、安装来源与源版本一致；创建PR不合并 |
 | 跨版本/offline写权 | 原生并发/只读/generation组件回归通过；最终源待重验 | 旧daemon能力缺失、旧DB只读无迁移、全mutation提交前锁内generation重验、旧配置byte不变、offline双进程/跨profile重放/过期/旧daemon竞态拒写；显式切换诊断准确 |
+
+## 首轮正式评审后的定向修复
+
+F7只调整首次/归属不明服务横幅的专用入口：明确前景/背景并关闭系统按钮外观；正常、hover及focus使用同一前景/背景配对，仅改变边框。实际WK明暗计算对比度及稳定截图由定向证据记录，DOM样式断言不是实际鼠标hover证明。生产录音保留原生audio controls，另有明确的“播放录音/暂停录音”按钮：grant与metadata就绪前禁用，仅用户明确点击播放；定位、换段、恢复窗口不自动播放。播放事件接线仅使用单元测试mock，真实WK保持0次play，不能声称已验证可听回放。
+
+npm锁的下载地址由私有镜像规范为官方公开registry，保留全部版本、依赖图及integrity。隔离复制中的完整性缓存离线安装验证与公开在线安装是两种证据；后者和完整audit仍受网络/TLS策略限制。没有改全局npm配置、认证、证书、TLS或依赖版本。冷首次录音、导入/中断、互斥、partial读取、idle shutdown及content检索修复尚待native组合，本轮预启动fixture不证明这些修复通过。
 
 ## 当前整合证据与最终复验
 

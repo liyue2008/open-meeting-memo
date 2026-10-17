@@ -27,6 +27,8 @@ export function Player({
   const [rate, setRate] = useState(1);
   const [error, setError] = useState<unknown>(null);
   const [opening, setOpening] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const pendingSeek = useRef(0);
   const [reload, setReload] = useState(0);
   const manifest = useInfiniteQuery({
@@ -75,6 +77,8 @@ export function Player({
     let disposed = false;
     let grantId: string | null = null;
     setUrl('');
+    setReady(false);
+    setPlaying(false);
     setOpening(true);
     setError(null);
     void bridge
@@ -103,6 +107,19 @@ export function Player({
     const element = audio.current;
     if (element) element.playbackRate = rate;
   }, [rate, url]);
+  function togglePlayback() {
+    const element = audio.current;
+    if (!element || opening || !ready || !url) return;
+    if (!element.paused && !element.ended) {
+      element.pause();
+      return;
+    }
+    const source = element.src;
+    // Only this explicit user action requests playback; locating/reopening never does.
+    void element.play().catch((failure: unknown) => {
+      if (audio.current === element && element.src === source) setError(failure);
+    });
+  }
   if (manifest.isPending)
     return (
       <section className="audio-player panel">
@@ -113,7 +130,7 @@ export function Player({
     <section className="audio-player panel" aria-label="会议录音">
       <div className="player-header">
         <h2>会议录音</h2>
-        <span className="muted">已验证的公开混音 · 点击原生播放键才会发声</span>
+        <span className="muted">已验证的公开混音 · 点击播放键才会发声</span>
       </div>
       {manifest.error && (
         <ErrorNotice error={manifest.error} retry={() => void manifest.refetch()} />
@@ -127,6 +144,7 @@ export function Player({
         <>
           <audio
             ref={audio}
+            id="meeting-recording-audio"
             controls
             preload="metadata"
             src={url || undefined}
@@ -134,6 +152,7 @@ export function Player({
             onLoadedMetadata={() => {
               const el = audio.current;
               if (el) {
+                setReady(true);
                 el.playbackRate = rate;
                 el.currentTime = Math.min(
                   pendingSeek.current,
@@ -141,14 +160,32 @@ export function Player({
                 );
               }
             }}
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+            onEnded={() => setPlaying(false)}
+            onEmptied={() => {
+              setReady(false);
+              setPlaying(false);
+            }}
             onTimeUpdate={() => {
               if (audio.current && segment)
                 setPosition(segment.offsetMs + audio.current.currentTime * 1000);
             }}
             onError={() => {
+              setReady(false);
+              setPlaying(false);
               if (url) setError(new Error('录音解码失败或媒体授权已失效，请重新打开。'));
             }}
           />
+          <button
+            type="button"
+            className="player-playback"
+            disabled={opening || !url || !ready}
+            onClick={togglePlayback}
+            aria-controls="meeting-recording-audio"
+          >
+            {playing ? '暂停录音' : '播放录音'}
+          </button>
           <label className="timeline-label">
             会议时间 {clock(position)} / {clock(duration)}
             <input
