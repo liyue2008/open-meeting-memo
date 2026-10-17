@@ -1,0 +1,24 @@
+AGENTS.md
+  h_b4d40596eab523 33-34
+docs/desktop.md
+  h_b4d40596eab523 34-37,70-71
+scripts/fixtures/desktop-lifecycle-probe.js
+  h_b4d40596eab523 1-154
+scripts/test-desktop-entrypoints.sh
+  h_b4d40596eab523 63-71
+scripts/test-desktop-lifecycle-wkwebview.sh
+  h_b4d40596eab523 1-92
+scripts/test-desktop.sh
+  h_b4d40596eab523 9-11,41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b9ee045ced51aaf3ef817ee7ecaa37538d8e203a",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
