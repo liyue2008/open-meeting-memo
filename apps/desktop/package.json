@@ -3,15 +3,24 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.19 <23", "npm": ">=11 <12" },
+  "engines": {
+    "node": ">=22.19 <23",
+    "npm": ">=11 <12"
+  },
   "packageManager": "npm@11.21.0",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "contracts:check": "node ../../scripts/generate-desktop-contracts.mjs --check && node tests/desktop_contracts.test.mjs",
-    "build": "npm run typecheck && vite build",
-    "tauri": "tauri"
+    "contracts:check": "node ../../scripts/generate-desktop-contracts.mjs --check && node tests/desktop_contracts.test.mjs && npm run validators:check",
+    "build": "npm run typecheck && npm run validators:check && npm run notices:check && vite build",
+    "tauri": "tauri",
+    "validators:generate": "node scripts/generate-validators.mjs",
+    "validators:check": "node scripts/generate-validators.mjs --check",
+    "format:check": "prettier --check src tests/*.test.ts tests/*.test.tsx tests/setup.ts tests/fixtures.ts scripts vite.config.ts package.json",
+    "format": "prettier --write src tests/*.test.ts tests/*.test.tsx tests/setup.ts tests/fixtures.ts scripts vite.config.ts package.json",
+    "notices:generate": "node scripts/collect-notices.mjs",
+    "notices:check": "node scripts/collect-notices.mjs --check"
   },
   "dependencies": {
     "@tanstack/react-query": "5.104.3",
@@ -19,14 +28,21 @@
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "react-dom": "19.3.1",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.12.3",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.8",
     "@types/node": "22.19.11",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.1.2",
+    "jsdom": "29.1.1",
+    "prettier": "3.9.10",
     "typescript": "5.9.3",
     "vite": "8.3.4",
     "vitest": "5.0.5"
