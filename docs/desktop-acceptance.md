@@ -1,6 +1,6 @@
 # 桌面版本验收记录
 
-**首轮正式业务与安全评审均要求修复，当前不允许安装或发布。** 已有候选门禁不能覆盖正式评审发现；UI可读性、明确播放入口与公开依赖锁修复正定向验证，后端修复仍由native owner独立处理，组合后须重跑当前源门禁并由新的独立席位复审。 既有146项React/WK矩阵包含非空只读行动项、严格媒体和真实脏配置关窗；测试专属UUID两进程偏好及真实React首用/服务入口也已接线。后续held busy/unknown/stale受限控制和原包CLI字节保留已采用native `1d27d271`，不改生产schema/权限。每次候选的精确commit、当前源完整运行结果、实际exit/owned回执及资源hash，必须由随候选交接的证据矩阵确认；本页的历史通过不能追认为新源通过。A9–A11仍须Main另行编排，不因组件通过或候选就绪而自动完成。
+**首轮正式业务与安全评审均要求修复，当前不允许安装或发布。** 已有候选门禁不能覆盖正式评审发现；UI可读性、明确播放入口与公开依赖锁修复已完成定向验证。后端正式修复`dde5269`、`2c4d5f9`已摘取为`ae4c608`、`b190062`，受控Rust回归与F2/F5实际UI续验通过；冷首次录音/partial的真实交互入口尚待独立native测试增补，不能用预启动/完整成功seed冒充。所有入口齐备后须重跑当前源门禁并由新的独立席位复审。 既有146项React/WK矩阵包含非空只读行动项、严格媒体和真实脏配置关窗；测试专属UUID两进程偏好及真实React首用/服务入口也已接线。后续held busy/unknown/stale受限控制和原包CLI字节保留已采用native `1d27d271`，不改生产schema/权限。每次候选的精确commit、当前源完整运行结果、实际exit/owned回执及资源hash，必须由随候选交接的证据矩阵确认；本页的历史通过不能追认为新源通过。A9–A11仍须Main另行编排，不因组件通过或候选就绪而自动完成。
 
 | 验收项 | 当前状态 | 最终需要的证据 |
 |---|---|---|
@@ -8,7 +8,7 @@
 | A2 共享契约 | 36命令/100定义漂移通过；生产互操作修复与实际React库/版本读取通过 | 36命令、schema/Rust/TS无漂移、所有共享交换；真实桥适配器、协议/错误/预算/取消/CAS严格测试 |
 | A3 Rust | 整合基线全量通过；最新当前源结果见候选证据矩阵 | fmt/test --locked --all-targets/clippy -Dwarnings/build；desktop workspace同等门禁；持久并发/metadata/CRUD/import/版本/取消/config/文件安全fixture |
 | A4 Swift | 整合基线 build-dev 与指定17+3 synthetic通过 | `build-dev.sh`＋AGENTS两组指定synthetic IPC ignored；不运行所有ignored或硬件 |
-| A5 TypeScript/界面 | 基线101单时区；修复后102×UTC/洛杉矶通过；当前真实React146项通过，最终源须复验 | npm ci、严格类型、DOM交互、真实桥、日期/DST/分页/脏态/冲突、Markdown安全、明暗/侧栏全部设计 |
+| A5 TypeScript/界面 | 历史146及定向19项通过；当前组合109×UTC/洛杉矶和F2/F5实际UI23项通过，最终全矩阵须复验 | npm ci、严格类型、DOM交互、真实桥、日期/DST/分页/脏态/冲突、Markdown安全、明暗/侧栏全部设计 |
 | A6 媒体/受托窗口 | 原生41项通过；最小权限、隔离、revision修复已整合，真实React metadata/段内跨段暂停定位及当前媒体定向负例通过 | 最早实际WKWebView来源/driver证明；verified同FD/hash/读锁、grant失效、Range/HEAD/206/416/ETag与并发/缓冲预算fixture |
 | A7 全功能WKWebView | 既有146项及fab32首用/偏好准备通过；完整React held负例/原包CLI入口已接，当前组合结果须另行实证 | 私有profile＋真实new core/bridge＋fake helper/worker/Pi/notifier；实际窗口/交互/搜索/CRUD/版本/任务/配置/导出/明暗/侧栏；静音metadata/解码/暂停态段内跨段seek，禁止play |
 | A8 release包 | fab32准备包2031资源验证通过；每次最终包须绑定当前clean revision及原CLI字节，旧包不能替代 | 锁定aarch64 release app/dmg；macOS≥15.5、CLI/worker/helper/sherpa/codec资源闭包、嵌套身份/entitlements、内外ad-hoc签名、MIT/LGPL等完整许可与源码义务 |
@@ -21,7 +21,15 @@
 
 F7只调整首次/归属不明服务横幅的专用入口：明确前景/背景并关闭系统按钮外观；正常、hover及focus使用同一前景/背景配对，仅改变边框。实际WK明暗计算对比度及稳定截图由定向证据记录，DOM样式断言不是实际鼠标hover证明。生产录音保留原生audio controls，另有明确的“播放录音/暂停录音”按钮：grant与metadata就绪前禁用，仅用户明确点击播放；定位、换段、恢复窗口不自动播放。播放事件接线仅使用单元测试mock，真实WK保持0次play，不能声称已验证可听回放。
 
-npm锁的下载地址由私有镜像规范为官方公开registry，保留全部版本、依赖图及integrity。隔离复制中的完整性缓存离线安装验证与公开在线安装是两种证据；后者和完整audit仍受网络/TLS策略限制。没有改全局npm配置、认证、证书、TLS或依赖版本。冷首次录音、导入/中断、互斥、partial读取、idle shutdown及content检索修复尚待native组合，本轮预启动fixture不证明这些修复通过。
+npm锁的下载地址由私有镜像规范为官方公开registry，保留全部版本、依赖图及integrity。隔离复制中的完整性缓存离线安装验证与公开在线安装是两种证据；后者和完整audit仍受网络/TLS策略限制。没有改全局npm配置、认证、证书、TLS或依赖版本。冷首次录音、导入/中断、互斥、partial读取、idle shutdown及content检索的生产修复已组合，当前受控Rust回归83项和desktop fixture-feature7项通过；83项中另6个ignored未在该命令运行，不能追认为已跑完整Swift。F2/F5已补实际UI23项（仅标题content搜索、Trash后retry/requeue禁用及恢复）。预启动fixture不证明冷首次启动，已完成产物不证明partial读取；两项真实交互仍待新测试seam。UI早期busy拒绝不是F4最终执行点竞态证明，后者由Core受控service/claim/reader回归单独提供；导入中断故障注入也不能替代UI闭环。
+
+## 正式修复组合阶段A（尚未新候选）
+
+当前生产修复已按两条immutable提交依序摘取，源与`2c4d5f9`的17条变更路径逐字节一致。`/private/tmp/omm-review-integrate-hxRI0P/stage-a-gates.log`与`.exit`记录fmt、34 core＋8 imports＋19 desktop＋22 segments共83回归、7个desktop feature测试、合同/validator漂移、strict TS、109测试双时区和生产build全部0；不是最终当前源全量。
+
+`scripts/fixtures/desktop-review-guards-probe.js`已接入统一`--wkwebview`。实际定向根`/private/tmp/omm-rg-VXDEyk`：23项/ok=true/playCalls=0，owned PID38348 exit0/waited无超时。通过真实UI给failed/cancelled两会写唯一标题，确认无成功内容仍能在content范围仅凭title匹配；真实Trash后队列retry/requeue均禁用，恢复后只恢复原本合法操作。raw调用仅独立读取DTO，不代替UI写操作；状态/阶段/虚构worker失败的真实语义按冻结契约保留。该次记录immutable clean来源及实际driver/binary/dist，未单独建立运行前清单；最后统一验收必须有完整before/after。
+
+在Main批准的命令环境下，原脚本真实`npm ci --no-audit --no-fund`可使用既有已验证tarball缓存及offline=true；先仅将项目node_modules备份到0700私有根，实际版本/完整性图前后比较，失败保留并恢复旧依赖。没有跳ci/改TLS、代理或个人配置。npm11既有allowScripts提示要保留，不能因没传ignore-scripts就声称所有postinstall已执行；no-audit也不是完整漏洞审计。此前私有跳ci harness仅属旧定向证据，不能沿用为最终原门禁通过。
 
 ## 当前整合证据与最终复验
 

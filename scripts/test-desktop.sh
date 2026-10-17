@@ -53,7 +53,12 @@ PY
     OMM_WKWEBVIEW_EVIDENCE=$(mktemp -d /private/tmp/omm-wk-acl-XXXXXX)
     desktop_component_script packaging/desktop/test-wkwebview.sh
     record_native_artifacts
-    unset OMM_WKWEBVIEW_SCENARIO OMM_WKWEBVIEW_EVIDENCE
+    export OMM_WKWEBVIEW_SCENARIO=ui
+    export OMM_WKWEBVIEW_DRIVER="$DESKTOP_ROOT/scripts/fixtures/desktop-review-guards-probe.js"
+    OMM_WKWEBVIEW_EVIDENCE=$(mktemp -d /private/tmp/omm-review-wk-XXXXXX)
+    desktop_component_script packaging/desktop/test-wkwebview.sh
+    record_native_artifacts
+    unset OMM_WKWEBVIEW_SCENARIO OMM_WKWEBVIEW_EVIDENCE OMM_WKWEBVIEW_DRIVER
     desktop_component_script scripts/test-desktop-ui-wkwebview.sh
     desktop_component_script scripts/test-desktop-preferences-wkwebview.sh
     desktop_component_script scripts/test-desktop-lifecycle-wkwebview.sh
