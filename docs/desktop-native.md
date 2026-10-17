@@ -198,3 +198,43 @@ looked for a settings button instead of the actual navigation link; a temporary
 stage diagnostic localized the failure. `close-acl` directly rejects this new
 fixture request from an unknown local window and a navigated remote main.
 These are component proofs, not a replacement for the final combined UI gate.
+
+### First-use lifecycle proof (feature-only, real bundled CLI)
+
+`OMM_LIFECYCLE_RESOURCE_APP='/absolute/path/to/verified-release.app' bash
+packaging/desktop/test-lifecycle.sh` reuses verified release resources, rebuilds
+only the current locked CLI and fixture host, and creates a private test bundle.
+It does not install it or register a LaunchAgent. The fixture manifest records
+the current source revision and exact resource/CLI hashes; this modified test
+bundle is not the final distributable signed App.
+
+The `lifecycle` scene requires genuinely absent CONFIG/STATE/DATA/CACHE roots,
+a new private runtime, and an explicit 0700 HOME inside the fixture root with no
+`Library/LaunchAgents`. The latter follows the CLI's actual registration lookup;
+XDG roots alone cannot isolate that lookup. No owner/config/database is seeded.
+The real local WK bridge calls `profile_initialize`, `service_plan` and
+`service_apply`; actual manifest-bound CLI processes prove start, safe switch
+and stop. Auto recording and notifications remain disabled. Only a synthetic
+peer executable is configured for the unsealed-recording rejection test.
+
+The test-only local-main channel `__ommLifecycleCase` accepts each of
+`configure`, `running`, `switched`, `offline` once, returning
+`__ommLifecycleCaseResult`; it exercises persisted busy recording, expired plan,
+stale generation and an identity-unknown listener. These auxiliary negatives
+call the same Rust lifecycle use cases; they are not claims of extra UI
+coverage. The exact native receipts are included under `nativeCases` in the
+result, alongside owned CLI PIDs, capture quit/wait, socket/lock cleanup and data
+preservation. The driver also verifies byte-equivalent configuration across the
+successful lifecycle. Only the current trusted local main is processed.
+
+The scene has a 360-second bound and the owning wrapper 420 seconds: per-call
+production resource verification remains intact and cumulative verification
+exceeded an earlier 120-second test-only budget. On failure, cleanup may signal
+only a still authenticated, exact manifest CLI observed in this private run,
+with no persisted recording; forced cleanup always makes the result fail.
+There is no production lifecycle/auth/launcher change. Final React first-use
+and service-button acceptance remains the integrator's responsibility.
+
+The synthetic summary now has an `Action items` heading above its existing
+checkbox-source list item. This makes read-only action extraction nonempty;
+older container-only UI evidence is not reclassified as a nonempty-list proof.

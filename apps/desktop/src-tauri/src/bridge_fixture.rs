@@ -19,12 +19,16 @@ use tauri::Manager;
 use uuid::Uuid;
 pub mod capture;
 mod close;
+mod lifecycle;
 mod snapshot;
 mod window_acl;
 pub fn scenario() -> String {
     let scenario = std::env::var("OMM_WKWEBVIEW_SCENARIO").unwrap_or_else(|_| "native".into());
     assert!(
-        matches!(scenario.as_str(), "native" | "window-acl" | "ui"),
+        matches!(
+            scenario.as_str(),
+            "native" | "window-acl" | "ui" | "lifecycle"
+        ),
         "unknown private fixture scenario"
     );
     scenario
@@ -54,6 +58,21 @@ pub fn prepare() -> Paths {
         !paths.state.join("state.sqlite").exists(),
         "fixture profile must be new"
     );
+    if scenario() == "lifecycle" {
+        let home = PathBuf::from(std::env::var_os("HOME").unwrap())
+            .canonicalize()
+            .unwrap();
+        assert!(home.starts_with(&root));
+        validate_private_dir(&home).unwrap();
+        assert!(!home.join("Library/LaunchAgents").exists());
+        assert!(
+            [&paths.config, &paths.state, &paths.data, &paths.cache]
+                .iter()
+                .all(|p| !p.exists()),
+            "lifecycle profile must be genuinely uninitialized"
+        );
+        return paths;
+    }
     paths.create_private_dirs().unwrap();
     write_private_new(&output("import.wav"), &media::silent_wav(1)).unwrap();
     let codec = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../target/audio-toolchain");
@@ -183,7 +202,9 @@ fn complete_seed(store: &mut Store, duration_ms: u64) {
             &claim,
             &Summary {
                 schema_version: 1,
-                markdown: "# Synthetic summary\n\n- [ ] Read-only synthetic action".into(),
+                markdown:
+                    "# Synthetic summary\n\n## Action items\n\n- [ ] Read-only synthetic action"
+                        .into(),
                 provider: "fixture".into(),
                 model: "fixture".into(),
                 prompt_version: claim.context.config.pi.prompt_version.clone(),
@@ -194,6 +215,9 @@ fn complete_seed(store: &mut Store, duration_ms: u64) {
 }
 
 pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Builder<tauri::Wry> {
+    if scenario() == "lifecycle" {
+        return lifecycle::builder(builder, paths);
+    }
     let root = PathBuf::from(std::env::var_os("OMM_NATIVE_FIXTURE_ROOT").unwrap())
         .canonicalize()
         .unwrap();

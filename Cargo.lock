@@ -2385,6 +2385,7 @@ dependencies = [
  "arboard",
  "block2",
  "chrono",
+ "libc",
  "objc2",
  "open-meeting-memo",
  "rfd",
