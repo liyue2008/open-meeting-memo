@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { focusManager, useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useBridge } from '../app/context';
 import { clock, dateTime } from '../app/dates';
 import { ErrorNotice, Heading, Loading, SOURCES, Status } from '../components/ui';
 import { EditMeeting, Reprocess, RetainMeetings } from './meeting-actions';
 import { Player } from './player';
-import { Artifacts } from './artifacts';
+import { activeArtifactWork, Artifacts } from './artifacts';
 import { TaskControls, TaskDialog } from './queue';
 export function Detail({
   id,
@@ -24,7 +24,12 @@ export function Detail({
   const detail = useQuery({
     queryKey: ['meeting_get', id],
     queryFn: ({ signal }) => bridge.call('meeting_get', { meetingId: id }, signal),
-    refetchInterval: 10000,
+    refetchInterval: (query) => {
+      if (activeArtifactWork(query.state.data?.meeting.status ?? '')) return 2000;
+      // Keep authority current while hidden; terminal details retain ordinary foreground refresh.
+      return focusManager.isFocused() ? 10000 : false;
+    },
+    refetchIntervalInBackground: true,
   });
   const tasks = useInfiniteQuery({
     queryKey: ['task_list', id],

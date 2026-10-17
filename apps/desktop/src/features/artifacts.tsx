@@ -103,7 +103,7 @@ export function SafeMarkdown({
     </div>
   );
 }
-function activeArtifactWork(status: string): boolean {
+export function activeArtifactWork(status: string): boolean {
   return [
     'recording',
     'unsealed',
