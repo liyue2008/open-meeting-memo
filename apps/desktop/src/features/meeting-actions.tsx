@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAction, useAdmission, useBridge } from '../app/context';
-import { dateTime } from '../app/dates';
+import { dateTime, localTimestamp } from '../app/dates';
 import { ErrorNotice, Modal } from '../components/ui';
 import type { ImportSelection, MeetingRow, ProcessingStage } from '../contracts.generated';
 
@@ -277,8 +277,7 @@ export function CreateMeeting({ close }: { close: () => void }) {
               disabled={action.busy || !title.trim() || !started}
               onClick={() =>
                 void action.run(async () => {
-                  const start = new Date(started).getTime();
-                  if (!Number.isSafeInteger(start)) throw new Error('日期无效');
+                  const start = localTimestamp(started);
                   const result = await bridge.call('import_commit', {
                     admission: await admission.obtain('import_mix_v1'),
                     selectionHandle: selection.selectionHandle,

@@ -37,6 +37,20 @@ export function dateRange(
     toUtcMsExclusive: end.getTime(),
   };
 }
+/** datetime-local accepts nonexistent daylight-saving times; reject normalized values before import. */
+export function localTimestamp(value: string): number {
+  const date = new Date(value);
+  const stamp = date.getTime();
+  const roundTrip = `${localDay(date)}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  if (
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value) ||
+    !Number.isSafeInteger(stamp) ||
+    stamp < 0 ||
+    roundTrip !== value
+  )
+    throw new Error('开始时间无效，或该本地时间因夏令时切换而不存在。请选择真实的会议开始时间。');
+  return stamp;
+}
 export const clock = (ms: number): string => {
   const s = Math.max(0, Math.floor(ms / 1000));
   return `${Math.floor(s / 3600) ? `${Math.floor(s / 3600)}:` : ''}${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;

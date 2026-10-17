@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import ts from 'typescript';
-import { dateRange, localDay } from '../src/app/dates';
+import { dateRange, localDay, localTimestamp } from '../src/app/dates';
 describe('app/dates local calendar ranges', () => {
   const now = new Date(2026, 9, 18, 16, 30); // Sunday
   it('defaults seven inclusive local days and Monday-start current week', () => {
@@ -25,6 +25,17 @@ describe('app/dates local calendar ranges', () => {
     ])
       expect(() => dateRange('custom', now, from, to)).toThrow();
   });
+  it('rejects malformed and normalized local import timestamps', () => {
+    for (const value of [
+      '',
+      'not-a-date',
+      '2025-02-29T10:30',
+      '1960-01-01T10:30',
+      '2026-13-01T10:30',
+    ])
+      expect(() => localTimestamp(value)).toThrow();
+    expect(localTimestamp('2026-10-18T10:30')).toBe(new Date(2026, 9, 18, 10, 30).getTime());
+  });
   it('uses calendar arithmetic across spring/fall DST and year boundaries in independent zones', () => {
     const source = fs.readFileSync(`${process.cwd()}/src/app/dates.ts`, 'utf8');
     const code = ts.transpileModule(source, {
@@ -38,6 +49,8 @@ describe('app/dates local calendar ranges', () => {
       assert.equal(fall.toUtcMsExclusive - fall.fromUtcMs, process.env.TZ === 'America/New_York' ? 25*3600000 : 24*3600000);
       assert.equal(dateRange('7', new Date(2026,0,2,12)).fromLocalDate, '2025-12-27');
       assert.equal(dateRange('week', new Date(2026,0,1,12)).fromLocalDate, '2025-12-29');
+      if (process.env.TZ === 'America/New_York') assert.throws(() => localTimestamp('2026-03-08T02:30'));
+      else assert.equal(localTimestamp('2026-03-08T02:30'), Date.UTC(2026,2,7,18,30));
     `;
     for (const TZ of ['America/New_York', 'Asia/Shanghai'])
       expect(() =>
