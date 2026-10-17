@@ -1,0 +1,16 @@
+docs/desktop-acceptance.md
+  h_b4d40596eab523 3,7,9,13-14,51,63-68
+scripts/test-desktop-lifecycle-wkwebview.sh
+  h_b4d40596eab523 72-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ec6e0456901d91aeed6487d203e26ac0c95cc652",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
