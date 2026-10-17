@@ -173,6 +173,7 @@ describe('App real typed bridge interactions with synthetic transport', () => {
   });
   it('retains settings draft on conflict, blocks navigation and discards only explicitly', async () => {
     const fake = fixtureBridge({
+      config_get: () => ({ ...sample('config_get'), initialized: true }),
       config_validate: () => ({ ...sample('config_validate'), valid: true }),
       config_save: () => {
         throw conflict();
@@ -203,6 +204,7 @@ describe('App real typed bridge interactions with synthetic transport', () => {
   });
   it('saves settings atomically before leaving without credentials or auto-record patches', async () => {
     const fake = fixtureBridge({
+      config_get: () => ({ ...sample('config_get'), initialized: true }),
       config_validate: () => ({ ...sample('config_validate'), valid: true }),
       config_save: (p) => ({
         ...sample('config_get'),

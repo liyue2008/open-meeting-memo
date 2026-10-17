@@ -186,6 +186,8 @@ function SettingsForm({ initial, register }: { initial: ConfigSnapshot; register
     if (parseError || !dirty) return !dirty;
     const expectedDraft = draftRevision.current;
     return action.run(async () => {
+      if (!base.initialized)
+        throw new Error('资料库尚未初始化。请先到“状态与诊断”明确完成首次设置。');
       const check = await bridge.call('config_validate', { patch });
       setValidation(check);
       if (!check.valid) throw new Error('配置校验未通过，请修正标注的字段。');
@@ -207,6 +209,11 @@ function SettingsForm({ initial, register }: { initial: ConfigSnapshot; register
   return (
     <>
       <section className="panel settings-summary">
+        {!base.initialized && (
+          <p className="notice">
+            资料库尚未初始化；下方仅展示未保存的默认值，不能编辑或保存。请先打开“状态与诊断”完成首次设置，不会自动创建配置。
+          </p>
+        )}
         <p>
           自动录音：{base.autoRecord ? '开' : '关'} · 录音同意：
           {base.recordingConsent ? '已确认' : '未确认'}（通过顶部录音入口显式更改）
@@ -229,7 +236,7 @@ function SettingsForm({ initial, register }: { initial: ConfigSnapshot; register
       >
         <div className="settings-grid">
           {groups.map((group) => (
-            <fieldset className="panel" key={group} disabled={action.busy}>
+            <fieldset className="panel" key={group} disabled={action.busy || !base.initialized}>
               <legend>{group}</legend>
               {(Object.entries(fields) as Array<[keyof EditableConfig, Field]>)
                 .filter(([, f]) => f.group === group)

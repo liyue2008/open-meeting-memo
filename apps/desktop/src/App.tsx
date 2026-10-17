@@ -12,6 +12,7 @@ import { Queue } from './features/queue';
 import { Settings, type DraftGuard } from './features/settings';
 import { DiagnosticsPage, Help } from './features/diagnostics';
 import { RecordingBar } from './features/meeting-actions';
+import { ServiceBanner } from './features/lifecycle';
 const navigation = [
   { id: 'library', label: '会议库' },
   { id: 'queue', label: '处理队列' },
@@ -261,6 +262,7 @@ function Shell() {
           </p>
         )}
         <RecordingBar />
+        <ServiceBanner open={() => go('diagnostics')} />
         {info.data && !info.data.compatibility.writesAllowed && (
           <div className="compatibility-banner" role="status">
             当前资料库为只读或服务不可用。查看“状态与诊断”修复；不会自动迁移个人资料或重启服务。

@@ -27,6 +27,7 @@ describe('Native window close draft guard (DOM fixture, not permission proof)', 
   it('prevents dirty native close, saves CAS then destroys only the current window', async () => {
     native.destroy.mockResolvedValue();
     const fake = fixtureBridge({
+      config_get: () => ({ ...sample('config_get'), initialized: true }),
       config_validate: () => ({ ...sample('config_validate'), valid: true }),
       config_save: (p) => ({
         ...sample('config_get'),

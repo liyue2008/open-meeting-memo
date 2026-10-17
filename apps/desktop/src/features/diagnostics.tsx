@@ -2,6 +2,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useAction, useBridge, useInfo } from '../app/context';
 import { dateTime } from '../app/dates';
 import { ErrorNotice, Heading, Loading } from '../components/ui';
+import { ServiceLifecycle } from './lifecycle';
 const compatibilityLabel = {
   compatible: '兼容',
   read_only: '只读',
@@ -68,7 +69,8 @@ export function DiagnosticsPage() {
           导出脱敏诊断
         </button>
       </Heading>
-      <section className="panel">
+      <ServiceLifecycle />
+      <section className="panel section-spaced">
         <h2>桌面与后台服务</h2>
         {info.error && <ErrorNotice error={info.error} retry={() => void info.refetch()} />}
         <dl>
@@ -93,8 +95,7 @@ export function DiagnosticsPage() {
         )}
         {compatibility?.safeSwitchRequired && (
           <p>
-            需要显式安全切换服务版本。先确认没有录音进行中，再按安装文档操作；App
-            不会直接中断个人服务。
+            需要显式安全切换服务版本。使用上方“安全切换服务版本”检查实际可执行计划；活动录音、处理任务或归属不明时拒绝切换，保留个人工作。
           </p>
         )}
       </section>
@@ -166,7 +167,10 @@ export function Help() {
         <section className="panel">
           <h2>开始一场会议</h2>
           <ol>
-            <li>先查看“状态与诊断”，核对后台服务、录音权限、本地模型和 Pi。</li>
+            <li>
+              首次使用进入“状态与诊断”，明确初始化空资料库，检查依赖和配置，再确认启动后台服务。
+            </li>
+            <li>核对录音权限、本地模型和 Pi；App 不会自动下载、请求权限或开始录音。</li>
             <li>在“会议库”新建会议，选择已封存音频或确认同意后手动录音。</li>
             <li>飞书自动录音只接受明确参会信号；未知状态不会当成会议结束。</li>
             <li>停止录音后等待封存；转写与纪要会在后台继续。</li>
