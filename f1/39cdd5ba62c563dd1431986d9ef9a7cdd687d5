@@ -1,0 +1,119 @@
+src/application/bundle.rs
+  s_b51f0316cfa2ff::t_1ac2cceac542e0 1-117
+src/application/imports.rs
+  s_b51f0316cfa2ff::t_0332e8600059c3 1-391
+src/core/store/transaction.rs
+  s_b51f0316cfa2ff::t_f4ddd5f3600c8a 1-38
+src/application/validation.rs
+  s_b51f0316cfa2ff::t_e85c5a2e1e2afb 1-182
+src/core/store/asr_measurements.rs
+  s_b51f0316cfa2ff::t_a01ddea13b9acd 150
+src/adapters/pi/mod.rs
+  s_b51f0316cfa2ff::t_7e11e387e774de 37-39
+src/core/mod.rs
+  s_b51f0316cfa2ff::t_44e372a9a59b34 12
+src/service/daemon.rs
+  s_b51f0316cfa2ff::t_cc4f58a752f3a4 48-51,140-248,253,268-273,728-747,768,823,968-969,975-976
+src/application/cli.rs
+  s_b51f0316cfa2ff::t_eb08e702e64ce4 1-65
+packaging/desktop/licenses/objc2-LICENSE.md
+  s_b51f0316cfa2ff::t_58796874ada0a2 1-34
+src/adapters/asr/codec.rs
+  s_b51f0316cfa2ff::t_2d95c8715f0718 23,29,171-180,218,361,471-472
+packaging/desktop/install.py
+  s_a264fe4abc41cf::t_3c24d7b17fa26f 1-101
+src/core/config.rs
+  s_b51f0316cfa2ff::t_aa006de42b5b6a 9-11,31,68-70,78-80,202
+src/core/store/segments.rs
+  s_b51f0316cfa2ff::t_cd4780d8aaaf71 82,233,305,433,441,532,600,734,756
+packaging/desktop/notices.py
+  s_b51f0316cfa2ff::t_325794347eb503 1-84
+apps/desktop/src-tauri/build.rs
+  s_b51f0316cfa2ff::t_e7f66d00ef68aa 3
+packaging/desktop/licenses/alloc-stdlib-LICENSE
+  s_b51f0316cfa2ff::t_5b15c7796a16ac 1-12
+src/core/pipeline.rs
+  s_b51f0316cfa2ff::t_50280915a5df01 74,79,82,150,196-198,205-212,227,232,323-324
+Cargo.toml
+  s_b51f0316cfa2ff::t_5dd917acb7a910 27
+packaging/desktop/licenses/onnxruntime-ThirdPartyNotices.txt
+  s_b51f0316cfa2ff::t_4fa4d2bcb697ec 1-6121
+tests/opus_archive.rs
+  s_b51f0316cfa2ff::t_d3ce7b30fac758 300,372,399
+tests/segment_benchmark.rs
+  s_b51f0316cfa2ff::t_7edc8ec07c7a61 276,423
+src/adapters/asr/mod.rs
+  s_b51f0316cfa2ff::t_dbcd21038f25f7 686-689
+src/cli/mod.rs
+  s_b51f0316cfa2ff::t_3c0f76036a74b3 2,155-180,182-183,215-220,400-407,409-410,608,628-637,644-691,693,709-717,758,762-781,817-818,823-828,830,832-834,836-848,850-858,860-866,876-887
+tests/segment_pipeline.rs
+  s_b51f0316cfa2ff::t_e0e373c792b72e 262,893,1001
+src/core/config_transaction.rs
+  s_b51f0316cfa2ff::t_3725be4f42e1c1 1-80
+packaging/desktop/licenses/SPDX-MPL-2.0.txt
+  s_b51f0316cfa2ff::t_1c5561f39dd801 1-373
+src/core/store.rs
+  s_b51f0316cfa2ff::t_e8db38f26c93fb 5,41-42,46,107,224,317,400,491,506,560,654,656-666,718,744,829,861,919,923,937
+src/core/contracts.rs
+  s_b51f0316cfa2ff::t_e839bee4ab2fc8 301-302,309,584-586
+packaging/desktop/licenses/SOURCES.json
+  s_b51f0316cfa2ff::t_5aac45d9810b01 1-32
+tests/asr_measurements.rs
+  s_b51f0316cfa2ff::t_04a251a6733379 249,335,397,438
+packaging/desktop/licenses/onnxruntime-MIT.txt
+  s_b51f0316cfa2ff::t_7b3ee2d29739f7 1-21
+src/application/mod.rs
+  s_b51f0316cfa2ff::t_2351599dcfd4f0 1-6,8-228
+src/application/lifecycle.rs
+  s_b51f0316cfa2ff::t_9f3273ffa2772c 1-362
+src/core/store/archives.rs
+  s_b51f0316cfa2ff::t_49aa5665de963f 42
+tests/core_cli.rs
+  s_b51f0316cfa2ff::t_4ae6773b21732b 11,97-101,235-239,271-275
+packaging/desktop/licenses/SPDX-Zlib.txt
+  s_b51f0316cfa2ff::t_521e06cf35032b 1-11
+packaging/desktop/dependencies.json
+  s_b51f0316cfa2ff::t_dbda9f48b97420 1-12
+apps/desktop/src-tauri/src/host.rs
+  s_b51f0316cfa2ff::t_6631f29a7c93ce 1-491
+packaging/desktop/licenses/SPDX-BSD-3-Clause.txt
+  s_b51f0316cfa2ff::t_b04ea854d09f77 1-11
+apps/desktop/src-tauri/src/bridge_fixture.rs
+  s_b51f0316cfa2ff::t_0b848ae46eef26 1-188
+packaging/desktop/licenses/sherpa-onnx-APACHE-2.0.txt
+  s_b51f0316cfa2ff::t_fe50e35d80c397 1-202
+src/application/media.rs
+  s_b51f0316cfa2ff::t_2bf78a43d494b9 1-359
+src/application/artifacts.rs
+  s_b51f0316cfa2ff::t_b16fcf109646d6 1-105
+tests/core_pipeline_pi.rs
+  s_b51f0316cfa2ff::t_fbb1163bf37da6 290,370,401,518,585,643,709,764
+packaging/desktop/install.sh
+  s_a264fe4abc41cf::t_7ef434ae2a854c 1-9
+packaging/desktop/licenses/SPDX-MIT.txt
+  s_b51f0316cfa2ff::t_3e0cd0e380a1bd 1-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f139cdd5ba62c563dd1431986d9ef9a7cdd687d5",
+  "prompts": {},
+  "sessions": {
+    "s_a264fe4abc41cf": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14a57-1149-72a4-9c79-db3a380c6755",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_b51f0316cfa2ff": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14a57-1149-74de-90d2-383adb76b2f3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
