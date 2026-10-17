@@ -1,0 +1,35 @@
+apps/desktop/scripts/test-production-validators.mjs
+  s_a264fe4abc41cf::t_0fa3b727a358c4 1-89
+apps/desktop/scripts/test-production-wkwebview.mjs
+  s_a264fe4abc41cf::t_fe28e1d3b30267 1-76
+apps/desktop/src/bridge/validators.generated.js
+  s_a264fe4abc41cf::t_20bc869f19e2a4 1,3-11
+apps/desktop/tests/production-validators.test.ts
+  s_a264fe4abc41cf::t_d0093a1c26f9fb 1-12
+docs/desktop-ui.md
+  s_b51f0316cfa2ff::t_8fe5721b9e6698 119-126,136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ca5107f8234a6f84c619b51fe6d1a2e685673ad5",
+  "prompts": {},
+  "sessions": {
+    "s_a264fe4abc41cf": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14a57-1149-72a4-9c79-db3a380c6755",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_b51f0316cfa2ff": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14a57-1149-74de-90d2-383adb76b2f3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
