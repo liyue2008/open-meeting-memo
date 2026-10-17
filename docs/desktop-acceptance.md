@@ -1,6 +1,6 @@
 # 桌面版本验收记录
 
-**首轮正式业务与安全评审均要求修复，当前不允许安装或发布。** 已有候选门禁不能覆盖正式评审发现；UI可读性、明确播放入口与公开依赖锁修复已完成定向验证。后端正式修复`dde5269`、`2c4d5f9`已摘取为`ae4c608`、`b190062`，受控Rust回归与F2/F5实际UI续验通过；冷首次录音/partial的真实交互入口尚待独立native测试增补，不能用预启动/完整成功seed冒充。所有入口齐备后须重跑当前源门禁并由新的独立席位复审。 既有146项React/WK矩阵包含非空只读行动项、严格媒体和真实脏配置关窗；测试专属UUID两进程偏好及真实React首用/服务入口也已接线。后续held busy/unknown/stale受限控制和原包CLI字节保留已采用native `1d27d271`，不改生产schema/权限。每次候选的精确commit、当前源完整运行结果、实际exit/owned回执及资源hash，必须由随候选交接的证据矩阵确认；本页的历史通过不能追认为新源通过。A9–A11仍须Main另行编排，不因组件通过或候选就绪而自动完成。
+**首轮正式业务与安全评审均要求修复，当前不允许安装或发布。** 已有候选门禁不能覆盖正式评审发现；UI可读性、明确播放入口与公开依赖锁修复已完成定向验证。后端正式修复`dde5269`、`2c4d5f9`已摘取为`ae4c608`、`b190062`，受控Rust回归与F2/F5实际UI续验通过；冷首次录音/partial的受限入口已采用immutable `c2b49c4`，当前Root真实React定向7＋10项通过，默认nonpersistent且reader泄漏仍使失败；未用预启动/完整成功seed冒充。所有入口现已齐备，须按当前clean来源运行完整门禁、同源新包并由新的独立席位复审。 既有146项React/WK矩阵包含非空只读行动项、严格媒体和真实脏配置关窗；测试专属UUID两进程偏好及真实React首用/服务入口也已接线。后续held busy/unknown/stale受限控制和原包CLI字节保留已采用native `1d27d271`，不改生产schema/权限。每次候选的精确commit、当前源完整运行结果、实际exit/owned回执及资源hash，必须由随候选交接的证据矩阵确认；本页的历史通过不能追认为新源通过。A9–A11仍须Main另行编排，不因组件通过或候选就绪而自动完成。
 
 | 验收项 | 当前状态 | 最终需要的证据 |
 |---|---|---|
@@ -21,15 +21,24 @@
 
 F7只调整首次/归属不明服务横幅的专用入口：明确前景/背景并关闭系统按钮外观；正常、hover及focus使用同一前景/背景配对，仅改变边框。实际WK明暗计算对比度及稳定截图由定向证据记录，DOM样式断言不是实际鼠标hover证明。生产录音保留原生audio controls，另有明确的“播放录音/暂停录音”按钮：grant与metadata就绪前禁用，仅用户明确点击播放；定位、换段、恢复窗口不自动播放。播放事件接线仅使用单元测试mock，真实WK保持0次play，不能声称已验证可听回放。
 
-npm锁的下载地址由私有镜像规范为官方公开registry，保留全部版本、依赖图及integrity。隔离复制中的完整性缓存离线安装验证与公开在线安装是两种证据；后者和完整audit仍受网络/TLS策略限制。没有改全局npm配置、认证、证书、TLS或依赖版本。冷首次录音、导入/中断、互斥、partial读取、idle shutdown及content检索的生产修复已组合，当前受控Rust回归83项和desktop fixture-feature7项通过；83项中另6个ignored未在该命令运行，不能追认为已跑完整Swift。F2/F5已补实际UI23项（仅标题content搜索、Trash后retry/requeue禁用及恢复）。预启动fixture不证明冷首次启动，已完成产物不证明partial读取；两项真实交互仍待新测试seam。UI早期busy拒绝不是F4最终执行点竞态证明，后者由Core受控service/claim/reader回归单独提供；导入中断故障注入也不能替代UI闭环。
+npm锁的下载地址由私有镜像规范为官方公开registry，保留全部版本、依赖图及integrity。隔离复制中的完整性缓存离线安装验证与公开在线安装是两种证据；后者和完整audit仍受网络/TLS策略限制。没有改全局npm配置、认证、证书、TLS或依赖版本。冷首次录音、导入/中断、互斥、partial读取、idle shutdown及content检索的生产修复已组合，当前受控Rust回归83项和desktop fixture-feature7项通过；83项中另6个ignored未在该命令运行，不能追认为已跑完整Swift。F2/F5已补实际UI23项（仅标题content搜索、Trash后retry/requeue禁用及恢复）。预启动fixture不证明冷首次启动，已完成产物不证明partial读取；新`c2b49c4`入口已在Root当前组合通过真实交互，具体来源及边界见下节。UI早期busy拒绝不是F4最终执行点竞态证明，后者由Core受控service/claim/reader回归单独提供；导入中断故障注入也不能替代UI闭环。
 
-## 正式修复组合阶段A（尚未新候选）
+## 正式修复组合阶段A（历史检查点，不是新候选）
 
 当前生产修复已按两条immutable提交依序摘取，源与`2c4d5f9`的17条变更路径逐字节一致。`/private/tmp/omm-review-integrate-hxRI0P/stage-a-gates.log`与`.exit`记录fmt、34 core＋8 imports＋19 desktop＋22 segments共83回归、7个desktop feature测试、合同/validator漂移、strict TS、109测试双时区和生产build全部0；不是最终当前源全量。
 
 `scripts/fixtures/desktop-review-guards-probe.js`已接入统一`--wkwebview`。实际定向根`/private/tmp/omm-rg-VXDEyk`：23项/ok=true/playCalls=0，owned PID38348 exit0/waited无超时。通过真实UI给failed/cancelled两会写唯一标题，确认无成功内容仍能在content范围仅凭title匹配；真实Trash后队列retry/requeue均禁用，恢复后只恢复原本合法操作。raw调用仅独立读取DTO，不代替UI写操作；状态/阶段/虚构worker失败的真实语义按冻结契约保留。该次记录immutable clean来源及实际driver/binary/dist，未单独建立运行前清单；最后统一验收必须有完整before/after。
 
 在Main批准的命令环境下，原脚本真实`npm ci --no-audit --no-fund`可使用既有已验证tarball缓存及offline=true；先仅将项目node_modules备份到0700私有根，实际版本/完整性图前后比较，失败保留并恢复旧依赖。没有跳ci/改TLS、代理或个人配置。npm11既有allowScripts提示要保留，不能因没传ignore-scripts就声称所有postinstall已执行；no-audit也不是完整漏洞审计。此前私有跳ci harness仅属旧定向证据，不能沿用为最终原门禁通过。
+
+## 正式修复组合阶段B：真实冷启动与partial
+
+在clean `c04a87de786c9228d45c29ca0153f18da4837605`上实际采用原样`apps/desktop/src-tauri/fixtures/review-probe.js`，由原WK脚本真实npm ci/build执行，依赖仅使用Main批准的私有完整性缓存/offline命令环境，先保护项目node_modules，版本/integrity图前后相等。未改个人npm/TLS/代理策略。
+
+- 冷首次根`/private/tmp/omm-rvw-324u48mo`：原生结果envelope内`result`为7项/ok=true/playCalls=0。真实React按钮前无socket/peer，独立同意后typed record_start经生产Core.ensure_helper实际spawn受控peer，真实stop/seal，restore后quit/wait；native productionCaptureWaitConfirmed/readersReleasedBeforeFixtureTeardown均true。owned App73812 exit0/waited无超时。私有事后校验器最初把envelope当result导致KeyError，原夹具本身exit0；已按实际结果形状只读复核，保留该postcheck失败，不重跑或追绿。
+- partial根`/private/tmp/omm-rvw-od7pptal`：10项/ok=true/playCalls=0。动态读取inspect.scenario的真实parent/task，实际UI显示部分提示与已验证段文字；advance真实第二段commit后revision变化、旧cursor真实冲突，UI重载新段；finalize真实seal/aggregate全篇commit后UI切到终稿。owned App75465 exit0/waited无超时，readersReleasedBeforeFixtureTeardown=true。
+
+两根均有独立source-before/after相等清单和实际host/dist/原样driver/result/owned hash，完整元数据在`/private/tmp/omm-postreview-sQT9RA`。这里只记录本节定向来源，不冒称后续完整候选已验。统一`--wkwebview`已接F2/F5、F7当前入口和两新增as-is场景；每次原生运行都有完整前后来源与实际产物绑定。F4最终执行点/reader竞态和F6导入中断仍以源命名Core故障注入作对应证明，不能用UI早期busy/可见取消替代。
 
 ## 当前整合证据与最终复验
 
