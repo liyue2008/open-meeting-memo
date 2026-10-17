@@ -33,4 +33,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "media_manifest",
     "media_open",
     "media_close",
+    "profile_initialize",
+    "service_plan",
+    "service_apply",
 ];

@@ -934,6 +934,85 @@ pub struct ServiceCapabilityResponse {
     pub compatibility: ServiceCompatibility,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServiceAction {
+    #[serde(rename = "start")]
+    Start,
+    #[serde(rename = "stop")]
+    Stop,
+    #[serde(rename = "switch")]
+    Switch,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServiceLifecycleState {
+    #[serde(rename = "uninitialized")]
+    Uninitialized,
+    #[serde(rename = "stopped")]
+    Stopped,
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "incompatible")]
+    Incompatible,
+    #[serde(rename = "busy")]
+    Busy,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServicePlanReason {
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "profile_not_initialized")]
+    ProfileNotInitialized,
+    #[serde(rename = "profile_not_empty")]
+    ProfileNotEmpty,
+    #[serde(rename = "service_busy")]
+    ServiceBusy,
+    #[serde(rename = "unowned_service")]
+    UnownedService,
+    #[serde(rename = "bundle_unavailable")]
+    BundleUnavailable,
+    #[serde(rename = "service_unreachable")]
+    ServiceUnreachable,
+    #[serde(rename = "already_running")]
+    AlreadyRunning,
+    #[serde(rename = "already_stopped")]
+    AlreadyStopped,
+    #[serde(rename = "incompatible_service")]
+    IncompatibleService,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ServicePlanRequest {
+    pub action: ServiceAction,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ServicePlan {
+    pub action: ServiceAction,
+    pub state: ServiceLifecycleState,
+    pub can_initialize: bool,
+    pub can_apply: bool,
+    #[serde(deserialize_with = "required_nullable")]
+    pub plan_token: Option<String>,
+    #[serde(deserialize_with = "required_nullable")]
+    pub expires_at_ms: Option<i64>,
+    pub target_version: String,
+    pub reasons: Vec<ServicePlanReason>,
+    pub compatibility: ServiceCompatibility,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ServiceApplyRequest {
+    pub plan_token: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ServiceApplied {
+    pub action: ServiceAction,
+    pub state: ServiceLifecycleState,
+    pub compatibility: ServiceCompatibility,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ServiceCompatibilityAdmissionMode {
     #[serde(rename = "none")]
     None,
@@ -1166,6 +1245,12 @@ pub enum DesktopRequest {
     MediaOpen(Request<MediaOpenRequest>),
     #[serde(rename = "media_close")]
     MediaClose(Request<MediaCloseRequest>),
+    #[serde(rename = "profile_initialize")]
+    ProfileInitialize(Request<Empty>),
+    #[serde(rename = "service_plan")]
+    ServicePlan(Request<ServicePlanRequest>),
+    #[serde(rename = "service_apply")]
+    ServiceApply(Request<ServiceApplyRequest>),
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "command", content = "response", deny_unknown_fields)]
@@ -1236,4 +1321,10 @@ pub enum DesktopResponse {
     MediaOpen(Response<MediaGrant>),
     #[serde(rename = "media_close")]
     MediaClose(Response<Acknowledgement>),
+    #[serde(rename = "profile_initialize")]
+    ProfileInitialize(Response<ConfigSnapshot>),
+    #[serde(rename = "service_plan")]
+    ServicePlan(Response<ServicePlan>),
+    #[serde(rename = "service_apply")]
+    ServiceApply(Response<ServiceApplied>),
 }

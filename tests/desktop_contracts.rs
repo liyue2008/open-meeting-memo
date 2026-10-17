@@ -36,8 +36,8 @@ fn desktop_contracts_shared_examples_roundtrip_without_loss() {
         }
     }
     assert_eq!(
-        count, 45,
-        "33 commands, 10 core error codes and 2 admission modes"
+        count, 48,
+        "36 commands, 10 core error codes and 2 admission modes"
     );
 }
 

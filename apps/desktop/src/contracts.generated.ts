@@ -500,6 +500,31 @@ export interface ServiceCapabilityResponse {
   protocolVersion: 1;
   compatibility: ServiceCompatibility;
 }
+export type ServiceAction = "start" | "stop" | "switch";
+export type ServiceLifecycleState = "uninitialized" | "stopped" | "running" | "incompatible" | "busy" | "unknown";
+export type ServicePlanReason = "ready" | "profile_not_initialized" | "profile_not_empty" | "service_busy" | "unowned_service" | "bundle_unavailable" | "service_unreachable" | "already_running" | "already_stopped" | "incompatible_service";
+export interface ServicePlanRequest {
+  action: ServiceAction;
+}
+export interface ServicePlan {
+  action: ServiceAction;
+  state: ServiceLifecycleState;
+  canInitialize: boolean;
+  canApply: boolean;
+  planToken: string | null;
+  expiresAtMs: number | null;
+  targetVersion: string;
+  reasons: Array<ServicePlanReason>;
+  compatibility: ServiceCompatibility;
+}
+export interface ServiceApplyRequest {
+  planToken: string;
+}
+export interface ServiceApplied {
+  action: ServiceAction;
+  state: ServiceLifecycleState;
+  compatibility: ServiceCompatibility;
+}
 export interface Request<T> { schemaVersion: 1; requestId: RequestId; payload: T }
 export type Response<T> = { schemaVersion: 1; requestId: RequestId; data: T } | { schemaVersion: 1; requestId: RequestId; error: BridgeError };
 export interface DesktopCommandMap {
@@ -536,6 +561,9 @@ export interface DesktopCommandMap {
   media_manifest: { request: MediaManifestRequest; response: MediaManifest };
   media_open: { request: MediaOpenRequest; response: MediaGrant };
   media_close: { request: MediaCloseRequest; response: Acknowledgement };
+  profile_initialize: { request: Empty; response: ConfigSnapshot };
+  service_plan: { request: ServicePlanRequest; response: ServicePlan };
+  service_apply: { request: ServiceApplyRequest; response: ServiceApplied };
 }
 export type DesktopCommand = keyof DesktopCommandMap;
 export const DESKTOP_BUDGETS = {

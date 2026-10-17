@@ -77,3 +77,15 @@ native 每次命令验证 main window＋webview＋当前本地 URL；ACL 只按�
 `media_manifest` 只列**验证后的公开 mix**：真实序号/offset/duration/hash/availability。老WAV只有存在可信原 manifest/hash 血缘才可读。不暴露麦克风/系统内部分源。`media_open` 检查 expectedRevision，返回绑定 main webview、meeting、segment、hash/revision、有效期的随机 grant；URL 严格 `omm-media://localhost/<grant>`，不接受路径/query token。native 验证协议回调来源，不能只信请求 header。每请求在共享音频读者锁内安全 nofollow/component-open/fstat/hash，再读同一已验证 FD；锁覆盖 hash/读取，重验身份。trash/版本失效/窗口关闭/过期/media_close 撤销 grant。
 
 协议仅 GET/HEAD，单 Range（start-end/open/suffix）；206 正确 Content-Range/Length/Accept-Ranges、416 拒多范围/非法/越界；ETag=hash、If-Range 不匹配返回有界错误要求重开，不能假造完整200。no-store/nosniff/CORS仅可信本地 origin。不带 Range 的大文件必须安全流式或显式要求 Range，经实际 WKWebView 证明，禁止截断字节却宣称完整200。播放仅用户点击，不自动播放；fixture 只测 metadata/静音解码/暂停态段内及跨段 seek，**严禁调用 play()**。实际 Tauri/WKWebView 来源/Range/driver 可行性是两个组件开工后的最早 rendezvous，不得拖到最终验收或换 Chromium。
+
+## 显式首次启用与服务操作（36命令修订）
+
+打开窗口仅观察，不初始化、迁移、启动服务、下载模型或请求桌面权限。
+
+- `profile_initialize(Empty) -> ConfigSnapshot`：受托窗口的明确首次启用操作。仅在原子锁保护下确认 CONFIG/DATA/STATE 没有现有 profile、数据库、配置或未知内容时创建默认配置与 generation。录音同意和自动录音均保持 false。已有/legacy profile 返回 conflict，不能借此迁移。该命令是 admission 引导，不能接受路径、配置、凭据或绕过现有 reader。
+- `service_plan({action: start|stop|switch}) -> ServicePlan`：读取真实 profile/service/包内版本归属和忙态，返回能否首次启用、能否执行、准确拒绝原因及兼容状态。可执行计划使用 native 短期单次 opaque token，绑定窗口、规范 profile、generation、配置原始 hash、当前服务身份、目标包版本与 hash、action、有效期；renderer 不提供路径、PID、shell 或 LaunchAgent 内容。
+- `service_apply({planToken}) -> ServiceApplied`：重验计划和窗口；持生命周期锁并按 runtime/state → writer → config 锁序重新确认 profile 和归属。改变/过期返回 conflict。仅包内经验证的 CLI 可启动；兼容且归属明确的服务可正常 stop/drain，等待子进程退出和录音 seal。未知归属或活动录音/未封存工作/运行中处理任务准确拒绝，不盲杀。显式 switch 先安全停止，再启动包内版本；失败准确报告，绝不恢复真实录音。停止不删除配置、音频或产物。App 退出不停止服务。
+
+`profile_initialize` 与 `service_apply` 不携带旧 writeAdmission：前者只能创建严格空的 profile，后者以更窄的绑定计划授权生命周期操作，不能转用于会议/任务/配置写入。一般写入继续要求原 admission、generation 和请求去重；新的受托窗口权限也仅逐命令授予。服务/模型/Pi/权限就绪各自诊断，不把启动成功称为完整 ready。
+
+消费者先通过 `service_plan(start)` 显示真实状态；uninitialized 时提供明确首次启用按钮，成功后重新读取配置；由用户明确执行计划对应启动/停止/切换，并重新读取 desktop_info/config/diagnostics。计划失败或状态变化重新获取，不自动重放 apply。已有配置中的录音同意不受生命周期操作更改。

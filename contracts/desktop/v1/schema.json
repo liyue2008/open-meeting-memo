@@ -695,6 +695,69 @@
         "request",
         "response"
       ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "profile_initialize",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/profile_initialize_request"
+        },
+        "response": {
+          "$ref": "#/$defs/profile_initialize_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "service_plan",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/service_plan_request"
+        },
+        "response": {
+          "$ref": "#/$defs/service_plan_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "service_apply",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/service_apply_request"
+        },
+        "response": {
+          "$ref": "#/$defs/service_apply_response"
+        }
+      },
+      "required": [
+        "command",
+        "request",
+        "response"
+      ]
     }
   ],
   "$defs": {
@@ -5839,6 +5902,356 @@
         "protocolVersion",
         "compatibility"
       ]
+    },
+    "ServiceAction": {
+      "type": "string",
+      "enum": [
+        "start",
+        "stop",
+        "switch"
+      ]
+    },
+    "ServiceLifecycleState": {
+      "type": "string",
+      "enum": [
+        "uninitialized",
+        "stopped",
+        "running",
+        "incompatible",
+        "busy",
+        "unknown"
+      ]
+    },
+    "ServicePlanReason": {
+      "type": "string",
+      "enum": [
+        "ready",
+        "profile_not_initialized",
+        "profile_not_empty",
+        "service_busy",
+        "unowned_service",
+        "bundle_unavailable",
+        "service_unreachable",
+        "already_running",
+        "already_stopped",
+        "incompatible_service"
+      ]
+    },
+    "ServicePlanRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/ServiceAction"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    },
+    "ServicePlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/ServiceAction"
+        },
+        "state": {
+          "$ref": "#/$defs/ServiceLifecycleState"
+        },
+        "canInitialize": {
+          "type": "boolean"
+        },
+        "canApply": {
+          "type": "boolean"
+        },
+        "planToken": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expiresAtMs": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "targetVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ServicePlanReason"
+          },
+          "minItems": 1,
+          "maxItems": 16
+        },
+        "compatibility": {
+          "$ref": "#/$defs/ServiceCompatibility"
+        }
+      },
+      "required": [
+        "action",
+        "state",
+        "canInitialize",
+        "canApply",
+        "planToken",
+        "expiresAtMs",
+        "targetVersion",
+        "reasons",
+        "compatibility"
+      ]
+    },
+    "ServiceApplyRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "planToken": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "planToken"
+      ]
+    },
+    "ServiceApplied": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/ServiceAction"
+        },
+        "state": {
+          "$ref": "#/$defs/ServiceLifecycleState"
+        },
+        "compatibility": {
+          "$ref": "#/$defs/ServiceCompatibility"
+        }
+      },
+      "required": [
+        "action",
+        "state",
+        "compatibility"
+      ]
+    },
+    "profile_initialize_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/Empty"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "profile_initialize_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/ConfigSnapshot"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "service_plan_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/ServicePlanRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "service_plan_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/ServicePlan"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
+    },
+    "service_apply_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "requestId": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "payload": {
+          "$ref": "#/$defs/ServiceApplyRequest"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "requestId",
+        "payload"
+      ]
+    },
+    "service_apply_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "data": {
+              "$ref": "#/$defs/ServiceApplied"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "data"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "const": 1,
+              "type": "integer"
+            },
+            "requestId": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "error": {
+              "$ref": "#/$defs/BridgeError"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "requestId",
+            "error"
+          ]
+        }
+      ]
     }
   },
   "x-commands": {
@@ -6006,6 +6419,21 @@
       "request": "MediaCloseRequest",
       "response": "Acknowledgement",
       "mutation": false
+    },
+    "profile_initialize": {
+      "request": "Empty",
+      "response": "ConfigSnapshot",
+      "mutation": true
+    },
+    "service_plan": {
+      "request": "ServicePlanRequest",
+      "response": "ServicePlan",
+      "mutation": false
+    },
+    "service_apply": {
+      "request": "ServiceApplyRequest",
+      "response": "ServiceApplied",
+      "mutation": true
     }
   },
   "x-budgets": {
