@@ -1,0 +1,16 @@
+docs/desktop-acceptance.md
+  h_b4d40596eab523 3,9-15,23,28
+docs/desktop-capability-matrix.md
+  h_b4d40596eab523 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "33457d4125c4c06968f84de826870e1e83015077",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
