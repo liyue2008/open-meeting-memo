@@ -1,0 +1,16 @@
+scripts/fixtures/desktop-lifecycle-probe.js
+  h_b4d40596eab523 43
+scripts/test-desktop.sh
+  h_b4d40596eab523 36-49,51,53,55-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c0cb52f41813c3503cf8640ae50ff21a1a16f1d0",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
