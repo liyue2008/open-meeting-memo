@@ -1,0 +1,14 @@
+apps/desktop/tests/desktop_contracts.test.mjs
+  h_b4d40596eab523 81-91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "371009ad5cd37a5a03dba630908d64c24bdc389f",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
