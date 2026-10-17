@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { BridgeFailure } from '../bridge/client';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAction, useBridge } from '../app/context';
@@ -102,25 +103,48 @@ export function SafeMarkdown({
     </div>
   );
 }
+function activeArtifactWork(status: string): boolean {
+  return [
+    'recording',
+    'unsealed',
+    'queued',
+    'transcribing',
+    'transcript_committed',
+    'summarizing',
+  ].includes(status);
+}
+function cursorConflict(error: unknown): boolean {
+  return error instanceof BridgeFailure && error.detail.code === 'conflict';
+}
 function ArtifactBody({
   artifact,
+  snapshot,
   duration,
   locate,
 }: {
   artifact: ArtifactRef;
+  snapshot: string;
   duration: number | null;
   locate: (time: number) => void;
 }) {
   const bridge = useBridge();
   const action = useAction();
+  const client = useQueryClient();
   const [search, setSearch] = useState('');
   const chunks = useInfiniteQuery({
-    queryKey: ['artifact_read', artifact],
+    queryKey: ['artifact_read', artifact, snapshot],
     initialPageParam: null as string | null,
     queryFn: ({ pageParam, signal }) =>
       bridge.call('artifact_read', { artifact, cursor: pageParam, maxBytes: 262144 }, signal),
     getNextPageParam: (p) => p.nextCursor ?? undefined,
   });
+  useEffect(() => {
+    if (cursorConflict(chunks.error) && chunks.data) {
+      // A cursor belongs to one snapshot: discard all pages before reading a new head.
+      void client.resetQueries({ queryKey: ['artifact_read', artifact, snapshot], exact: true });
+      void client.invalidateQueries({ queryKey: ['artifact_versions', artifact.meetingId] });
+    }
+  }, [chunks.error, client, artifact.meetingId, artifact.taskId, artifact.stage, snapshot]);
   const data = chunks.data?.pages ?? [];
   const lines = data.flatMap((c) => c.lines);
   const text = data.map((c) => c.text).join('');
@@ -254,10 +278,19 @@ export function Artifacts({
   onTranscript: (taskId: string | null) => void;
 }) {
   const bridge = useBridge();
+  const client = useQueryClient();
   const [tab, setTab] = useState<Stage | 'versions'>('summary');
   const [chosen, setChosen] = useState<ArtifactVersion | null>(null);
+  const versionsKey = [
+    'artifact_versions',
+    meeting.meetingId,
+    meeting.status,
+    partial,
+    meeting.currentTranscriptTaskId,
+    meeting.currentSummaryTaskId,
+  ];
   const versions = useInfiniteQuery({
-    queryKey: ['artifact_versions', meeting.meetingId],
+    queryKey: versionsKey,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam, signal }) =>
       bridge.call(
@@ -266,15 +299,41 @@ export function Artifacts({
         signal,
       ),
     getNextPageParam: (p) => p.nextCursor ?? undefined,
+    refetchInterval: (query) => {
+      const items = query.state.data?.pages.flatMap((p) => p.items);
+      const active =
+        ['recording', 'unsealed'].includes(meeting.status) ||
+        (items?.length
+          ? items.some((v) => activeArtifactWork(v.taskStatus))
+          : activeArtifactWork(meeting.status));
+      return active ? 2000 : false;
+    },
+    refetchIntervalInBackground: true,
   });
+  useEffect(() => {
+    if (cursorConflict(versions.error) && versions.data) {
+      void client.resetQueries({ queryKey: versionsKey, exact: true });
+    }
+  }, [
+    versions.error,
+    client,
+    meeting.meetingId,
+    meeting.status,
+    partial,
+    meeting.currentTranscriptTaskId,
+    meeting.currentSummaryTaskId,
+  ]);
   const available = versions.data?.pages.flatMap((p) => p.items) ?? [];
   const defaultId =
     tab === 'summary' ? meeting.currentSummaryTaskId : meeting.currentTranscriptTaskId;
   const selected =
     chosen?.artifact.stage === tab
-      ? chosen
-      : (available.find((v) => v.artifact.stage === tab && v.artifact.taskId === defaultId) ??
-        (tab === 'transcribe' && partial
+      ? (available.find(
+          (v) => v.artifact.taskId === chosen.artifact.taskId && v.artifact.stage === tab,
+        ) ?? chosen)
+      : (available.find((v) => v.artifact.stage === tab && v.current) ??
+        available.find((v) => v.artifact.stage === tab && v.artifact.taskId === defaultId) ??
+        (tab === 'transcribe'
           ? available.find((v) => v.artifact.stage === 'transcribe' && v.status === 'partial')
           : undefined));
   const artifact: ArtifactRef | null =
@@ -405,12 +464,13 @@ export function Artifacts({
               <ArtifactBody
                 key={`${artifact.taskId}-${artifact.stage}`}
                 artifact={artifact}
+                snapshot={`${selected?.status ?? 'missing'}:${selected?.sha256 ?? ''}`}
                 duration={meeting.durationMs}
                 locate={locate}
               />
             ) : (
               <p className="empty-state">
-                {tab === 'transcribe' && partial
+                {tab === 'transcribe' && (partial || activeArtifactWork(meeting.status))
                   ? '正在准备部分逐字稿；可在处理版本中查看已完成片段。'
                   : '尚无对应的有效产物。处理失败时可以到处理版本中查阅旧结果。'}
               </p>

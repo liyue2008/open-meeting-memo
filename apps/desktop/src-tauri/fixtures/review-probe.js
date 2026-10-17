@@ -8,7 +8,6 @@
   const control=async(action)=>{const id=`review-${++sequence}`;window.__ommReviewControlResult=null;window.__ommReviewControl={id,action};const r=await wait(()=>window.__ommReviewControlResult?.id===id&&window.__ommReviewControlResult,action);if(!r.ok)throw Error(JSON.stringify(r));return r.data;};
   const button=text=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim().replace(/^＋\s*/,'')===text);
   const set=(node,value)=>{Object.getOwnPropertyDescriptor(node instanceof HTMLSelectElement?HTMLSelectElement.prototype:HTMLInputElement.prototype,'value').set.call(node,value);node.dispatchEvent(new Event(node instanceof HTMLSelectElement?'change':'input',{bubbles:true}));};
-  const reopen=async()=>{ /* Published React query freshness is 1 second; remount only once stale. */ await new Promise(r=>setTimeout(r,1100));(await wait(()=>button('← 返回会议库'),'back')).click();(await wait(()=>button('Review real partial transcript'),'partial meeting')).click();(await wait(()=>button('逐字稿'),'transcript tab')).click();};
   try{
     await wait(()=>window.__ommReviewReady,'native controller');
     const invalidId=`review-invalid-${++sequence}`;window.__ommReviewControlResult=null;window.__ommReviewControl={id:invalidId,action:'inspect',path:'/must-not-be-read'};
@@ -45,15 +44,21 @@
       (await wait(()=>button('逐字稿'),'transcript tab')).click();
       await wait(()=>document.body.innerText.includes('当前内容不是终稿')&&document.body.innerText.includes('Review partial segment 0'),'real partial UI');
       check('real React renders partial notice and verified lines',true);
+      const mountedPanel=document.querySelector('#artifact-panel'),mountedBack=document.querySelector('.back-link');
+      const focusEvents=[];const onFocus=()=>focusEvents.push('focus');window.addEventListener('focus',onFocus);
+      const sameView=()=>document.querySelector('#artifact-panel')===mountedPanel&&document.querySelector('.back-link')===mountedBack&&button('逐字稿')?.getAttribute('aria-selected')==='true'&&focusEvents.length===0;
       const advanced=await control('advance');
       check('real segment commit advances partial revision',advanced.partialRevision!==initial.partialRevision&&!advanced.wholeCommitted);
       check('old partial cursor rejected',(await raw('artifact_read',{artifact,cursor:page.nextCursor,maxBytes:150})).error?.code==='conflict');
-      await reopen();await wait(()=>document.body.innerText.includes('Review partial segment 1'),'updated partial UI');
+      await wait(()=>document.body.innerText.includes('Review partial segment 1'),'mounted updated partial UI');
       check('real React reloads second verified segment',true);
+      check('partial advances on the same mounted tab without focus',sameView());
       const finalized=await control('finalize');
       check('real whole transcript commit replaces partial',finalized.wholeCommitted&&!finalized.partialRevision);
-      await reopen();await wait(()=>document.body.innerText.includes('Review partial segment 1')&&!document.body.innerText.includes('当前内容不是终稿'),'final UI');
+      await wait(()=>document.body.innerText.includes('Review partial segment 1')&&!document.body.innerText.includes('当前内容不是终稿'),'mounted final UI');
       check('real React switches to final artifact',true);
+      check('final replaces partial on the same mounted tab without focus',sameView());
+      window.removeEventListener('focus',onFocus);
       (await wait(()=>button('← 返回会议库'),'release audio reader')).click();
     }
     await control('finish');
