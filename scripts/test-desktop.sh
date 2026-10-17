@@ -6,6 +6,9 @@ for arg in "$@"; do
   case "$arg" in --foundation) foundation=true;; --wkwebview) wkwebview=true;; *) echo 'Usage: scripts/test-desktop.sh [--foundation] [--wkwebview]' >&2; exit 2;; esac
 done
 desktop_preflight
+if "$wkwebview"; then
+  : "${OMM_LIFECYCLE_RESOURCE_APP:?set to a verified release App from the current clean revision for the lifecycle gate}"
+fi
 bash scripts/test-desktop-entrypoints.sh
 desktop_dependencies
 (cd apps/desktop && npm run contracts:check && npm run format:check && npm run typecheck && TZ=UTC npm test && TZ=America/Los_Angeles npm test && npm run build)
@@ -35,5 +38,6 @@ if "$wkwebview"; then
     desktop_component_script packaging/desktop/test-wkwebview.sh
     desktop_component_script scripts/test-desktop-ui-wkwebview.sh
     desktop_component_script scripts/test-desktop-preferences-wkwebview.sh
+    desktop_component_script scripts/test-desktop-lifecycle-wkwebview.sh
   )
 fi

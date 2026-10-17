@@ -27,12 +27,14 @@ cd apps/desktop && npm ci && cd ../..
 bash scripts/dev-desktop.sh
 bash scripts/test-desktop.sh --foundation  # 有限组件门禁，不是全产品验收
 bash scripts/test-desktop.sh               # 全量 Rust/TS/指定 Swift fixture
-bash scripts/test-desktop.sh --wkwebview   # 额外原生桥、窗口负例、完整React及专属存储两进程fixture
 bash scripts/test-desktop-ui-wkwebview.sh  # 单独复验实际React交互；不重跑Rust/Swift单测
 bash scripts/test-desktop-preferences-wkwebview.sh  # UUID隔离→两真实React进程→精确清理
 bash scripts/build-desktop.sh
 bash scripts/build-desktop.sh --release
-bash scripts/package-desktop.sh
+bash scripts/package-desktop.sh          # 先提交并保持clean，资源来自同一revision
+export OMM_LIFECYCLE_RESOURCE_APP="$PWD/target/desktop-package/$(git rev-parse HEAD)/Open Meeting Memo.app"
+bash scripts/test-desktop.sh --wkwebview # 全量加原生/React/UUID两进程与首用服务正负链
+bash scripts/test-desktop-lifecycle-wkwebview.sh # 单独真实React及原包CLI；仍要求上述当前资源包
 bash scripts/install-desktop.sh --check
 bash scripts/install-desktop.sh --from /absolute/path/to/verified/OMM.app
 ```
@@ -64,5 +66,7 @@ native/frontend 从同一 Foundation 本地提交分别分叉，已按等价契�
 真实React矩阵要求非空只读行动项（实际文本及列表、无checkbox），末尾经受限Rust入口请求真实关闭：取消保留草稿且磁盘未保存，确认前保存证据并arm，点击原React放弃按钮后，由native记录真实destroy、reader释放、服务关闭及owned helper等待。驱动不直接调用destroy/emit；证据入口独立核对关闭前记录与最终回执。native arm请求上限为64KiB，因此仅聚合诊断轮询、保留截图元数据，完整截图和关闭前DOM仍独立保存。
 
 完整媒体路径使用 verified descriptor/hash 和短效 grant；fixture 只做无输出节点的静音解码、metadata 与暂停定位，`playCalls` 必须为0。生产播放仅由用户控制。真实权限、硬件采集、语音识别质量、个人 Pi 认证、可见通知及长会议质量不由这些 fixture 证明。
+
+首用服务门禁通过 `OMM_LIFECYCLE_RESOURCE_APP` 显式绑定当前clean revision的资源包，拒绝旧包来源。自有React驱动经受限canonical/owned0600 UTF8<128KiB入口原样执行：真实初始化/取消、60秒自然到期与重检、旧plan真正stale、held归属不明和录音/未封存拒绝、恢复后启动/切换/停止。另跑默认原生4case；两阶段原包CLI/manifest前后字节不变，实际CLI PID路径经身份校验。只替换私有fixture宿主并外层ad-hoc重签，不能把测试宿主说成原生产宿主。`source-before/after`、实际driver/宿主/dist/资源及owned回执由独立入口保存；失败保留并由native自动restore/shutdown/wait。它仍不安装LaunchAgent，不请求权限或调用真实模型。
 
 发布流程是：当前源码全量验证 → fresh 只读正式评审 → 最终 clean commit 构建并验证资源/signature/license/source hash → 显式用户目录 side-by-side 安装并用私有 profile 实际启动 → 既有 SSH origin push 与 GitHub PR（不 merge）。整合 owner 不提前安装或推送；组件包中旧 Foundation 界面不能冒充最终产品包。

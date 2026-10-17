@@ -30,6 +30,8 @@ OMM_CAPTURE_TEST_BINARY="$PWD/target/capture/OMMCapture.app/Contents/MacOS/omm-c
 OMM_CAPTURE_TEST_BINARY="$PWD/target/capture/OMMCapture.app/Contents/MacOS/omm-capture" cargo test --locked --test core_integration review_r1_03_ -- --ignored
 ```
 
+For `scripts/test-desktop.sh --wkwebview`, first package the current committed clean revision and explicitly set `OMM_LIFECYCLE_RESOURCE_APP` to that revision's verified App. The lifecycle gate refuses older package revisions; it runs actual React first-use/service controls and native CLI cases, checks original CLI/manifest byte preservation, and records actual PID identity/owned cleanup. The private fixture host is replaced and re-signed separately from unchanged release resources.
+
 The ignored Swift tests use synthetic IPC fixtures, not recording hardware. Do not run all ignored tests indiscriminately; the internal fixture entry point is not a standalone acceptance test. Tests use private temporary roots, controlled helper/worker/Pi processes, synthetic WAVs and a fake C API. None proves real permissions, speech recognition, meeting detection, cloud authentication or long-meeting quality. Keep tests source-named in `tests/`, add focused regression coverage for fixes, and distinguish fixture evidence from real end-to-end results.
 
 ## Safety and local installation

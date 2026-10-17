@@ -60,4 +60,12 @@ grep -q 'short private /private/tmp root' "$FIXTURE/output"
 assert_exit 1 env OMM_DESKTOP_PREFERENCES_EVIDENCE="$outside" bash "$FIXTURE/scripts/test-desktop-preferences-wkwebview.sh"
 grep -q 'short private /private/tmp root' "$FIXTURE/output"
 [[ ! -e "$outside" ]]
-echo 'Desktop entrypoints: argument/component routing and private UI/preference evidence refusals passed.'
+cp "$ROOT/scripts/test-desktop-lifecycle-wkwebview.sh" "$FIXTURE/scripts/"
+assert_exit 1 env OMM_DESKTOP_LIFECYCLE_EVIDENCE="$FIXTURE" bash "$FIXTURE/scripts/test-desktop-lifecycle-wkwebview.sh"
+grep -q 'Lifecycle evidence requires a new empty owned directory' "$FIXTURE/output"
+assert_exit 1 env OMM_DESKTOP_LIFECYCLE_EVIDENCE="$FIXTURE/evidence-link" bash "$FIXTURE/scripts/test-desktop-lifecycle-wkwebview.sh"
+grep -q 'canonical absolute path without symlinks' "$FIXTURE/output"
+assert_exit 1 env OMM_DESKTOP_LIFECYCLE_EVIDENCE="$outside" bash "$FIXTURE/scripts/test-desktop-lifecycle-wkwebview.sh"
+grep -q 'Lifecycle evidence requires a private /private/tmp root' "$FIXTURE/output"
+[[ ! -e "$outside" ]]
+echo 'Desktop entrypoints: argument/component routing and private UI/preference/lifecycle evidence refusals passed.'
