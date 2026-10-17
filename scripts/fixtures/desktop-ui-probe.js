@@ -143,6 +143,9 @@
       check('real reprocessing task stage: ' + stage, enqueued.stage === stage);
       await click('取消任务'); await click('确认取消', modal());
       await wait('owned reprocessing cancellation settled', async () => (await raw('task_get', { taskId: enqueued.taskId })).task.status === 'cancelled');
+      // App queries stay fresh for 1000 ms and pause background polling. Reopen only once that real cache is stale.
+      const cancellationSettledAt = Date.now();
+      await wait('detail cache stale before genuine remount', () => Date.now() - cancellationSettledAt > 1100);
       // Re-enter through user navigation after the owned cancellation settles; this also exercises retention.
       await click('会议库'); await wait('library after cancellation', () => label('搜索会议'));
       await change(label('搜索会议'), 'UI edited synthetic title');
