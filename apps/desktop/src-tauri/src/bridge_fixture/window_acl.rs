@@ -18,7 +18,12 @@ fn remote_page() -> (tauri::Url, std::thread::JoinHandle<()>) {
                         .set_read_timeout(Some(Duration::from_secs(1)))
                         .unwrap();
                     let mut request = [0; 2048];
-                    let _ = stream.read(&mut request);
+                    let Ok(count) = stream.read(&mut request) else {
+                        continue;
+                    };
+                    if !request[..count].starts_with(b"GET / HTTP/") {
+                        continue;
+                    }
                     let body = "<!doctype html><title>Private remote ACL fixture</title>";
                     write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
                     return;
@@ -60,8 +65,15 @@ fn probe(view: &tauri::Webview<tauri::Wry>, script: &str) -> Value {
     panic!("WK ACL probe timed out")
 }
 fn ready(view: &tauri::Webview<tauri::Wry>) {
+    ready_at(view, "tauri://localhost");
+}
+fn ready_at(view: &tauri::Webview<tauri::Wry>, origin: &str) {
     for _ in 0..50 {
-        if evaluate(view, "!!window.__TAURI_INTERNALS__") == true {
+        if evaluate(
+            view,
+            &format!("!!window.__TAURI_INTERNALS__ && location.origin=={origin:?}"),
+        ) == true
+        {
             return;
         }
         std::thread::sleep(Duration::from_millis(100));
@@ -170,6 +182,24 @@ pub fn start(view: tauri::Webview<tauri::Wry>, paths: Paths) {
                 "store A must not see B's update"
             );
             let unknown_result = probe(&unknown_view, NEGATIVE);
+            // Navigate the same owned main window: label remains trusted, origin must not.
+            // Destroy/recreate of that label races asynchronous native WK teardown and is not required.
+            eprintln!("ACL stage: remote main navigation");
+            let (remote_url, server) = remote_page();
+            let expected_origin = remote_url.origin().ascii_serialization();
+            app.get_webview_window("main")
+                .unwrap()
+                .navigate(remote_url)
+                .unwrap();
+            ready_at(&view, &expected_origin);
+            let remote_result = probe(&view, NEGATIVE);
+            assert_eq!(remote_result["origin"], expected_origin);
+            server.join().unwrap();
+            app.get_webview_window("main")
+                .unwrap()
+                .navigate("tauri://localhost/index.html".parse().unwrap())
+                .unwrap();
+            ready(&view);
             eprintln!("ACL stage: actual main destroy");
             view.eval("window.__TAURI_INTERNALS__.invoke('plugin:window|destroy',{label:'main'}).catch(e=>console.error(e))").unwrap();
             for _ in 0..40 {
@@ -182,21 +212,6 @@ pub fn start(view: tauri::Webview<tauri::Wry>, paths: Paths) {
                 app.get_webview_window("main").is_none(),
                 "permitted main destroy must actually close its window"
             );
-            // Reuse the same trusted label at an untrusted origin: label alone must not grant access.
-            eprintln!("ACL stage: remote main");
-            let (remote_url, server) = remote_page();
-            let expected_origin = remote_url.origin().ascii_serialization();
-            let remote = WebviewWindowBuilder::new(&app, "main", WebviewUrl::External(remote_url))
-                .visible(false)
-                .incognito(true)
-                .build()
-                .unwrap();
-            let remote_view: tauri::Webview<tauri::Wry> = remote.as_ref().clone();
-            ready(&remote_view);
-            let remote_result = probe(&remote_view, NEGATIVE);
-            assert_eq!(remote_result["origin"], expected_origin);
-            server.join().unwrap();
-            remote.destroy().unwrap();
             json!({"ok":true,"playCalls":0,"allowed":allowed,"storageIsolation":{"incognito":true,"sameOriginIndependentWindows":true,"aSeesA":true,"bInitiallyEmpty":true,"bSeesB":true,"crossProcessPersistenceTested":false},"pendingClosePreserved":true,"unlistenRemovedCallback":true,"mainActuallyDestroyed":true,"unknownLocalWindow":unknown_result,"remoteMainWindow":remote_result})
         }));
         let result = result.unwrap_or_else(|_| json!({"ok":false,"error":"native WK ACL assertion failed; inspect runtime.log","playCalls":0}));

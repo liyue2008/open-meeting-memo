@@ -157,3 +157,10 @@ settings. Optional already-locked objc2/block2 dependencies and this channel
 exist only with `native-bridge-fixture`; production has neither test commands nor
 additional permissions. These screenshots prove the seam, not final React theme
 or dirty-form behaviour; the combined repaired UI still needs that acceptance.
+
+The ACL probe navigates the same owned `main` view to its bounded loopback HTTP
+page for the remote negative, then back to the local origin before actual
+permitted destruction. It does not destroy/recreate a label while asynchronous
+WK teardown is still settling. Readiness requires both injected IPC and the
+exact expected origin. The private HTTP fixture serves only an actual GET;
+empty/speculative connections do not consume its one response.
