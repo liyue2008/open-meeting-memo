@@ -6,6 +6,10 @@ rust-version = "1.90"
 license = "Apache-2.0"
 build = "build.rs"
 
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+native-bridge-fixture = []
+
 [lib]
 name = "omm_desktop"
 crate-type = ["staticlib", "cdylib", "rlib"]
@@ -18,5 +22,10 @@ path = "src/main.rs"
 tauri-build = { version = "=2.7.3", features = [] }
 
 [dependencies]
+rfd = { version = "=0.17.2", default-features = false }
+arboard = { version = "=3.6.1", default-features = false }
 tauri = { version = "=2.12.4", default-features = false, features = ["wry", "compression"] }
 omm = { package = "open-meeting-memo", path = "../../.." }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"

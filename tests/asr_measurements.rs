@@ -246,6 +246,7 @@ async fn metric_database_reject_keeps_real_worker_commit_and_next_task_healthy()
     let asr = LocalAsrAdapter::with_paths(worker, paths.clone()).unwrap();
     let result = asr
         .transcribe(AsrRequest {
+            source_kind: None,
             context: claim.context.clone(),
             segments: claim.segments.clone(),
         })
@@ -331,6 +332,7 @@ async fn unrepresentable_optional_number_cannot_fail_valid_business_result() {
     let adapter = LocalAsrAdapter::new(worker).unwrap();
     adapter
         .transcribe(AsrRequest {
+            source_kind: None,
             context: claim.context,
             segments: claim.segments,
         })
@@ -392,6 +394,7 @@ async fn four_thousand_oversized_optional_progress_records_do_not_fill_terminal_
     context.config.asr.timeout_ms = 30000;
     let result = adapter
         .transcribe(AsrRequest {
+            source_kind: None,
             context,
             segments: claim.segments,
         })
@@ -432,6 +435,7 @@ async fn raw_worker(claim: &ClaimedTask, raw: &str) -> Result<Transcript> {
     let adapter = LocalAsrAdapter::new(worker).unwrap();
     let result = adapter
         .transcribe(AsrRequest {
+            source_kind: None,
             context: claim.context.clone(),
             segments: claim.segments.clone(),
         })

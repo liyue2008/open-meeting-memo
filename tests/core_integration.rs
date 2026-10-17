@@ -131,6 +131,7 @@ printf '# Synthetic minutes\nDecision at 0ms.\n'
             },
             worker_executable: worker,
             asr: AsrConfig {
+                threads: 1,
                 model_version: "fixture-asr".into(),
                 // Concurrent subprocess fixtures need startup headroom; product deadlines are unchanged.
                 timeout_ms: 15_000,
@@ -413,6 +414,8 @@ printf '# Synthetic minutes\nDecision at 0ms.\n'
         stream
             .write_all(
                 &serde_json::to_vec(&Request {
+                    desktop_capability: None,
+                    desktop_request: None,
                     schema_version: 1,
                     command: "capture_auto_stop".into(),
                     title: None,
@@ -431,12 +434,29 @@ printf '# Synthetic minutes\nDecision at 0ms.\n'
 #[test]
 fn real_cli_service_capture_worker_and_pi_queue_round_trip_without_audio_upload_flag() {
     let f = Fixture::new();
+    // This fixture is a deliberately owned current profile, not an implicit legacy migration.
+    {
+        let location = f
+            .paths
+            .runtime_location(&std::collections::BTreeMap::from([(
+                "XDG_RUNTIME_DIR".into(),
+                f.runtime.to_string_lossy().into_owned(),
+            )]))
+            .unwrap();
+        let guard = omm::core::runtime::RuntimeGuard::acquire(&location, &f.paths.state).unwrap();
+        omm::application::profile::takeover(&f.paths, &guard).unwrap();
+    }
     assert_eq!(
         f.error(&["record", "auto", "enable"], 3)["code"],
         "consent_required"
     );
-    f.ok(&["record", "auto", "enable", "--confirm-recording-consent"]);
-    f.ok(&["record", "auto", "disable"]);
+    assert_eq!(
+        f.error(
+            &["record", "auto", "enable", "--confirm-recording-consent"],
+            3
+        )["code"],
+        "unavailable"
+    );
     // Exercise the original AppConfig one-hour default through actual service startup.
     let mut legacy = AppConfig::load(&f.paths).unwrap();
     legacy.segment_ms = 3_600_000;
@@ -448,6 +468,8 @@ fn real_cli_service_capture_worker_and_pi_queue_round_trip_without_audio_upload_
         fs::read(f.paths.config.join("config.json")).unwrap(),
         original_config
     );
+    f.ok(&["record", "auto", "enable", "--confirm-recording-consent"]);
+    f.ok(&["record", "auto", "disable"]);
     for args in [
         &["paths"][..],
         &["doctor"],

@@ -8,7 +8,7 @@ fn invoke(t: &TempDir, args: &[&str]) -> Output {
     fs::set_permissions(t.path(), fs::Permissions::from_mode(0o700)).unwrap();
     Command::new(env!("CARGO_BIN_EXE_omm"))
         .env_clear()
-        .env("HOME", t.path().join("home"))
+        .env("HOME", t.path().canonicalize().unwrap().join("home"))
         .env("XDG_RUNTIME_DIR", t.path().canonicalize().unwrap())
         .args(args)
         .output()
@@ -94,7 +94,11 @@ fn wait_timeout_does_not_cancel_or_modify_persistent_task() {
     use std::collections::BTreeMap;
     let t = TempDir::new().unwrap();
     assert!(invoke(&t, &["init", "--json"]).status.success());
-    let paths = Paths::resolve(&t.path().join("home"), &BTreeMap::new()).unwrap();
+    let paths = Paths::resolve(
+        &t.path().canonicalize().unwrap().join("home"),
+        &BTreeMap::new(),
+    )
+    .unwrap();
     let id = uuid::Uuid::new_v4();
     let directory = paths.data.join("meetings").join(id.to_string());
     omm::core::paths::private_dir(&directory).unwrap();
@@ -228,7 +232,11 @@ fn legacy_one_hour_segment_config_is_clamped_in_memory_and_cli_does_not_write_it
     use omm::core::{config::AppConfig, paths::Paths};
     let t = TempDir::new().unwrap();
     invoke(&t, &["init", "--json"]);
-    let p = Paths::resolve(&t.path().join("home"), &Default::default()).unwrap();
+    let p = Paths::resolve(
+        &t.path().canonicalize().unwrap().join("home"),
+        &Default::default(),
+    )
+    .unwrap();
     let mut cfg = AppConfig::load(&p).unwrap();
     cfg.segment_ms = 3_600_000;
     cfg.save(&p).unwrap();
@@ -260,7 +268,11 @@ fn meeting_read_uses_checkpoint_before_final_commit_but_never_masks_corrupt_fina
     };
     let t = TempDir::new().unwrap();
     invoke(&t, &["init", "--json"]);
-    let p = Paths::resolve(&t.path().join("home"), &Default::default()).unwrap();
+    let p = Paths::resolve(
+        &t.path().canonicalize().unwrap().join("home"),
+        &Default::default(),
+    )
+    .unwrap();
     let id = uuid::Uuid::new_v4();
     let dir = p.data.join("meetings").join(id.to_string());
     private_dir(&dir).unwrap();

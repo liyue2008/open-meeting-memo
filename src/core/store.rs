@@ -2,7 +2,7 @@ use super::{
     contracts::*,
     paths::{controlled_file, private_dir, sync_dir, write_private_new, Paths},
 };
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -38,9 +38,12 @@ fn conflict() -> OmmError {
     OmmError::new(ErrorCode::Conflict, false, "task lease is stale or expired")
 }
 
+mod transaction;
+use transaction::WriteConnection;
 mod archives;
 mod asr_measurements;
 mod attempt_errors;
+pub mod desktop;
 mod notification_events;
 pub use attempt_errors::{StageAttemptError, StageErrorPhase};
 mod segments;
@@ -101,6 +104,7 @@ impl Store {
         };
         store.initialize_segments()?;
         store.initialize_archives()?;
+        store.initialize_desktop()?;
         Ok(store)
     }
     pub fn state<T: serde::de::DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
@@ -217,9 +221,7 @@ impl Store {
         if task.status != TaskStatus::Failed || !task.error.as_ref().is_some_and(|e| e.retryable) {
             return Ok(false);
         }
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self.conn.write_transaction()?;
         let count: u32 = tx
             .query_row(
                 "SELECT count FROM retries WHERE task=?1 AND stage=?2",
@@ -312,9 +314,7 @@ impl Store {
         let input_hash = hash_bytes(encode(&meeting.segments)?.as_bytes());
         let config_json = encode(config)?;
         let config_hash = hash_bytes(config_json.as_bytes());
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self.conn.write_transaction()?;
         if !force {
             let existing: Option<String> = tx.query_row("SELECT document FROM tasks WHERE session=?1 AND input_hash=?2 AND config_hash=?3 ORDER BY attempt DESC LIMIT 1", params![meeting.session_id.to_string(), input_hash, config_hash], |r| r.get(0)).optional()?;
             if let Some(document) = existing {
@@ -397,9 +397,7 @@ impl Store {
         config.version = version.to_owned();
         config.pi = pi.clone();
         let new_config_json = encode(&config)?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self.conn.write_transaction()?;
         let attempt: u32 = tx.query_row(
             "SELECT COALESCE(MAX(attempt),0)+1 FROM tasks WHERE session=?1",
             [source.session_id.to_string()],
@@ -490,9 +488,7 @@ impl Store {
             return Err(OmmError::invalid("lease duration must be positive"));
         }
         self.recover(now_ms)?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self.conn.write_transaction()?;
         if !aggregate_only && lane!=Some(Stage::Summary) && super::resources::CpuBudget::current().shared_encoder_slot && tx.query_row("SELECT EXISTS(SELECT 1 FROM segment_archives WHERE lease IS NOT NULL AND expires>?1)",[now_ms],|r|r.get::<_,bool>(0))?{return Ok(None);}
         let running: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM tasks WHERE lease IS NOT NULL AND expires>?1 AND (?2 IS NULL OR stage=?2))",
@@ -507,7 +503,7 @@ impl Store {
         if !aggregate_only && (running || (lane != Some(Stage::Summary) && segment_running)) {
             return Ok(None);
         }
-        let row: Option<(String,String,String,String)> = tx.query_row("SELECT document,directory,config,segments FROM tasks WHERE status IN ('queued','transcript_committed','interrupted') AND (?2 IS NULL OR tasks.stage=?2) AND (?3=0 OR EXISTS(SELECT 1 FROM segmented_sessions s WHERE s.session=tasks.session AND s.parent=tasks.id)) AND NOT EXISTS(SELECT 1 FROM segmented_sessions s WHERE s.session=tasks.session AND s.parent=tasks.id AND (s.sealed=0 OR NOT EXISTS(SELECT 1 FROM segment_jobs j WHERE j.session=s.session AND j.status='done' AND j.frames>0) OR EXISTS(SELECT 1 FROM segment_jobs j WHERE j.session=s.session AND j.status!='done'))) AND NOT EXISTS(SELECT 1 FROM retries WHERE retries.task=tasks.id AND retries.stage=tasks.stage AND retries.next_at>?1) ORDER BY rowid LIMIT 1", params![now_ms,filter,aggregate_only], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
+        let row: Option<(String,String,String,String)> = tx.query_row("SELECT document,directory,config,segments FROM tasks WHERE NOT EXISTS(SELECT 1 FROM desktop_cancellations c WHERE c.task=tasks.id) AND status IN ('queued','transcript_committed','interrupted') AND (?2 IS NULL OR tasks.stage=?2) AND (?3=0 OR EXISTS(SELECT 1 FROM segmented_sessions s WHERE s.session=tasks.session AND s.parent=tasks.id)) AND NOT EXISTS(SELECT 1 FROM segmented_sessions s WHERE s.session=tasks.session AND s.parent=tasks.id AND (s.sealed=0 OR NOT EXISTS(SELECT 1 FROM segment_jobs j WHERE j.session=s.session AND j.status='done' AND j.frames>0) OR EXISTS(SELECT 1 FROM segment_jobs j WHERE j.session=s.session AND j.status!='done'))) AND NOT EXISTS(SELECT 1 FROM retries WHERE retries.task=tasks.id AND retries.stage=tasks.stage AND retries.next_at>?1) ORDER BY rowid LIMIT 1", params![now_ms,filter,aggregate_only], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
         let Some((doc, dir, config, segments)) = row else {
             return Ok(None);
         };
@@ -561,9 +557,7 @@ impl Store {
         }))
     }
     pub fn renew(&mut self, claim: &mut ClaimedTask, now_ms: i64, lease_ms: i64) -> Result<()> {
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self.conn.write_transaction()?;
         check_lease(&tx, claim, now_ms)?;
         let expires = now_ms
             .checked_add(lease_ms)
@@ -657,10 +651,19 @@ impl Store {
         let staging = parent
             .join("staging")
             .join(format!("{}.tmp", claim.lease.token));
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self.conn.write_transaction()?;
         check_lease(&tx, claim, now_ms)?;
+        if tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM desktop_cancellations WHERE task=?1)",
+            [claim.task.id.to_string()],
+            |r| r.get::<_, bool>(0),
+        )? {
+            return Err(OmmError::new(
+                ErrorCode::Unavailable,
+                false,
+                "task cancellation requested",
+            ));
+        }
         write_private_new(&staging, &bytes)?;
         sync_dir(staging.parent().unwrap())?;
         tx.execute("INSERT INTO commits(task,stage,lease,staging,destination,hash,metadata) VALUES(?1,?2,?3,?4,?5,?6,?7)", params![claim.task.id.to_string(), stage_name(claim.stage), claim.lease.token.to_string(), staging.to_str(), destination.to_str(), hash_bytes(&bytes), metadata.as_ref().map(encode).transpose()?])?;
@@ -712,9 +715,7 @@ impl Store {
         Ok(bytes)
     }
     pub fn fail(&mut self, claim: &ClaimedTask, error: &OmmError, now_ms: i64) -> Result<()> {
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self.conn.write_transaction()?;
         check_lease(&tx, claim, now_ms)?;
         let pending: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM commits WHERE task=?1 AND done=0)",
@@ -740,9 +741,7 @@ impl Store {
         Ok(())
     }
     pub fn retry(&mut self, id: Uuid) -> Result<()> {
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self.conn.write_transaction()?;
         let doc: String = tx.query_row(
             "SELECT document FROM tasks WHERE id=?1",
             [id.to_string()],
@@ -827,9 +826,7 @@ impl Store {
     }
     pub fn recover(&mut self, now_ms: i64) -> Result<()> {
         self.recover_commits()?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self.conn.write_transaction()?;
         let docs = {
             let mut stmt =
                 tx.prepare("SELECT document FROM tasks WHERE lease IS NOT NULL AND expires<=?1")?;
@@ -861,9 +858,7 @@ impl Store {
             rows.collect::<std::result::Result<Vec<_>, _>>()?
         };
         for (id, stage, token, tmp, dest, hash, metadata) in rows {
-            let tx = self
-                .conn
-                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            let tx = self.conn.write_transaction()?;
             let done: bool = tx.query_row(
                 "SELECT done FROM commits WHERE task=?1 AND stage=?2",
                 params![id, stage],
@@ -921,10 +916,11 @@ impl Store {
                 fs::remove_file(staging)?;
             }
         }
+        self.refresh_desktop_search()?;
         Ok(())
     }
 }
-fn check_lease(tx: &Transaction<'_>, claim: &ClaimedTask, now_ms: i64) -> Result<()> {
+fn check_lease(tx: &Connection, claim: &ClaimedTask, now_ms: i64) -> Result<()> {
     let (token, expires, stage): (Option<String>, Option<i64>, String) = tx.query_row(
         "SELECT lease,expires,stage FROM tasks WHERE id=?1",
         [claim.task.id.to_string()],
@@ -938,7 +934,7 @@ fn check_lease(tx: &Transaction<'_>, claim: &ClaimedTask, now_ms: i64) -> Result
     }
     Ok(())
 }
-fn update_task(tx: &Transaction<'_>, task: &Task) -> Result<()> {
+fn update_task(tx: &Connection, task: &Task) -> Result<()> {
     tx.execute(
         "UPDATE tasks SET document=?1,stage=?2,status=?3,lease=NULL,expires=NULL WHERE id=?4",
         params![

@@ -1,11 +1,5 @@
 use crate::{
-    core::{
-        config::AppConfig,
-        contracts::*,
-        models,
-        paths::{write_private_new, Paths},
-        store::Store,
-    },
+    core::{config::AppConfig, contracts::*, models, paths::Paths, store::Store},
     service::{
         daemon,
         registration::{self, Launchctl},
@@ -158,7 +152,35 @@ pub enum ConfigCommand {
 }
 #[derive(Subcommand)]
 pub enum MeetingCommand {
+    Update {
+        id: Uuid,
+        #[arg(long)]
+        expected_revision: i64,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        note: Option<String>,
+        #[arg(long, value_delimiter = ',')]
+        tags: Option<Vec<String>>,
+    },
+    Trash {
+        id: Uuid,
+        #[arg(long)]
+        expected_revision: i64,
+    },
+    Restore {
+        id: Uuid,
+        #[arg(long)]
+        expected_revision: i64,
+    },
+    Import {
+        file: std::path::PathBuf,
+        #[arg(long)]
+        title: String,
+    },
     List {
+        #[arg(long)]
+        trash: bool,
         #[arg(long)]
         from: Option<String>,
         #[arg(long)]
@@ -190,6 +212,12 @@ pub enum ProcessStage {
 }
 #[derive(Subcommand)]
 pub enum TaskCommand {
+    Cancel {
+        id: Uuid,
+    },
+    Requeue {
+        id: Uuid,
+    },
     List {
         #[arg(long)]
         status: Option<String>,
@@ -369,9 +397,17 @@ pub async fn execute_at(
         Commands::Init { check: false } => {
             paths.create_private_dirs()?;
             let file = paths.config.join("config.json");
-            if !file.exists() {
-                write_private_new(&file, &serde_json::to_vec_pretty(&AppConfig::default())?)?;
+            if !file.exists() && !paths.state.join("state.sqlite").exists() {
+                crate::application::profile::explicit_initialize(
+                    paths,
+                    runtime.as_ref().map_err(Clone::clone)?,
+                )?;
+                AppConfig::default().save(paths)?;
+            } else if crate::application::profile::read(paths)?.is_none() {
+                return Err(OmmError::new(ErrorCode::Conflict,false,"legacy profile is read-only; explicitly start the compatible service for a safe switch"));
             }
+            let _service = crate::application::profile::offline_lock(paths)?;
+            let _writer = crate::application::profile::writer_lock(paths)?;
             let _ = Store::open(paths)?;
             Ok(
                 json!({"initialized":true,"ready":false,"requires":["explicit native executable/library paths","explicit models download","dedicated Pi configuration/authentication","valid explicit XDG runtime or secure macOS best-effort replacement"]}),
@@ -569,7 +605,7 @@ pub async fn execute_at(
                     }
                 }
                 cfg.validate_policy()?;
-                cfg.save(paths)?;
+                crate::application::cli::mutate(paths,"record_auto_set",json!({"enabled":cfg.auto_record,"confirmRecordingConsent":cfg.recording_consent})).await?;
                 Ok(
                     json!({"autoEnabled":cfg.auto_record,"recordingConsent":cfg.recording_consent,"serviceMustBeRunning":true}),
                 )
@@ -589,15 +625,72 @@ pub async fn execute_at(
                 }
                 ConfigCommand::Set { key, value } => {
                     cfg.set(key, value)?;
-                    cfg.save(paths)?;
-                    Ok(json!({"updatedKey":key,"configurationVersion":cfg.version}))
+                    let (field, value) = crate::application::configuration::cli_field(key, &cfg)?;
+                    let mut patch = serde_json::Map::new();
+                    patch.insert(field, value);
+                    let result = crate::application::cli::mutate(
+                        paths,
+                        "config_save",
+                        json!({"expectedRevision":cfg.loaded_revision,"patch":patch}),
+                    )
+                    .await?;
+                    Ok(json!({"updatedKey":key,"configurationVersion":result["revision"]}))
                 }
             }
         }
         Commands::Meeting { command } => {
             let store = read_store(paths)?;
             match command {
+                MeetingCommand::Update {
+                    id,
+                    expected_revision,
+                    title,
+                    note,
+                    tags,
+                } => {
+                    let mut metadata = store.desktop_row(*id)?["metadata"].clone();
+                    if let Some(value) = title {
+                        metadata["title"] = json!(value);
+                    }
+                    if let Some(value) = note {
+                        metadata["note"] = json!(value);
+                    }
+                    if let Some(value) = tags {
+                        metadata["tags"] = json!(value);
+                    }
+                    crate::application::cli::mutate(paths, "meeting_update", json!({"meetingId":id,"expectedRevision":expected_revision,"metadata":metadata})).await
+                }
+                MeetingCommand::Trash {
+                    id,
+                    expected_revision,
+                }
+                | MeetingCommand::Restore {
+                    id,
+                    expected_revision,
+                } => {
+                    crate::application::cli::mutate(
+                        paths,
+                        if matches!(command, MeetingCommand::Trash { .. }) {
+                            "meeting_trash"
+                        } else {
+                            "meeting_restore"
+                        },
+                        json!({"meetings":[{"meetingId":id,"expectedRevision":expected_revision}]}),
+                    )
+                    .await
+                }
+                MeetingCommand::Import { file, title } => {
+                    let owner = crate::application::profile::read(paths)?.ok_or_else(|| {
+                        OmmError::unavailable(
+                            "initialize or explicitly switch the profile before importing",
+                        )
+                    })?;
+                    let selection =
+                        crate::application::imports::select(paths, &owner, file).await?;
+                    crate::application::cli::mutate(paths, "import_commit", json!({"selectionHandle":selection["selection"]["selectionHandle"],"metadata":{"title":title,"note":"","tags":[]},"startedAtMs":chrono::Utc::now().timestamp_millis(),"timeZone":"UTC"})).await
+                }
                 MeetingCommand::List {
+                    trash,
                     from,
                     query,
                     source,
@@ -613,7 +706,15 @@ pub async fn execute_at(
                     let tasks = store.tasks()?;
                     let status = status.as_ref().map(|s| parse_status(s)).transpose()?;
                     let mut rows = vec![];
-                    for m in store.meetings()? {
+                    for mut m in store.meetings()? {
+                        let desktop = store.desktop_row(m.session_id)?;
+                        if desktop["trashed"] != *trash {
+                            continue;
+                        }
+                        m.title = desktop["metadata"]["title"]
+                            .as_str()
+                            .unwrap_or(&m.title)
+                            .to_owned();
                         let task = tasks
                             .iter()
                             .filter(|t| t.session_id == m.session_id)
@@ -654,16 +755,30 @@ pub async fn execute_at(
                         None
                     };
                     Ok(
-                        json!({"meeting":m,"artifacts":artifacts,"segmentProgress":progress,"audio":store.meeting_audio(*id)?}),
+                        json!({"meeting":m,"metadata":store.desktop_row(*id)?,"artifacts":artifacts,"segmentProgress":progress,"audio":store.meeting_audio(*id)?}),
                     )
                 }
                 MeetingCommand::Read { id, artifact } => {
-                    let task = store
-                        .tasks()?
-                        .into_iter()
-                        .filter(|t| &t.session_id == id)
-                        .max_by_key(|t| t.attempt)
-                        .ok_or_else(|| OmmError::invalid("meeting task not found"))?;
+                    let row = store.desktop_row(*id)?;
+                    let selected = row[if matches!(artifact, Artifact::Transcript) {
+                        "currentTranscriptTaskId"
+                    } else {
+                        "currentSummaryTaskId"
+                    }]
+                    .as_str()
+                    .map(Uuid::parse_str)
+                    .transpose()
+                    .map_err(|_| OmmError::invalid("invalid artifact task"))?;
+                    let task = if let Some(task_id) = selected {
+                        store.task(task_id)?
+                    } else {
+                        store
+                            .tasks()?
+                            .into_iter()
+                            .filter(|t| &t.session_id == id)
+                            .max_by_key(|t| t.attempt)
+                            .ok_or_else(|| OmmError::invalid("meeting task not found"))?
+                    };
                     if matches!(artifact, Artifact::Transcript)
                         && store.has_segmented_session(*id)?
                         && task.attempt == 1
@@ -699,70 +814,58 @@ pub async fn execute_at(
             wait,
             timeout,
         } => {
-            let _ = read_store(paths)?;
-            let mut store = Store::open(paths)?;
-            let task = if let Some(id) = task {
+            let store = read_store(paths)?;
+            let task = if let Some(task_id) = task {
                 if *force {
                     return Err(OmmError::invalid("force requires a meeting id"));
                 }
-                let found = store.task(*id)?;
                 if *retry {
-                    if store.has_segmented_session(found.session_id)? {
-                        store.retry_segment_failures(found.session_id)?;
-                        if matches!(
-                            store.task(*id)?.status,
-                            TaskStatus::Failed | TaskStatus::Blocked | TaskStatus::Interrupted
-                        ) {
-                            store.retry(*id)?;
-                        }
-                    } else {
-                        store.retry(*id)?;
-                    }
+                    crate::application::cli::mutate(
+                        paths,
+                        "processing_retry",
+                        json!({"taskId":task_id}),
+                    )
+                    .await?;
                 }
-                store.task(found.id)?
+                store.task(*task_id)?
             } else {
-                let id = id.ok_or_else(|| OmmError::invalid("meeting id required"))?;
-                let meeting = store
-                    .meetings()?
+                let meeting_id = id.ok_or_else(|| OmmError::invalid("meeting id required"))?;
+                let latest = store
+                    .tasks()?
                     .into_iter()
-                    .find(|m| m.session_id == id)
-                    .ok_or_else(|| {
-                        OmmError::unavailable("only sealed meetings can be processed")
-                    })?;
-                if meeting.sealed_at_ms == 0 {
-                    return Err(OmmError::unavailable("active meeting is processed automatically per segment; final processing waits for stop"));
-                }
-                if matches!(stage, ProcessStage::Summary) {
-                    let found = store
-                        .tasks()?
-                        .into_iter()
-                        .filter(|t| t.session_id == id)
-                        .max_by_key(|t| t.attempt)
-                        .ok_or_else(|| {
-                            OmmError::unavailable("summary requires committed transcript")
-                        })?;
-                    store.read_artifact(found.id, Stage::Transcribe)?;
-                    if *force {
-                        let config = AppConfig::load(paths)?;
-                        store.force_summary(found.id, &config.version, &config.pi)?
-                    } else {
-                        if *retry {
-                            store.retry(found.id)?;
-                        }
-                        store.task(found.id)?
-                    }
-                } else {
-                    let cfg = AppConfig::load(paths)?;
-                    let found = store.enqueue(&meeting, &cfg.snapshot(), *force)?;
-                    if *retry {
-                        store.retry(found.id)?;
-                    }
+                    .filter(|t| t.session_id == meeting_id)
+                    .max_by_key(|t| t.attempt);
+                if *retry {
+                    let found = latest.ok_or_else(|| OmmError::unavailable("task not found"))?;
+                    crate::application::cli::mutate(
+                        paths,
+                        "processing_retry",
+                        json!({"taskId":found.id}),
+                    )
+                    .await?;
                     store.task(found.id)?
+                } else if !*force && latest.is_some() {
+                    latest.unwrap()
+                } else {
+                    let result=crate::application::cli::mutate(paths,"processing_enqueue",json!({"meetingIds":[meeting_id],"stage":match stage{ProcessStage::Summary=>"summary",ProcessStage::Transcribe=>"transcribe",ProcessStage::All=>"all"},"sourceTranscriptTaskId":null})).await?;
+                    let batch: crate::application::desktop_contracts::OperationBatchResult =
+                        serde_json::from_value(result)?;
+                    let outcome =
+                        batch.items.into_iter().next().ok_or_else(|| {
+                            OmmError::unavailable("processing returned no outcome")
+                        })?;
+                    if let Some(error) = outcome.error {
+                        return Err(OmmError::new(error.code, error.retryable, &error.message));
+                    }
+                    let task_id = outcome
+                        .task_id
+                        .ok_or_else(|| OmmError::unavailable("processing returned no task"))?;
+                    store.task(
+                        Uuid::parse_str(&task_id)
+                            .map_err(|_| OmmError::invalid("invalid task response"))?,
+                    )?
                 }
             };
-            if matches!(stage, ProcessStage::Summary) {
-                store.read_artifact(task.id, Stage::Transcribe)?;
-            }
             if *wait {
                 wait_task(paths, task.id, *stage, timeout).await
             } else {
@@ -770,6 +873,18 @@ pub async fn execute_at(
             }
         }
         Commands::Task { command } => match command {
+            TaskCommand::Cancel { id } | TaskCommand::Requeue { id } => {
+                crate::application::cli::mutate(
+                    paths,
+                    if matches!(command, TaskCommand::Cancel { .. }) {
+                        "processing_cancel"
+                    } else {
+                        "processing_requeue"
+                    },
+                    json!({"taskId":id}),
+                )
+                .await
+            }
             TaskCommand::List { status } => {
                 let status = status.as_ref().map(|s| parse_status(s)).transpose()?;
                 Ok(json!(read_store(paths)?

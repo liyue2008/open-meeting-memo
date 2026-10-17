@@ -34,6 +34,9 @@ impl PiAdapter {
 }
 #[async_trait]
 impl SummaryAdapter for PiAdapter {
+    async fn drain(&self) -> Result<()> {
+        self.reapers.drain().await
+    }
     async fn summarize(&self, req: SummaryRequest) -> Result<Summary> {
         let cfg = &req.context.config.pi;
         if !cfg.executable.is_absolute()

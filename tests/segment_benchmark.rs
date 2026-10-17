@@ -273,6 +273,7 @@ async fn segment_real_model_self_generated_20_60s_threads_bitrates() {
             let start = Instant::now();
             let result = adapter
                 .transcribe(AsrRequest {
+                    source_kind: None,
                     context: context.clone(),
                     segments: vec![decoded],
                 })
@@ -419,6 +420,7 @@ async fn segment_real_model_wav_baseline_and_encoder_overlap() {
             let cpu = sampler(stop.clone());
             let start = Instant::now();
             let operation = adapter.transcribe(AsrRequest {
+                source_kind: None,
                 context: context.clone(),
                 segments: vec![original.clone()],
             });

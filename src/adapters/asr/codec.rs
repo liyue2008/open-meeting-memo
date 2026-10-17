@@ -20,12 +20,13 @@ pub struct AudioCodec {
 }
 pub use crate::core::contracts::{ArchiveReceipt, OpusFile};
 struct Workspace {
+    retain: bool,
     path: PathBuf,
     _reader: Option<std::fs::File>,
 }
 impl Drop for Workspace {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.path);
+        if !self.retain {let _ = std::fs::remove_dir_all(&self.path);}
     }
 }
 impl AudioCodec {
@@ -167,6 +168,16 @@ impl AudioCodec {
         }
         result
     }
+    /// Native import selection has already copied the descriptor into an owned private directory.
+    pub async fn import_mix(&self,input:&Path,output:&Path,directory:&Path)->Result<()> {
+        controlled_import_path(directory,input)?;if output.parent()!=Some(directory)||output.exists(){return Err(OmmError::invalid("unsafe import conversion output"));}
+        let workspace=Arc::new(Workspace{retain:true,path:directory.to_path_buf(),_reader:self.reader_lock()?});
+        let result=self.run(vec!["-protocol_whitelist".into(),"file".into(),"-i".into(),input.as_os_str().into(),"-vn".into(),"-ac".into(),"1".into(),"-ar".into(),"48000".into(),"-c:a".into(),"pcm_s16le".into(),"-t".into(),"28800.01".into(),"-fs".into(),"2147483648".into(),"-f".into(),"wav".into(),output.as_os_str().into()],workspace.clone()).await;
+        self.drain().await?;
+        // The caller owns this staging directory until its persisted selection is published.
+        drop(workspace);
+        result
+    }
     pub async fn archive(
         &self,
         context: &TaskContext,
@@ -204,7 +215,7 @@ impl AudioCodec {
             .meeting_dir
             .join(format!(".opus-stage-{}", uuid::Uuid::new_v4()));
         private_dir(&stage)?;
-        let workspace = Arc::new(Workspace {
+        let workspace = Arc::new(Workspace { retain:false,
             path: stage,
             _reader: reader_lock,
         });
@@ -347,7 +358,7 @@ impl AudioCodec {
             .meeting_dir
             .join(format!(".decode-source-{}", uuid::Uuid::new_v4()));
         private_dir(&work)?;
-        let hold = Arc::new(Workspace {
+        let hold = Arc::new(Workspace { retain:false,
             path: work,
             _reader: self.reader_lock()?,
         });
@@ -457,3 +468,5 @@ fn validate_opus(path: &Path) -> Result<()> {
     }
     Ok(())
 }
+
+fn controlled_import_path(directory:&Path,input:&Path)->Result<()>{crate::core::paths::validate_private_dir(directory)?;crate::core::paths::controlled_file(directory,input)?;crate::core::paths::validate_private_file(input)}

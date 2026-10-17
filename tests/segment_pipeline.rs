@@ -259,6 +259,7 @@ async fn source_chunk_progress_is_durable_before_worker_result_and_readonly_comm
     };
     let (out, ()) = tokio::join!(
         adapter.transcribe(AsrRequest {
+            source_kind: None,
             context: claim.context.clone(),
             segments: vec![audio]
         }),
@@ -889,6 +890,7 @@ async fn audio_maintenance_wait_cancellation_releases_file_and_starts_no_child()
     .unwrap();
     fs2::FileExt::try_lock_exclusive(&lock).unwrap();
     let mut op = Box::pin(adapter.transcribe(AsrRequest {
+        source_kind: None,
         context: claim.context.clone(),
         segments: vec![a.clone()],
     }));
@@ -996,6 +998,7 @@ async fn audio_maintenance_reader_survives_worker_cancel_until_owned_child_reape
     std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o700)).unwrap();
     let adapter = LocalAsrAdapter::with_paths(worker, p.clone()).unwrap();
     let mut op = Box::pin(adapter.transcribe(AsrRequest {
+        source_kind: None,
         context: claim.context.clone(),
         segments: vec![a.clone()],
     }));

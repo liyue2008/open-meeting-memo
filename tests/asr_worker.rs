@@ -33,6 +33,7 @@ fn request(root: &Path) -> AsrRequest {
     let work = root.join("work");
     std::fs::create_dir(&work).unwrap();
     AsrRequest {
+        source_kind: None,
         context: TaskContext {
             session_id: Uuid::new_v4(),
             task_id: Uuid::new_v4(),

@@ -147,6 +147,7 @@ impl Store {
 fn source_name(source: AudioSource) -> &'static str {
     match source {
         AudioSource::Mic => "mic",
+        AudioSource::Mix => "mix",
         AudioSource::System => "system",
     }
 }

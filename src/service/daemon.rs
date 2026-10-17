@@ -45,6 +45,10 @@ pub struct Request {
     pub session_id: Option<Uuid>,
     #[serde(default)]
     pub instance_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desktop_capability: Option<crate::application::desktop_contracts::ServiceCapabilityRequest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desktop_request: Option<Value>,
 }
 #[derive(Serialize, Deserialize)]
 pub struct Reply {
@@ -133,11 +137,120 @@ impl Controller {
             notifications: NotificationSink::default(),
         }
     }
+    async fn desktop_control(
+        &mut self,
+        owner: &crate::application::profile::ProfileOwner,
+        generation: Option<Uuid>,
+        message: &Value,
+    ) -> Result<Value> {
+        use crate::application::{profile, validation};
+        if generation != Some(owner.generation) {
+            return Err(OmmError::new(
+                ErrorCode::Conflict,
+                false,
+                "service generation changed",
+            ));
+        }
+        let command = message["command"]
+            .as_str()
+            .ok_or_else(|| OmmError::invalid("missing control command"))?;
+        let request = &message["request"];
+        validation::request(command, request)?;
+        profile::verify_admission(owner, &request["payload"]["admission"])?;
+        let _writer = profile::writer_lock(&self.paths)?;
+        if profile::read(&self.paths)?.is_none_or(|current| current.generation != owner.generation)
+        {
+            return Err(OmmError::new(
+                ErrorCode::Conflict,
+                false,
+                "profile generation changed",
+            ));
+        }
+        let store = Store::open(&self.paths)?;
+        let mut body = request.clone();
+        body["payload"].as_object_mut().unwrap().remove("admission");
+        let hash = crate::core::store::hash_bytes(&serde_json::to_vec(&json!([command, body]))?);
+        let key = format!(
+            "desktop_control_{}",
+            crate::core::store::hash_bytes(request["requestId"].as_str().unwrap().as_bytes())
+        );
+        let mut journal = if let Some(journal) = store.state::<Value>(&key)? {
+            if journal["bodyHash"] != hash || journal["generation"] != owner.generation.to_string()
+            {
+                return Err(OmmError::new(
+                    ErrorCode::Conflict,
+                    false,
+                    "control request reused with another payload or generation",
+                ));
+            }
+            journal
+        } else {
+            let session = if command == "record_start" {
+                Some(Uuid::new_v4())
+            } else {
+                self.recording()?.map(|r| r.session_id)
+            };
+            let journal = json!({"bodyHash":hash,"generation":owner.generation,"session":session,"result":null});
+            store.set_state(&key, &journal)?;
+            journal
+        };
+        if !journal["result"].is_null() {
+            return Ok(journal["result"].clone());
+        }
+        let session = journal["session"]
+            .as_str()
+            .map(Uuid::parse_str)
+            .transpose()
+            .map_err(|_| OmmError::new(ErrorCode::Corrupt, false, "control journal is corrupt"))?;
+        if command == "record_start" {
+            if request["payload"]["confirmRecordingConsent"] != true {
+                return Err(OmmError::new(
+                    ErrorCode::ConsentRequired,
+                    false,
+                    "recording consent must be confirmed",
+                ));
+            }
+            let session = session.ok_or_else(|| {
+                OmmError::new(ErrorCode::Corrupt, false, "control journal has no session")
+            })?;
+            let current = self.recording()?;
+            if current.as_ref().is_some_and(|r| r.session_id != session) {
+                return Err(OmmError::new(
+                    ErrorCode::Conflict,
+                    false,
+                    "another recording is active",
+                ));
+            }
+            if current.is_none() && store.meeting(session)?.is_none() {
+                self.start_inner(
+                    request["payload"]["title"].as_str().unwrap().into(),
+                    None,
+                    session,
+                )
+                .await?;
+            }
+        } else if let Some(current) = self.recording()? {
+            if Some(current.session_id) != session {
+                return Err(OmmError::new(
+                    ErrorCode::Conflict,
+                    false,
+                    "recording changed since stop was requested",
+                ));
+            }
+            self.seal(true).await?;
+        }
+        let cfg = AppConfig::load(&self.paths)?;
+        let current = self.recording()?;
+        let result = json!({"state":if current.is_some(){"recording"}else{"idle"},"meetingId":current.as_ref().map(|r|r.session_id),"startedAtMs":current.as_ref().map(|r|r.started_at_ms),"autoRecord":cfg.auto_record,"recordingConsent":cfg.recording_consent,"compatibility":profile::compatible(owner,"service"),"error":null});
+        journal["result"] = result.clone();
+        store.set_state(&key, &journal)?;
+        Ok(result)
+    }
     pub fn recording(&self) -> Result<Option<Recording>> {
         Store::open(&self.paths)?.state("recording")
     }
     pub async fn start(&mut self, title: String, source_id: Option<String>) -> Result<Value> {
-        let result = self.start_inner(title, source_id).await;
+        let result = self.start_inner(title, source_id, Uuid::new_v4()).await;
         if let Err(ref error) = result {
             self.recording_failed(error);
         }
@@ -152,7 +265,12 @@ impl Controller {
             .unwrap_or_default();
         self.notifications.emit_recording_failure(identity, error);
     }
-    async fn start_inner(&mut self, title: String, source_id: Option<String>) -> Result<Value> {
+    async fn start_inner(
+        &mut self,
+        title: String,
+        source_id: Option<String>,
+        id: Uuid,
+    ) -> Result<Value> {
         let store = Store::open(&self.paths)?;
         if store.state::<Recording>("recording")?.is_some() {
             return Err(OmmError::new(
@@ -168,7 +286,6 @@ impl Controller {
                 "helper recording is not reconciled",
             ));
         }
-        let id = Uuid::new_v4();
         let now = chrono::Utc::now().timestamp_millis();
         let dir = self
             .paths
@@ -609,6 +726,26 @@ pub async fn request_at(
     command: &str,
     title: Option<String>,
 ) -> Result<Value> {
+    request_message_at(
+        paths,
+        location,
+        Request {
+            schema_version: 1,
+            command: command.into(),
+            title,
+            session_id: None,
+            instance_id: None,
+            desktop_capability: None,
+            desktop_request: None,
+        },
+    )
+    .await
+}
+pub async fn request_message_at(
+    paths: &Paths,
+    location: &RuntimeLocation,
+    message: Request,
+) -> Result<Value> {
     let socket = location.path.join("service.sock");
     check_socket(&socket)?;
     let owner = runtime::verify_active(&location.path, &paths.state)?;
@@ -628,15 +765,7 @@ pub async fn request_at(
                 "service peer does not match runtime owner",
             ));
         }
-        stream
-            .write_all(&serde_json::to_vec(&Request {
-                schema_version: 1,
-                command: command.into(),
-                title,
-                session_id: None,
-                instance_id: None,
-            })?)
-            .await?;
+        stream.write_all(&serde_json::to_vec(&message)?).await?;
         stream.shutdown().await?;
         let mut bytes = vec![];
         stream.take(1024 * 1024 + 1).read_to_end(&mut bytes).await?;
@@ -691,6 +820,7 @@ pub async fn run_at_with_notifier(
     let cfg = AppConfig::load(&paths)?;
     cfg.validate_policy()?;
     let guard = RuntimeGuard::acquire(&location, &paths.state)?;
+    let desktop_owner = crate::application::profile::takeover(&paths, &guard)?;
     let runtime = &location.path;
     let socket = runtime.join("service.sock");
     let listener = UnixListener::bind(&socket)?;
@@ -835,12 +965,15 @@ pub async fn run_at_with_notifier(
                         if matches!(req.command.as_str(), "record_start"|"record_stop"|"capture_auto_stop"|"shutdown") {control_epoch=control_epoch.wrapping_add(1); }
                         helper.observe_endpoint(&native,&paths)?;
                         let action=match req.command.as_str(){
+                            "desktop_capabilities_v1"=>{let capability=req.desktop_capability.ok_or_else(||OmmError::invalid("missing capability request"));capability.and_then(|capability|{if capability.protocol_version!=1||capability.desktop_contract_version!=1||capability.required_capabilities.iter().any(|required|!crate::application::profile::CAPABILITIES.contains(&serde_json::to_value(required).ok().and_then(|v|v.as_str().map(str::to_owned)).unwrap_or_default().as_str())){return Err(OmmError::new(ErrorCode::Conflict,false,"unsupported desktop capability"));}Ok(json!({"protocolVersion":1,"compatibility":crate::application::profile::compatible(&desktop_owner,"service")}))})},
+                            "desktop_dispatch_v1"=>{let message=req.desktop_request.clone().unwrap_or_default();if matches!(message["command"].as_str(),Some("record_start"|"record_stop")){controller.desktop_control(&desktop_owner,req.instance_id,&message).await}else{crate::application::service_mutation(&paths,&desktop_owner,req.instance_id,req.desktop_request)}},
                             "status"=>Ok(json!({"running":true,"paths":paths,"runtime":location,"serviceInstanceId":guard.owner.instance_id,"serviceUid":guard.owner.uid,"servicePid":guard.owner.pid,"singleServiceScope":"selected runtime and persistent STATE; explicitly isolated roots may run independently","capture":native.status().await.ok(),"recording":controller.recording()?.map(|r|json!({"sessionId":r.session_id,"sourceId":r.source_id})),"pipelineHealthy":!worker.is_finished()&&!summary_worker.is_finished()&&!encoder.is_finished(),"asrQueueHealthy":!worker.is_finished(),"summaryQueueHealthy":!summary_worker.is_finished(),"archiveQueueHealthy":!encoder.is_finished(),"piCacheRecovery":Store::open(&paths)?.state::<serde_json::Value>("pi_cache_recovery")?,"lastCaptureError":Store::open(&paths)?.state::<OmmError>("capture_error")?,"lastMeetingObservation":Store::open(&paths)?.state::<serde_json::Value>("meeting_observation")?,"notificationDiagnostic":Store::open(&paths)?.state::<serde_json::Value>("notification_diagnostic")?})),
                             "capture_auto_stop"=>controller.callback(&req).await,
                             "record_status"=>native.status().await.map(|s|json!(s)),
                             "record_start"=>{async {if let Err(e)=ensure_helper(&native,&cfg,&socket,&mut helper,&paths).await {controller.recording_failed(&e);return Err(e);}controller.start(req.title.unwrap_or_else(||"Meeting".into()),None).await}.await},
                             "record_stop"=>controller.seal(true).await,
-                            "shutdown"=>{let sealed=controller.seal(false).await;let stopped=match sealed{Ok(value)=>helper.shutdown(&native,&paths).await.map(|()|value),Err(e)=>Err(e)};if stopped.is_ok(){shutdown_reply=Some(stream);break stopped;}stopped},
+                            "desktop_idle_shutdown_v1"=>{if req.instance_id!=Some(guard.owner.instance_id)||controller.recording()?.is_some(){Err(OmmError::new(ErrorCode::Conflict,false,"service generation changed or recording became active"))}else{let stopped=helper.shutdown(&native,&paths).await.map(|()|json!({"stopped":true}));if stopped.is_ok(){shutdown_reply=Some(stream);break stopped;}stopped}},
+                             "shutdown"=>{let sealed=controller.seal(false).await;let stopped=match sealed{Ok(value)=>helper.shutdown(&native,&paths).await.map(|()|value),Err(e)=>Err(e)};if stopped.is_ok(){shutdown_reply=Some(stream);break stopped;}stopped},
                             _=>Err(OmmError::invalid("unsupported service command"))};
                         Reply::result(action)
                     },Ok(Err(e))=>Reply::result(Err(e)),_=>Reply::result(Err(OmmError::invalid("invalid or timed out service request"))) };

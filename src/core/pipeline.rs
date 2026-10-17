@@ -71,14 +71,15 @@ async fn run_one_lane(
             let audio = segment.audio.clone();
             let model_lock = store.model_read_lock()?;
             let mut operation = Box::pin(asr.transcribe(AsrRequest {
+                source_kind: None,
                 context,
                 segments: vec![audio],
             }));
             let mut heartbeat = tokio::time::interval(std::time::Duration::from_millis(
-                (lease_ms as u64 / 3).max(1),
+                (lease_ms as u64 / 3).clamp(1, 250),
             ));
             let result = loop {
-                tokio::select! {output=&mut operation=>break output,_=heartbeat.tick()=>{store.renew_segment(&mut segment,chrono::Utc::now().timestamp_millis(),lease_ms)?;}}
+                tokio::select! {output=&mut operation=>break output,_=heartbeat.tick()=>{if store.cancel_requested(segment.context.task_id)? {break Err(OmmError::new(ErrorCode::Unavailable,false,"task cancellation requested"));}store.renew_segment(&mut segment,chrono::Utc::now().timestamp_millis(),lease_ms)?;}}
             };
             drop(operation);
             drop(model_lock);
@@ -146,6 +147,7 @@ async fn run_one_lane(
                 }
             }
             asr.drain().await?;
+            store.settle_cancellation(segment.context.task_id)?;
             if segment.context.work_dir.exists() {
                 std::fs::remove_dir_all(&segment.context.work_dir)?;
             }
@@ -191,13 +193,23 @@ async fn run_one_lane(
     } else {
         None
     };
+    let source_kind = store
+        .desktop_imported(claim.context.session_id)?
+        .then_some(AudioSource::Mix);
     let operation = async move {
         match stage {
             Stage::Transcribe => {
                 let _lock = model_lock.transpose()?;
                 Ok(Output::Transcript(match partial {
                     Some(t) => t?,
-                    None => asr.transcribe(AsrRequest { context, segments }).await?,
+                    None => {
+                        asr.transcribe(AsrRequest {
+                            source_kind,
+                            context,
+                            segments,
+                        })
+                        .await?
+                    }
                 }))
             }
             Stage::Summary => Ok(Output::Summary(
@@ -212,12 +224,12 @@ async fn run_one_lane(
     // The future owns a context copy; renew the durable lease without restarting the adapter.
     let mut operation = Box::pin(operation);
     let mut heartbeat = tokio::time::interval(std::time::Duration::from_millis(
-        (lease_ms as u64 / 3).max(1),
+        (lease_ms as u64 / 3).clamp(1, 250),
     ));
     let result: Result<Output> = loop {
         tokio::select! {
             output=&mut operation => break output,
-            _=heartbeat.tick() => { store.renew(&mut claim,chrono::Utc::now().timestamp_millis(),lease_ms)?; }
+            _=heartbeat.tick() => { if store.cancel_requested(claim.task.id)? {break Err(OmmError::new(ErrorCode::Unavailable,false,"task cancellation requested"));} store.renew(&mut claim,chrono::Utc::now().timestamp_millis(),lease_ms)?; }
         }
     };
     drop(operation);
@@ -308,6 +320,8 @@ async fn run_one_lane(
     if audio_decode {
         asr.drain().await?;
     }
+    pi.drain().await?;
+    store.settle_cancellation(claim.task.id)?;
     if claim.context.work_dir.exists() {
         std::fs::remove_dir_all(&claim.context.work_dir)?;
     }
