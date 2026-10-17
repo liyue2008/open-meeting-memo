@@ -1,5 +1,9 @@
 //! Real bundled CLI lifecycle proofs, only for a fresh explicit private fixture profile.
 use super::*;
+mod held;
+pub(super) fn run_unknown_listener() {
+    held::run_child();
+}
 use omm::{
     application::{bundle::Bundle, lifecycle, profile},
     core::runtime::{self, RuntimeGuard},
@@ -17,7 +21,7 @@ fn trusted(view: &tauri::Webview) -> bool {
 pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Builder<tauri::Wry> {
     let paths = paths.clone();
     let started = Arc::new(AtomicBool::new(false));
-    builder.manage(Bundle::locate().unwrap()).manage(Mutex::<Vec<Value>>::new(vec![])).manage(Mutex::<Option<capture::ChildGuard>>::new(None)).on_page_load(move |view, event| {
+    builder.manage(Mutex::new(held::Controller::default())).manage(Bundle::locate().unwrap()).manage(Mutex::<Vec<Value>>::new(vec![])).manage(Mutex::<Option<capture::ChildGuard>>::new(None)).on_page_load(move |view, event| {
         if !trusted(view) || view.label() != "main" || event.event() != tauri::webview::PageLoadEvent::Finished || started.swap(true, Ordering::SeqCst) { return; }
         let driver = std::fs::read_to_string(output("driver.js")).unwrap();
         view.eval(driver).unwrap();
@@ -31,27 +35,38 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
                 if done.load(Ordering::SeqCst) { return; }
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 let paths = paths.clone(); let seen = seen.clone(); let cases = cases.clone(); let done = done.clone(); let owned = view.clone();
+                if view.app_handle().state::<Mutex<held::Controller>>().lock().unwrap().expired() && !done.swap(true, Ordering::SeqCst) {
+                    finish(view.app_handle().clone(), paths, json!({"ok":false,"playCalls":0,"error":"held lifecycle stage exceeded 90 seconds"}), &seen); return;
+                }
                 if !trusted(&view) { continue; }
-                view.eval_with_callback("JSON.stringify({debug:window.__ommLifecycleDebug||null,request:window.__ommLifecycleCase||null,result:window.__ommFixtureResult||null})", move |text| {
+                view.eval_with_callback("JSON.stringify({debug:window.__ommLifecycleDebug||null,request:window.__ommLifecycleCase||null,control:(()=>{const r=window.__ommLifecycleControl;window.__ommLifecycleControl=null;return r??null})(),result:window.__ommFixtureResult||null})", move |text| {
                     let Ok(Value::String(text)) = serde_json::from_str::<Value>(&text) else { return; };
                     let Ok(value) = serde_json::from_str::<Value>(&text) else { return; };
+                    let owned=owned.clone(); let paths=paths.clone(); let seen=seen.clone(); let cases=cases.clone(); let done=done.clone();
+                    std::thread::spawn(move || {
                     if !trusted(&owned) { return; }
                     eprintln!("private lifecycle checkpoint {}", value["debug"]);
                     if value["result"].is_object() && !done.swap(true, Ordering::SeqCst) {
                         let result = value["result"].clone(); let owned = owned.clone(); let paths = paths.clone(); let seen = seen.clone();
                         std::thread::spawn(move || finish(owned.app_handle().clone(), paths, result, &seen));
+                    } else if !value["control"].is_null() {
+                        let result = owned.app_handle().state::<Mutex<held::Controller>>().lock().unwrap().request(owned.app_handle(), &paths, value["control"].clone());
+                        if trusted(&owned) { let _ = owned.eval(format!("window.__ommLifecycleControlResult={result}")); }
                     } else if let Some(case) = value["request"].as_str() {
                         let case = case.to_string(); let mut used = cases.lock().unwrap();
                         if !["configure", "running", "offline", "switched"].contains(&case.as_str()) || used.contains(&case) { return; }
                         used.push(case.clone()); drop(used);
                         let owned = owned.clone(); let paths = paths.clone(); let seen = seen.clone();
                         std::thread::spawn(move || {
-                            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tauri::async_runtime::block_on(cases_run(owned.app_handle(), &paths, &case, &seen))));
+                            let admitted = owned.app_handle().state::<Mutex<held::Controller>>().lock().unwrap().begin_case();
+                            let result = if !admitted { Ok(json!({"ok":false,"case":case,"error":"restore held state before advancing case"})) } else { std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tauri::async_runtime::block_on(cases_run(owned.app_handle(), &paths, &case, &seen)))) };
+                            if admitted { owned.app_handle().state::<Mutex<held::Controller>>().lock().unwrap().end_case(); }
                             let result = result.unwrap_or_else(|_| json!({"ok":false,"case":case}));
                             owned.app_handle().state::<Mutex<Vec<Value>>>().lock().unwrap().push(result.clone());
                             let _ = owned.eval(format!("window.__ommLifecycleCase=null;window.__ommLifecycleCaseResult={result}"));
                         });
                     }
+                    });
                 }).unwrap();
             }
             if !done.swap(true, Ordering::SeqCst) { finish(view.app_handle().clone(), paths, json!({"ok":false,"playCalls":0,"error":"lifecycle fixture exceeded 360 seconds"}), &seen); }
@@ -75,6 +90,7 @@ async fn cases_run(
     }
     if case == "running" || case == "switched" {
         let owner = runtime::verify_active(&location.path, &paths.state).unwrap();
+        assert!(cli_matches(owner.pid, &bundle));
         seen.lock().unwrap().insert(owner.pid, owner.clone());
         assert!(!AppConfig::load(paths).unwrap().auto_record);
         assert!(!AppConfig::load(paths).unwrap().notifications.enabled);
@@ -121,7 +137,7 @@ async fn cases_run(
             )
             .unwrap();
         }
-        return json!({"ok":true,"case":case,"ownedPid":owner.pid,"executable":bundle.cli().unwrap(),"recordingUnsealedRefused":case=="running"});
+        return json!({"ok":true,"case":case,"ownedPid":owner.pid,"executable":bundle.cli().unwrap(),"actualExecutableVerified":true,"recordingUnsealedRefused":case=="running"});
     }
     assert!(profile::offline_lock(paths).is_ok());
     let (_, plan) = lifecycle::plan(paths, Some(&bundle), "start")
@@ -191,6 +207,21 @@ fn finish(
     mut result: Value,
     seen: &Mutex<BTreeMap<i32, runtime::RuntimeOwner>>,
 ) {
+    let control = app.state::<Mutex<held::Controller>>();
+    let mut control = control.lock().unwrap();
+    let cleanup = control.restore(&paths);
+    let report = control.report();
+    if report["used"] != 0 {
+        result["nativeHeld"] = report;
+        result["nativeHeldCleanup"] = match &cleanup {
+            Ok(receipt) => json!({"ok":true,"receipt":receipt}),
+            Err(error) => json!({"ok":false,"error":error}),
+        };
+    }
+    if cleanup.is_err() || result.get("nativeHeld").is_some_and(|v| v["clean"] != true) {
+        result["ok"] = json!(false);
+    }
+    drop(control);
     let location = paths.runtime_location(&std::env::vars().collect()).unwrap();
     if runtime::verify_active(&location.path, &paths.state).is_ok() {
         let _ =

@@ -23,6 +23,9 @@ mod lifecycle;
 mod snapshot;
 pub mod store;
 mod window_acl;
+pub fn run_lifecycle_unknown_listener() {
+    lifecycle::run_unknown_listener();
+}
 pub fn scenario() -> String {
     let scenario = std::env::var("OMM_WKWEBVIEW_SCENARIO").unwrap_or_else(|_| "native".into());
     assert!(

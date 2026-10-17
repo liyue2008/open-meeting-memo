@@ -202,11 +202,14 @@ These are component proofs, not a replacement for the final combined UI gate.
 ### First-use lifecycle proof (feature-only, real bundled CLI)
 
 `OMM_LIFECYCLE_RESOURCE_APP='/absolute/path/to/verified-release.app' bash
-packaging/desktop/test-lifecycle.sh` reuses verified release resources, rebuilds
-only the current locked CLI and fixture host, and creates a private test bundle.
-It does not install it or register a LaunchAgent. The fixture manifest records
-the current source revision and exact resource/CLI hashes; this modified test
-bundle is not the final distributable signed App.
+packaging/desktop/test-lifecycle.sh` preserves the verified release resources,
+including the CLI and original manifest bytes, and builds only the fixture host.
+The temporary test app is re-sealed ad hoc (without re-signing nested resources)
+and verified; source and staged CLI/manifest hashes must match before and after
+execution. Actual running/switched PID executable paths must match that staged
+CLI. `provenance.json` separates fixture source from resource source revision;
+`cli-byte-preservation.json` records hashes and actual PID receipts. It does not
+install or register a LaunchAgent. This temporary app is not the final release.
 
 The `lifecycle` scene requires genuinely absent CONFIG/STATE/DATA/CACHE roots,
 a new private runtime, and an explicit 0700 HOME inside the fixture root with no
@@ -325,3 +328,76 @@ positive also passed with two actual CLI processes and all native negatives;
 a nonprivate override was rejected before launching the fixture. These proofs
 are not final current integrated/release UI acceptance or personal permission,
 ASR, authentication, audible playback or long-meeting validation.
+
+## Held lifecycle negatives (test feature only)
+
+The `lifecycle` scenario additionally accepts a consumed-once JS control slot;
+production commands, ACL, CSP, schema, default raw probe and the four existing
+native cases are unchanged. Use the existing private driver override, for example:
+
+```sh
+OMM_LIFECYCLE_RESOURCE_APP=/absolute/path/to/current-verified.app \
+OMM_LIFECYCLE_DRIVER=/private/tmp/owned-case/react-lifecycle.js \
+  bash packaging/desktop/test-lifecycle.sh
+```
+
+Wait for each native `__ommLifecycleCaseResult` before controlling that phase.
+Do not advance `__ommLifecycleCase` while held. From the trusted main only:
+
+```js
+window.__ommLifecycleControlResult = null;
+window.__ommLifecycleControl = {id: 'ui-negative-1', action: 'hold-busy'};
+// Await __ommLifecycleControlResult with this id before observing the real UI.
+// {id, action, ok:true, held:'busy', details:{held,expiresAtMs,observedPlan,listenerPid}}
+window.__ommLifecycleControl = {id: 'ui-negative-2', action: 'restore'};
+// {id, action, ok:true, held:null, details:{restored:'busy',recordingCleared:true,...}}
+```
+
+| Action | Required completed native case | Real held state / observation |
+| --- | --- | --- |
+| `hold-busy` | `running`, verified live manifest-bound CLI | Identity-tagged synthetic recording/unsealed Store state; real stop/switch plans report busy and Core refuses a previously displayed applicable plan. No capture start or hardware call. |
+| `hold-unknown` | `configure` or `offline`, no existing runtime socket | Independent owned fixture executable holds RuntimeGuard/socket, not the manifest CLI. Real plans report `unknown`, `canApply=false`, `unowned_service`. Parent pipe and child deadline bound ownership. |
+| `stale-plan` | `configure` or `offline`, initialized and offline | First display and retain a real UI plan. The control rotates only this private owner's generation under both normal locks. Apply the old UI plan while held; Core refuses it and the normal Host consumes the token. |
+| `restore` | One held state | Clears only the matching synthetic session/directory, or restores exact original owner bytes only if its replacement still matches, or requests listener exit and waits. Then refresh/recheck the actual UI before the next phase. |
+| `finish` | `offline` after normal stop and four native cases | Restores any held state and waits the already stopped fake capture peer; seals further controls. Does not terminate the App or fabricate successful cases. Publish the normal `__ommFixtureResult` afterward for owned service/socket/lock final checks. |
+
+`details.observedPlan` is native diagnostic evidence, not a replacement UI plan
+or usable Host plan token. Observe disabled/error/recheck behavior through the
+real React bridge; never substitute these diagnostics into UI state. The stale
+proof checks that the old token is still unexpired, is refused while held, and
+remains refused after original generation restoration, while a fresh plan works.
+Public errors are sanitized, so a test must not expect private error messages.
+
+Only `id` and `action` are accepted. IDs are unique `[A-Za-z0-9_-]`, 1–64 bytes;
+there are at most 32 admitted controls, one held state, a 90-second hold deadline
+and the existing 360-second scenario deadline. Unknown fields/actions, duplicate
+IDs, wrong phases or holding twice return `{id,action,ok:false,held:null,error,
+cleanup}` and restore any held state. Finish before offline is rejected. Timeout
+or a normal failure result also restores state, releases/waits the owned
+listener, stops the owned CLI/helper and writes a genuine failure exit. Abort
+before offline with `__ommFixtureResult={ok:false,playCalls:0,error:'...'}` rather
+than trying to manufacture missing cases. Native results include `nativeHeld`
+(request receipts, finished, clean) and `nativeHeldCleanup` (final restoration
+receipt). No callbacks synchronously create/close windows on the WK event thread.
+
+`apps/desktop/src-tauri/fixtures/lifecycle-held-probe.js` is an optional focused
+component probe; the original `lifecycle-probe.js` remains the default. It proves
+held/observed/restore/next-phase behavior using the real bridge and Core, not
+React disabled rendering. Final real React negatives and the current release
+resource provenance remain integration acceptance, using the same control API.
+
+Focused evidence: `/private/tmp/omm-held-lifecycle-hHXQyR`. The original sanitized
+error assertion failure and stale duplicate-response driver failure are retained;
+both exited normally with restored state and waited processes. The corrected
+held probe passes 45 checks/0 play with original verified `fab32d7` resources
+(`/private/tmp/omm-lifecycle-proof-LJFXeN`): source/staged/executed CLI SHA-256 is
+`bf7fd49b917e23a39a841eacf04ac4d00a128a3a1075dd2f325d53cf8c510061`, original/staged
+manifest is `6bc26fe6ceba5b723ea29a36155ba8b375a03133ee3d0185b2fd7ab7e884fe66`.
+Actual CLI PIDs 68017/68172 and App 67660 exited; listener receipts confirm graceful
+wait and socket/lock release. The unchanged default raw probe also passed with
+original older `f139cdd5` resources (`/private/tmp/omm-lifecycle-proof-cT2Uwq`).
+A real 90-second held-listener timeout in `expiry/` returns App exit 1 as intended,
+records final restoration/wait, and removes the socket/locks; its harness exit 0
+means the expected failure was verified, not a successful lifecycle. The focused
+Rust tests, feature clippy, nonfixture compile and shell checks pass. Neither old
+resource proof is final `b398585b` or later candidate acceptance.

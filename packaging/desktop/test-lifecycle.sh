@@ -9,7 +9,6 @@ cd "$ROOT"
 EVIDENCE=$(mktemp -d /private/tmp/omm-lifecycle-proof-XXXXXX)
 export EVIDENCE
 python3 packaging/desktop/resources.py verify "$OMM_LIFECYCLE_RESOURCE_APP" >"$EVIDENCE/resource-verification.json"
-cargo build --release --locked --bin omm >"$EVIDENCE/cli-build.log" 2>&1
 cargo build --release --locked -p omm-desktop --features custom-protocol,native-bridge-fixture >"$EVIDENCE/fixture-build.log" 2>&1
 python3 - "$ROOT" "$OMM_LIFECYCLE_RESOURCE_APP" "$EVIDENCE" <<'PY'
 import hashlib,json,os,pathlib,shutil,subprocess,sys
@@ -17,9 +16,15 @@ root,source,evidence=map(pathlib.Path,sys.argv[1:]);revision=subprocess.check_ou
 sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
 app=evidence/'Lifecycle.app';shutil.copytree(source,app,symlinks=True)
 resources=app/'Contents/Resources';cli=resources/'bin/omm';binary=app/'Contents/MacOS/omm-desktop'
-shutil.copy2(root/'target/release/omm',cli);shutil.copy2(root/'target/release/omm-desktop',binary)
-manifest=resources/'bundle-manifest.json';value=json.loads(manifest.read_text());value['sourceRevision']=revision;value['files']['bin/omm']=sha(cli)
-manifest.write_text(json.dumps(value,indent=2)+'\n');manifest.chmod(0o600)
+source_cli=source/'Contents/Resources/bin/omm';source_manifest=source/'Contents/Resources/bundle-manifest.json'
+source_cli_hash=sha(source_cli);source_manifest_hash=sha(source_manifest)
+shutil.copy2(root/'target/release/omm-desktop',binary)
+manifest=resources/'bundle-manifest.json';value=json.loads(manifest.read_text())
+assert sha(cli)==source_cli_hash and sha(manifest)==source_manifest_hash, 'source resources must remain byte-identical'
+# Re-seal only the temporary fixture app. Never re-sign or replace its resource CLI/helper.
+subprocess.run(['/usr/bin/codesign','--force','--sign','-','--timestamp=none',str(app)],check=True)
+subprocess.run(['/usr/bin/codesign','--verify','--strict',str(app)],check=True)
+assert sha(cli)==source_cli_hash and sha(manifest)==source_manifest_hash, 'fixture signing changed verified resources'
 for name,digest in value['files'].items():
  path=resources/name
  assert path.resolve()==path and sha(path)==digest,name
@@ -42,7 +47,7 @@ finally:os.close(fd)
 (profile/'driver.js').write_bytes(script);(profile/'driver.js').chmod(0o600)
 env=os.environ.copy();env.update(HOME=str(profile/'home'),OMM_NATIVE_FIXTURE_ROOT=str(profile),OMM_WKWEBVIEW_SCENARIO='lifecycle',XDG_RUNTIME_DIR=str(profile/'runtime'))
 for key,name in [('CONFIG','config'),('DATA','data'),('STATE','state'),('CACHE','cache')]:env['XDG_'+key+'_HOME']=str(profile/('xdg-'+name))
-(evidence/'provenance.json').write_text(json.dumps({'sourceRevision':revision,'sourceResourceApp':str(source),'driver':str(driver),'driverHash':hashlib.sha256(script).hexdigest(),'resourceManifestHash':sha(manifest),'cliHash':sha(cli),'fixtureHash':sha(binary),'resourceFiles':len(value['files']),'privateHome':str(profile/'home')},indent=2))
+(evidence/'provenance.json').write_text(json.dumps({'fixtureSourceRevision':revision,'resourceSourceRevision':value['sourceRevision'],'sourceResourceApp':str(source),'driver':str(driver),'driverHash':hashlib.sha256(script).hexdigest(),'sourceManifestHash':source_manifest_hash,'resourceManifestHash':sha(manifest),'manifestUnchanged':True,'sourceCliHash':source_cli_hash,'cliHash':sha(cli),'sourceCLIEqualsStagedCLI':True,'fixtureHostReSignedAdHoc':True,'fixtureHash':sha(binary),'resourceFiles':len(value['files']),'privateHome':str(profile/'home')},indent=2))
 with (profile/'runtime.log').open('w') as log:
  child=subprocess.Popen([str(binary)],env=env,stdout=log,stderr=log);expired=False
  try:code=child.wait(timeout=420)
@@ -55,5 +60,10 @@ with (profile/'runtime.log').open('w') as log:
 assert not expired and code==0,'inspect private lifecycle runtime.log and owned process receipt'
 result=json.loads((profile/'bridge-result.json').read_text())
 assert result['result']['ok'] is True and result['result']['playCalls']==0,result
+assert sha(source_cli)==sha(cli)==source_cli_hash and sha(source_manifest)==sha(manifest)==source_manifest_hash, 'resources changed during execution'
+assert result['result']['nativeLifecycle']['cliHash']==source_cli_hash,result
+actual=[case for case in result['result']['nativeCases'] if case['case'] in ['running','switched']]
+assert len(actual)==2 and all(case['actualExecutableVerified'] and case['executable']==str(cli) for case in actual),actual
+(evidence/'cli-byte-preservation.json').write_text(json.dumps({'sourceCliHash':source_cli_hash,'stagedCliHash':sha(cli),'sourceManifestHash':source_manifest_hash,'stagedManifestHash':sha(manifest),'verifiedRunningCases':actual},indent=2))
 print(json.dumps(result,indent=2));print('Evidence:',evidence)
 PY
