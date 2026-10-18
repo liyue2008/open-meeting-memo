@@ -100,6 +100,41 @@ impl ServiceRunner for Fixture {
         ))
     }
 }
+fn diagnostic(
+    f: &Fixture,
+    phase: &str,
+    value: Option<&Value>,
+    checked: Option<&lifecycle::Plan>,
+    issued: Option<&lifecycle::Plan>,
+) {
+    use std::os::unix::fs::MetadataExt;
+    static SEQUENCE: AtomicUsize = AtomicUsize::new(0);
+    let result = (|| -> Result<()> {
+        let mut entries = fs::read_dir(&f.paths.state)?
+            .map(|e| e.map(|e| e.file_name().to_string_lossy().into_owned()))
+            .collect::<std::io::Result<Vec<_>>>()?;
+        entries.sort();
+        let metadata = |path: PathBuf| -> Value {
+            fs::symlink_metadata(&path).map(|m| json!({"dev":m.dev(),"inode":m.ino(),"mode":m.mode(),"bytes":m.len(),"sha256":if m.is_file(){omm::core::store::hash_file(&path).ok()}else{None}})).unwrap_or(Value::Null)
+        };
+        let generation = omm::application::profile::read(&f.paths)
+            .ok()
+            .flatten()
+            .map(|o| o.generation);
+        let generation_hash = omm::core::store::hash_bytes(&serde_json::to_vec(&generation)?);
+        let record = json!({"phase":phase,"atMs":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),"state":value.map(|v| &v["state"]),"canApply":value.map(|v| &v["canApply"]),"reasons":value.map(|v| &v["reasons"]),"issuedSnapshot":issued.map(|p| &p.snapshot),"checkedSnapshot":checked.map(|p| &p.snapshot),"snapshotSame":issued.zip(checked).map(|(a,b)|a.snapshot==b.snapshot),"issuedExpiresAtMs":issued.map(|p|p.expires),"checkedRecoveryFingerprint":checked.and_then(|p|p.recovery.as_ref().map(|r|&r.fingerprint)),"ownerGenerationHash":generation_hash,"ownerPresent":generation.is_some(),"stateEntries":entries,"config":metadata(f.paths.config.join("config.json")),"database":metadata(f.paths.state.join("state.sqlite")),"registration":metadata(f.home.join("Library/LaunchAgents/org.openmeetingmemo.service.plist")),"ownedDaemonCount":f.owners.lock().unwrap().len(),"workerObservation":"no SQLite query: avoid changing sidecars; only fixture-owned daemon count sampled"});
+        let sequence = SEQUENCE.fetch_add(1, Ordering::SeqCst);
+        write_private_new(
+            &f.root
+                .join(format!("recovery-diagnostic-{sequence:03}-{phase}.json")),
+            &serde_json::to_vec_pretty(&record)?,
+        )
+    })();
+    if let Err(error) = result {
+        eprintln!("private recovery diagnostic unavailable: {error}");
+    }
+}
+
 pub async fn plan(
     paths: &Paths,
     bundle: Option<&Bundle>,
@@ -107,7 +142,7 @@ pub async fn plan(
 ) -> Result<(Value, Option<lifecycle::Plan>)> {
     match admitted(paths)? {
         Some(f) => {
-            lifecycle::plan_at(
+            let result = lifecycle::plan_at(
                 paths,
                 bundle,
                 action,
@@ -115,7 +150,11 @@ pub async fn plan(
                 &paths.runtime_location(&std::env::vars().collect())?,
                 f.as_ref(),
             )
-            .await
+            .await;
+            if let Ok((value, plan)) = &result {
+                diagnostic(&f, "plan", Some(value), plan.as_ref(), None);
+            }
+            result
         }
         None => lifecycle::plan(paths, bundle, action).await,
     }
@@ -123,15 +162,47 @@ pub async fn plan(
 pub async fn apply(paths: &Paths, bundle: &Bundle, plan: lifecycle::Plan) -> Result<Value> {
     match admitted(paths)? {
         Some(f) => {
-            lifecycle::apply_at(
+            let runtime = paths.runtime_location(&std::env::vars().collect())?;
+            let before = lifecycle::plan_at(
                 paths,
-                bundle,
-                plan,
+                Some(bundle),
+                &plan.action,
                 &f.home,
-                &paths.runtime_location(&std::env::vars().collect())?,
+                &runtime,
                 f.as_ref(),
             )
-            .await
+            .await;
+            if let Ok((value, checked)) = &before {
+                diagnostic(
+                    &f,
+                    "before-apply",
+                    Some(value),
+                    checked.as_ref(),
+                    Some(&plan),
+                );
+            }
+            let result =
+                lifecycle::apply_at(paths, bundle, plan.clone(), &f.home, &runtime, f.as_ref())
+                    .await;
+            let after = lifecycle::plan_at(
+                paths,
+                Some(bundle),
+                &plan.action,
+                &f.home,
+                &runtime,
+                f.as_ref(),
+            )
+            .await;
+            if let Ok((value, checked)) = &after {
+                diagnostic(
+                    &f,
+                    "after-apply",
+                    Some(value),
+                    checked.as_ref(),
+                    Some(&plan),
+                );
+            }
+            result
         }
         None => lifecycle::apply(paths, bundle, plan).await,
     }
