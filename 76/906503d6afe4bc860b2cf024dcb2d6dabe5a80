@@ -1,0 +1,19 @@
+scripts/fixtures/desktop-ui-probe.js
+  s_7ec2c61f29d7b5::t_51950adb6faab4 26-29,32-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "76906503d6afe4bc860b2cf024dcb2d6dabe5a80",
+  "prompts": {},
+  "sessions": {
+    "s_7ec2c61f29d7b5": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14028-f8a3-7513-b88e-a2424c210bbb",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
