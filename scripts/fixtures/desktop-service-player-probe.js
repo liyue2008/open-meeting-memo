@@ -44,7 +44,7 @@
   const field = name => [...document.querySelectorAll('label')].find(e => e.textContent.trim() === name)?.htmlFor;
   const searchField = () => document.querySelector('input[aria-label="搜索会议"]') || document.getElementById(field('搜索会议'));
   try {
-    const banner = await wait('real unknown service banner', () => document.querySelector('.compatibility-banner'));
+    const banner = await wait('real unavailable service banner', () => document.querySelector('.compatibility-banner'));
     const entry = banner.querySelector('.service-entry');
     check('scoped actual service entry', entry && /打开.*设置/.test(entry.textContent));
     for (const theme of ['light', 'dark']) {
@@ -82,7 +82,11 @@
     playback.scrollIntoView({block:'center'});
     await snapshot('playback-entry-paused', 1280, 820);
     check('no playback requested', playCalls === 0);
-    window.__ommFixtureResult = { ok: true, checks, playCalls, styles, audioEvidence, snapshots, hoverPointerTested: false, hoverEvidence: 'Scoped shared normal/hover/focus declarations verified by source-named unit test; no simulated hover claimed.' };
+    const back = [...document.querySelectorAll('button')].find(e => e.textContent.trim() === '← 返回会议库');
+    check('actual media navigation cleanup entry', !!back); back.click();
+    await wait('old hidden audio released before fixture completion', () => !audio.isConnected && !audio.hasAttribute('src'));
+    audioEvidence.sourceClearedBeforeTeardown = true;
+    window.__ommFixtureResult = { ok: true, checks, playCalls, styles, audioEvidence, snapshots, hoverPointerTested: false, hoverEvidence: 'Computed normal/focus contrast observed; no physical hover claimed.' };
   } catch (error) {
     window.__ommFixtureResult = { ok: false, checks, playCalls, styles, snapshots, error: String(error), body: document.body.innerText.slice(0, 12000) };
   }
