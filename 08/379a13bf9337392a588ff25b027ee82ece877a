@@ -1,0 +1,18 @@
+docs/desktop.md
+  h_b4d40596eab523 64
+packaging/desktop/fixture_runner.py
+  h_b4d40596eab523 15-24,115-118,156
+packaging/desktop/test_fixture_runner.py
+  h_b4d40596eab523 18-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "08379a13bf9337392a588ff25b027ee82ece877a",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
