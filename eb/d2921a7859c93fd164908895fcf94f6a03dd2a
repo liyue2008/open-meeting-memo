@@ -1,0 +1,20 @@
+contracts/desktop/v1/README.md
+  h_b4d40596eab523 51-52,57-58
+src/core/store.rs
+  h_b4d40596eab523 713-717
+src/core/store/desktop.rs
+  h_b4d40596eab523 35-97,99-124,128,140-147,166-189,304,476,482,719-721,738
+tests/desktop_native.rs
+  h_b4d40596eab523 866-1060
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ebd2921a7859c93fd164908895fcf94f6a03dd2a",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
