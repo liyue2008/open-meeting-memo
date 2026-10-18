@@ -51,6 +51,19 @@ pub fn output(name: &str) -> PathBuf {
     validate_private_dir(&root).unwrap();
     root.join(name)
 }
+fn archive_requested() -> bool {
+    let Some(flag) = std::env::var_os("OMM_NATIVE_ARCHIVE_MEDIA") else {
+        return false;
+    };
+    assert_eq!(flag, "1");
+    assert_eq!(scenario(), "ui");
+    let nonce = std::env::var("OMM_NATIVE_ARCHIVE_NONCE").expect("archive fixture nonce");
+    Uuid::parse_str(&nonce).expect("archive fixture UUID nonce");
+    let path = output("archive-nonce");
+    validate_private_file(&path).unwrap();
+    assert_eq!(std::fs::read_to_string(path).unwrap(), nonce);
+    true
+}
 pub fn prepare() -> Paths {
     let root =
         PathBuf::from(std::env::var_os("OMM_NATIVE_FIXTURE_ROOT").expect("private fixture root"))
@@ -140,9 +153,13 @@ pub fn prepare() -> Paths {
     store
         .set_state("capture_instance", &Uuid::new_v4())
         .unwrap();
-    store.enqueue(&meeting, &cfg.snapshot(), false).unwrap();
-    complete_seed(&mut store, if ui { 6000 } else { 3000 });
-    if ui {
+    if archive_requested() {
+        seed_archives(&paths, &mut store, &meeting, &cfg.snapshot());
+    } else {
+        store.enqueue(&meeting, &cfg.snapshot(), false).unwrap();
+        complete_seed(&mut store, if ui { 6000 } else { 3000 });
+    }
+    if ui && !archive_requested() {
         let mut fixtures = Vec::new();
         for index in 1..26_u128 {
             let id = Uuid::from_u128(0x00000000000040008000000000000100 + index);
@@ -190,6 +207,74 @@ pub fn prepare() -> Paths {
     }
     review::seed(&paths);
     paths
+}
+fn seed_archives(
+    paths: &Paths,
+    store: &mut Store,
+    meeting: &SealedMeeting,
+    config: &ConfigSnapshot,
+) {
+    let mut active = meeting.clone();
+    active.segments.clear();
+    active.sealed_at_ms = 0;
+    store.begin_segmented(&active, config).unwrap();
+    for (sequence, audio) in meeting.segments.iter().enumerate() {
+        store
+            .admit_segment(meeting.session_id, sequence as u32, audio)
+            .unwrap();
+    }
+    let codec = omm::adapters::asr::codec::AudioCodec::from_paths(paths).unwrap();
+    let mut evidence = Vec::new();
+    while let Some(claim) = store.claim_archive(100, 10000).unwrap() {
+        let receipt = tauri::async_runtime::block_on(codec.archive(
+            &claim.context,
+            &claim.audio,
+            claim.sequence,
+            config.audio.opus_bitrate_kbps * 1000,
+        ))
+        .unwrap();
+        store.commit_archive(&claim, &receipt, 101).unwrap();
+        evidence.push(serde_json::json!({"input":claim.audio,"archive":receipt,"finalStoreReceipt":store.archive_for_audio(meeting.session_id,&claim.audio).unwrap()}));
+    }
+    while let Some(claim) = store.claim_segment(200, 10000).unwrap() {
+        store
+            .commit_segment(
+                &claim,
+                &Transcript {
+                    schema_version: 1,
+                    model_version: config.asr.model_version.clone(),
+                    duration_ms: 3000,
+                    segments: vec![TranscriptSegment {
+                        source: AudioSource::Mic,
+                        start_ms: 0,
+                        end_ms: 3000,
+                        text: "Private archive media fixture".into(),
+                    }],
+                },
+                201,
+            )
+            .unwrap();
+    }
+    store.seal_segmented(meeting).unwrap();
+    let claim = store.claim_summary(300, 10000).unwrap().unwrap();
+    store
+        .commit_summary(
+            &claim,
+            &Summary {
+                schema_version: 1,
+                markdown: "# Private archive media fixture".into(),
+                provider: "fixture".into(),
+                model: "fixture".into(),
+                prompt_version: config.pi.prompt_version.clone(),
+            },
+            301,
+        )
+        .unwrap();
+    let location = paths.runtime_location(&std::env::vars().collect()).unwrap();
+    let guard = omm::core::runtime::RuntimeGuard::acquire(&location, &paths.state).unwrap();
+    omm::application::profile::takeover(paths, &guard).unwrap();
+    drop(guard);
+    write_private_new(&output("archive-media.json"),&serde_json::to_vec_pretty(&serde_json::json!({"archives":evidence,"schedulerStarted":false,"hardwarePlayback":false})).unwrap()).unwrap();
 }
 fn complete_seed(store: &mut Store, duration_ms: u64) {
     let claim = store.claim_asr(1, 10000).unwrap().unwrap();
@@ -246,7 +331,7 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
     let owned = paths.clone();
     let stop = paths.clone();
     let started = Arc::new(AtomicBool::new(false));
-    let helper = if review::mode().as_deref() == Some("cold-recording") {
+    let helper = if archive_requested() || review::mode().as_deref() == Some("cold-recording") {
         None
     } else {
         Some(capture::start(paths))
@@ -264,12 +349,14 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
                     .on_web_resource_request(|_, response| { *response.body_mut() = std::borrow::Cow::Borrowed(b"<!doctype html><title>Private window ACL fixture</title>"); })
                     .build()?;
             }
-            let location = owned.runtime_location(&std::env::vars().collect()).unwrap();
-            tauri::async_runtime::spawn(async move {
-                omm::service::daemon::run_at(owned, location)
-                    .await
-                    .expect("private service fixture");
-            });
+            if !archive_requested() {
+                let location = owned.runtime_location(&std::env::vars().collect()).unwrap();
+                tauri::async_runtime::spawn(async move {
+                    omm::service::daemon::run_at(owned, location)
+                        .await
+                        .expect("private service fixture");
+                });
+            }
             Ok(())
         })
         .on_window_event(move |window, event| {
@@ -351,7 +438,9 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
                         let paths = paths.clone();
                         let app = app.clone();
                         tauri::async_runtime::spawn(async move {
-                            let _ = omm::service::daemon::request(&paths, "shutdown", None).await;
+                            if !archive_requested() {
+                                let _ = omm::service::daemon::request(&paths, "shutdown", None).await;
+                            }
                             app.exit(if result["ok"] == true { 0 } else { 1 });
                         });
                     }).unwrap();
