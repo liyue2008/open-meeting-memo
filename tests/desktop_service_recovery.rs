@@ -939,6 +939,99 @@ async fn desktop_service_recovery_historical_asr_rejects_deformation_and_unreach
     }
 }
 
+#[tokio::test]
+async fn desktop_service_recovery_literal_sqlite_prefix_rejects_user_objects() {
+    use omm::application::lifecycle;
+    let mut admitted = Vec::new();
+    for (kind, sql) in [
+        ("index", "CREATE INDEX sqliteXobserver ON asr_measurements(ordinal)"),
+        ("mixed-case index", "CREATE INDEX SQLITExobserver ON asr_measurement_totals(document)"),
+        ("trigger", "CREATE TRIGGER sqliteXobserver AFTER INSERT ON asr_measurements BEGIN DELETE FROM asr_measurement_totals; END"),
+        ("table", "CREATE TABLE sqliteXobserver(value TEXT)"),
+        ("view", "CREATE VIEW sqliteXobserver AS SELECT task FROM asr_measurements"),
+    ] {
+        for modern in [false, true] {
+            let f = Fixture::new().await;
+            let db = f.paths.state.join("state.sqlite");
+            rusqlite::Connection::open(&db)
+                .unwrap()
+                .execute_batch(LEGACY_ASR_DDL)
+                .unwrap();
+            if modern {
+                let plan = f.plan().unwrap();
+                recovery::adopt(&f.paths, &f.home, &f.runtime, &f.bundle, &plan, &f.runner)
+                    .await
+                    .unwrap();
+                drop(Store::open(&f.paths).unwrap());
+                let (value, plan) = lifecycle::plan_at(
+                    &f.paths,
+                    Some(&f.bundle),
+                    "start",
+                    &f.home,
+                    &f.runtime,
+                    &f.runner,
+                )
+                .await
+                .unwrap();
+                assert_eq!(value["canApply"], true, "unmodified modern schema: {value}");
+                assert!(plan.is_some());
+            }
+            let c = rusqlite::Connection::open(&db).unwrap();
+            // These are legal user names, not the reserved literal sqlite_ prefix.
+            // Never insert through the synthetic destructive trigger.
+            c.execute_batch(sql).unwrap();
+            let objects: Vec<(String, String)> = c
+                .prepare("SELECT type,name FROM sqlite_master WHERE name GLOB '*observer'")
+                .unwrap()
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect();
+            assert_eq!(objects.len(), 1, "{sql}");
+            drop(c);
+            let before = tree(f._temp.path());
+            let label = format!("{kind}, modern={modern}");
+            if !modern {
+                match f.plan() {
+                    Err(error) => assert!(
+                        error.message.contains("schema is unsupported"),
+                        "{label}: {error}"
+                    ),
+                    Ok(_) => admitted.push(format!("raw {label}")),
+                }
+            }
+            let (value, plan) = lifecycle::plan_at(
+                &f.paths,
+                Some(&f.bundle),
+                if modern { "start" } else { "switch" },
+                &f.home,
+                &f.runtime,
+                &f.runner,
+            )
+            .await
+            .unwrap();
+            if value["state"] != "incompatible"
+                || value["canApply"] != false
+                || plan.is_some()
+                || !value["reasons"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|r| r == "incompatible_schema")
+            {
+                admitted.push(format!("lifecycle {label}: {value}"));
+            }
+            assert_eq!(before, tree(f._temp.path()), "{label}: plan changed fixture bytes");
+            assert!(f.runner.calls.lock().unwrap().is_empty(), "{label}");
+            println!("checked {label}: {objects:?}; fixture unchanged; runner calls=0");
+        }
+    }
+    assert!(
+        admitted.is_empty(),
+        "unknown user objects were admitted: {admitted:#?}"
+    );
+}
+
 // Exercise the normal Store measurement writer with a live synthetic task lease,
 // then settle it through Store::fail. No worker/model, audio file or helper is used.
 fn record_modern_asr_measurement(f: &Fixture) -> uuid::Uuid {

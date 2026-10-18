@@ -138,8 +138,9 @@ pub(crate) fn database(paths: &Paths) -> Result<Value> {
         serde_json::from_str(include_str!("recovery-schema.json"))?;
     let mut tables = BTreeMap::new();
     {
+        // GLOB keeps the underscore literal; LIKE would hide legal sqliteX... user objects.
         let mut stmt = conn.prepare(
-            "SELECT name,sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'",
+            "SELECT name,sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT GLOB 'sqlite_*'",
         )?;
         for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
             let (name, sql) = row?;
