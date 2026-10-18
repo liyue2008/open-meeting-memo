@@ -60,6 +60,15 @@ fn archive_requested() -> bool {
     let nonce = std::env::var("OMM_NATIVE_ARCHIVE_NONCE").expect("archive fixture nonce");
     Uuid::parse_str(&nonce).expect("archive fixture UUID nonce");
     let path = output("archive-nonce");
+    let root = path.parent().unwrap();
+    let home = PathBuf::from(std::env::var_os("HOME").expect("private archive HOME"));
+    validate_private_dir(&home).unwrap();
+    assert_eq!(home.canonicalize().unwrap(), home);
+    assert!(home.starts_with(root));
+    let paths = Paths::from_env().unwrap();
+    for selected in [&paths.config, &paths.data, &paths.state, &paths.cache] {
+        assert!(selected.starts_with(root));
+    }
     validate_private_file(&path).unwrap();
     assert_eq!(std::fs::read_to_string(path).unwrap(), nonce);
     true
@@ -75,6 +84,9 @@ pub fn prepare() -> Paths {
     let paths = Paths::from_env().unwrap();
     for path in [&paths.data, &paths.state, &paths.config, &paths.cache] {
         assert!(path.starts_with(&root));
+    }
+    if std::env::var_os("OMM_NATIVE_ARCHIVE_MEDIA").is_some() {
+        assert!(archive_requested());
     }
     assert!(
         !paths.state.join("state.sqlite").exists(),
