@@ -1,0 +1,20 @@
+apps/desktop/src-tauri/Cargo.toml
+  h_b4d40596eab523 11,35-36
+apps/desktop/src-tauri/src/lib.rs
+  h_b4d40596eab523 5,300-307,342-346,387,389-393
+apps/desktop/src-tauri/src/startup.rs
+  h_b4d40596eab523 1-224
+docs/desktop-native.md
+  h_b4d40596eab523 481-533
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "979ba2ba8f6e0971175383707cd4085bf82fad70",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
