@@ -1,0 +1,22 @@
+AGENTS.md
+  h_b4d40596eab523 3
+README.md
+  h_b4d40596eab523 7
+docs/desktop-acceptance.md
+  h_b4d40596eab523 5-6
+docs/desktop.md
+  h_b4d40596eab523 75-76
+docs/install.md
+  h_b4d40596eab523 21-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "99887e848c0298d1c928dcf9bb94caa2a17910e5",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
