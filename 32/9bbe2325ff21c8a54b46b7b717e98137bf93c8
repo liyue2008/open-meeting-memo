@@ -1,0 +1,14 @@
+apps/desktop/src-tauri/src/bridge_fixture.rs
+  h_b4d40596eab523 278-280
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "329bbe2325ff21c8a54b46b7b717e98137bf93c8",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
