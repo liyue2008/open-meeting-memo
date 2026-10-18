@@ -83,20 +83,70 @@
     check('no actual UI horizontal overflow: ' + name, overflow <= 1);
     views.push({ name, width: innerWidth, height: innerHeight, titlebarInset, overflow, theme: document.documentElement.dataset.mantineColorScheme, sidebar: document.documentElement.dataset.sidebar, body: text().slice(0, 12000) });
   };
+  let advancedFilterObservation = null;
+  const advancedFilterSnapshot = (phase, clickCalls, original, query) => {
+    const emptyControl = () => ({ exists: false, connected: false, visible: false, disabled: false, expanded: 'missing' });
+    const emptyNode = () => ({ exists: false, connected: false, visible: false, rect: { x: 0, y: 0, width: 0, height: 0 }, display: 'unavailable', visibility: 'unavailable' });
+    const unavailable = { phase, clickCalls, read: 'unavailable', sameControl: false, original: emptyControl(), current: emptyControl(), controls: 'missing', labelledBy: 'missing', region: 'missing', panel: emptyNode(), sort: { ...emptyNode(), inPanel: false, disabled: false } };
+    try {
+      const { current, panel, sort } = query() ?? {};
+      const bounded = (value, minimum = -16384) => Number.isFinite(value) ? Math.round(Math.min(16384, Math.max(minimum, value)) * 100) / 100 : 0;
+      const controlState = node => {
+        if (!node) return emptyControl();
+        const expanded = node.getAttribute('aria-expanded');
+        return { exists: true, connected: node.isConnected === true, visible: visible(node), disabled: node.matches(':disabled'), expanded: expanded === null ? 'missing' : ['true', 'false'].includes(expanded) ? expanded : 'other' };
+      };
+      const nodeState = node => {
+        if (!node) return emptyNode();
+        const rect = node.getBoundingClientRect(), style = getComputedStyle(node);
+        const display = ['none', 'block', 'inline', 'inline-block', 'flex', 'inline-flex', 'grid', 'inline-grid', 'contents', 'table', 'list-item'].includes(style.display) ? style.display : 'other';
+        const visibility = ['visible', 'hidden', 'collapse'].includes(style.visibility) ? style.visibility : 'other';
+        return { exists: true, connected: node.isConnected === true, visible: visible(node), rect: { x: bounded(rect.x), y: bounded(rect.y), width: bounded(rect.width, 0), height: bounded(rect.height, 0) }, display, visibility };
+      };
+      const relation = (left, right) => !left || !right ? 'missing' : left === right ? 'match' : 'mismatch';
+      return { phase, clickCalls, read: 'ok', sameControl: !!original && original === current, original: controlState(original), current: controlState(current), controls: relation(current?.getAttribute('aria-controls'), panel?.id), labelledBy: relation(panel?.getAttribute('aria-labelledby'), current?.id), region: !panel ? 'missing' : panel.getAttribute('role') === 'region' ? 'valid' : 'invalid', panel: nodeState(panel), sort: { ...nodeState(sort), inPanel: !!panel && !!sort && panel.contains(sort), disabled: !!sort && sort.matches(':disabled') } };
+    } catch {
+      return unavailable;
+    }
+  };
   const openAdvanced = async () => {
     const findControl = () => elements('button[aria-expanded]').find(e => e.isConnected && !e.disabled && e.textContent.trim().startsWith('高级筛选与数据说明'));
-    const control = await wait('actual advanced Accordion control', findControl);
-    if (control.getAttribute('aria-expanded') !== 'true') { control.scrollIntoView({block:'nearest'}); control.click(); }
-    await wait('actual advanced Accordion expanded', () => {
-      // React can replace a control after activation; never assert on its detached predecessor.
+    let original = null, lastQuery = null, clickCalls = 0;
+    advancedFilterObservation = { schemaVersion: 1, snapshots: [] };
+    const record = (phase, query) => {
+      // Diagnostics cannot change the original operation, timeout or thrown error.
+      try {
+        if (advancedFilterObservation.snapshots.length < 3) advancedFilterObservation.snapshots.push(advancedFilterSnapshot(phase, clickCalls, original, query));
+      } catch {}
+    };
+    const observationQuery = () => {
       const current = findControl();
       const panelId = current?.getAttribute('aria-controls');
       const panel = panelId && document.getElementById(panelId);
       const sort = panel && label('排序', panel);
-      return current?.getAttribute('aria-expanded') === 'true' && panel?.isConnected &&
-        panel.getAttribute('role') === 'region' && panel.getAttribute('aria-labelledby') === current.id &&
-        sort?.isConnected && panel.contains(sort) && visible(sort) && !sort.matches(':disabled') && sort;
-    });
+      return { current, panel, sort };
+    };
+    try {
+      const control = await wait('actual advanced Accordion control', findControl);
+      original = control;
+      record('before-activation', observationQuery);
+      if (control.getAttribute('aria-expanded') !== 'true') { control.scrollIntoView({block:'nearest'}); clickCalls = 1; control.click(); }
+      record('after-activation', observationQuery);
+      await wait('actual advanced Accordion expanded', () => {
+        // React can replace a control after activation; never assert on its detached predecessor.
+        const current = findControl();
+        const panelId = current?.getAttribute('aria-controls');
+        const panel = panelId && document.getElementById(panelId);
+        const sort = panel && label('排序', panel);
+        lastQuery = { current, panel, sort };
+        return current?.getAttribute('aria-expanded') === 'true' && panel?.isConnected &&
+          panel.getAttribute('role') === 'region' && panel.getAttribute('aria-labelledby') === current.id &&
+          sort?.isConnected && panel.contains(sort) && visible(sort) && !sort.matches(':disabled') && sort;
+      });
+    } catch (error) {
+      record('last-query', () => lastQuery);
+      throw error;
+    }
   };
   const modalCheckpoint = async name => {
     // Async file inspection changes enabled controls; test the settled modal's boundary set.
@@ -385,6 +435,6 @@
     discard.click();
   } catch (error) {
     stageTrace(0, 2);
-    window.__ommFixtureResult = { ok: false, checks, playCalls, error: String(error), views, focusEvidence, mediaEvidence, visibility: document.visibilityState, focused: document.hasFocus(), body: text().slice(0, 16000), independentNativeReads: reads };
+    window.__ommFixtureResult = { ok: false, checks, playCalls, error: String(error), views, focusEvidence, mediaEvidence, visibility: document.visibilityState, focused: document.hasFocus(), body: text().slice(0, 16000), independentNativeReads: reads, advancedFilterObservation };
   }
 })();
