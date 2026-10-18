@@ -44,7 +44,7 @@
       await raw('media_close', { grantId: grant.grantId });
     }
     [...document.querySelectorAll('.meeting-title')].find(e => e.textContent === 'Private bridge fixture').click();
-    const audio = await wait('real archived metadata', () => { const a = document.querySelector('audio'); return a?.readyState >= 1 && a; });
+    const audio = await wait('real archived metadata', () => { const a = document.querySelector('audio'); return a?.readyState >= 1 && Number.isFinite(a.duration) && a.duration > 0 && a; });
     check('native metadata remains paused without autoplay', audio.paused && !audio.autoplay && audio.duration > 2.9 && audio.duration < 3.1);
     audio.currentTime = 1.2;
     await wait('paused native seek', () => audio.paused && Math.abs(audio.currentTime - 1.2) < .1);
@@ -63,6 +63,7 @@
     check('mock one active instance only; no hardware play', maximumActive === 1 && mockPlayCalls === 1 && realPlayCalls === 0);
     window.__ommFixtureResult = { ok: true, checks, reads, media, playCalls: realPlayCalls, mockPlayCalls, maximumActive, activeAfterNavigation: active.size, sourceCleared: !audio.hasAttribute('src'), detached: !audio.isConnected, syntheticOnly: true, schedulerStarted: false };
   } catch (error) {
-    window.__ommFixtureResult = { ok: false, checks, reads, media, playCalls: realPlayCalls, mockPlayCalls, error: String(error), body: document.body.innerText.slice(0, 8000) };
+    const a = document.querySelector('audio');
+    window.__ommFixtureResult = { ok: false, checks, reads, media, playCalls: realPlayCalls, mockPlayCalls, error: String(error), currentMedia: a && {duration: Number.isFinite(a.duration) ? a.duration : String(a.duration), paused:a.paused, autoplay:a.autoplay, readyState:a.readyState, networkState:a.networkState, currentTime:a.currentTime, error:a.error?.code ?? null}, body: document.body.innerText.slice(0, 8000) };
   }
 })();
