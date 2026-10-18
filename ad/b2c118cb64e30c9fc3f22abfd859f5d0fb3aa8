@@ -1,0 +1,21 @@
+apps/desktop/src/components/ui.tsx
+  s_4d86a810e52613::t_b4446740c8db14 1,90-92,96-123,125-126,134-137,144-146
+apps/desktop/tests/modal-focus.test.tsx
+  s_4d86a810e52613::t_fa9056050d11a2 1-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "adb2c118cb64e30c9fc3f22abfd859f5d0fb3aa8",
+  "prompts": {},
+  "sessions": {
+    "s_4d86a810e52613": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d40-4405-7132-ba09-5fcaa7affd7f",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
