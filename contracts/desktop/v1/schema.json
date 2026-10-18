@@ -3099,10 +3099,24 @@
           "$ref": "#/$defs/StorageRoots"
         },
         "autoRecord": {
-          "type": "boolean"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "recordingConsent": {
-          "type": "boolean"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "warnings": {
           "type": "array",

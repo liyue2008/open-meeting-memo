@@ -773,8 +773,10 @@ pub struct ConfigSnapshot {
     pub structurally_complete: bool,
     pub model_version: String,
     pub roots: StorageRoots,
-    pub auto_record: bool,
-    pub recording_consent: bool,
+    #[serde(deserialize_with = "required_nullable")]
+    pub auto_record: Option<bool>,
+    #[serde(deserialize_with = "required_nullable")]
+    pub recording_consent: Option<bool>,
     pub warnings: Vec<String>,
     pub compatibility: ServiceCompatibility,
 }

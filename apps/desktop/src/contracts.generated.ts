@@ -393,8 +393,8 @@ export interface ConfigSnapshot {
   structurallyComplete: boolean;
   modelVersion: string;
   roots: StorageRoots;
-  autoRecord: boolean;
-  recordingConsent: boolean;
+  autoRecord: boolean | null;
+  recordingConsent: boolean | null;
   warnings: Array<string>;
   compatibility: ServiceCompatibility;
 }
