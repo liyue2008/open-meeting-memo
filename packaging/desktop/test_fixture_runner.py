@@ -15,6 +15,25 @@ class OfficialFixtureRunnerTests(unittest.TestCase):
         self.assertNotIn('child.kill()', text)
         self.assertNotIn('child.terminate()', text)
 
+    def test_fixture_build_matches_release_and_isolates_feature_artifact(self):
+        spec = importlib.util.spec_from_file_location('fixture_runner', ROOT / 'packaging/desktop/fixture_runner.py')
+        assert spec is not None and spec.loader is not None
+        runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runner)
+        command, binary = runner.fixture_build_spec(ROOT)
+        self.assertEqual(command, [
+            'cargo', 'build', '--locked', '--release', '--target', 'aarch64-apple-darwin',
+            '--target-dir', str(ROOT / 'target/desktop-fixture'), '-p', 'omm-desktop',
+            '--features', 'custom-protocol,native-bridge-fixture',
+        ])
+        self.assertEqual(binary, ROOT / 'target/desktop-fixture/aarch64-apple-darwin/release/omm-desktop')
+        self.assertNotEqual(binary, ROOT / 'target/aarch64-apple-darwin/release/omm-desktop')
+        self.assertNotEqual(binary, ROOT / 'target/debug/omm-desktop')
+        self.assertEqual(runner.FIXTURE_DEPLOYMENT_TARGET, '15.5')
+        package = (ROOT / 'packaging/desktop/package.sh').read_text()
+        self.assertIn('MACOSX_DEPLOYMENT_TARGET=15.5 cargo build --locked --release --target ' + runner.FIXTURE_TARGET, package)
+        self.assertIn("build_env['MACOSX_DEPLOYMENT_TARGET'] = FIXTURE_DEPLOYMENT_TARGET", (ROOT / 'packaging/desktop/fixture_runner.py').read_text())
+
     def test_no_fixture_force_cleanup(self):
         family = ROOT / 'apps/desktop/src-tauri/src/bridge_fixture'
         for path in family.rglob('*.rs'):

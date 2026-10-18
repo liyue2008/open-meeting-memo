@@ -12,6 +12,16 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 CASES = {'native', 'window-acl', 'ui', 'lifecycle', 'recovery', 'store'}
+FIXTURE_TARGET = 'aarch64-apple-darwin'
+FIXTURE_DEPLOYMENT_TARGET = '15.5'
+
+def fixture_build_spec(root):
+    # Keep fixture features out of the production package's release host.
+    target_dir = root / 'target/desktop-fixture'
+    command = ['cargo', 'build', '--locked', '--release', '--target', FIXTURE_TARGET,
+               '--target-dir', str(target_dir), '-p', 'omm-desktop',
+               '--features', 'custom-protocol,native-bridge-fixture']
+    return command, target_dir / FIXTURE_TARGET / 'release/omm-desktop'
 
 def validate_request(args, env):
     if args:
@@ -102,8 +112,10 @@ def main(args=None):
     source_manifest_hash = sha(source_resources / 'bundle-manifest.json')
     run(['npm', 'run', 'build', '--prefix', 'apps/desktop'], 'fixture-frontend-build')
     build_env['OMM_SOURCE_REVISION'] = head
-    run(['cargo', 'build', '--locked', '-p', 'omm-desktop', '--features', 'custom-protocol,native-bridge-fixture'], 'fixture-build')
-    original_host = checked_path(ROOT / 'target/debug/omm-desktop')
+    build_env['MACOSX_DEPLOYMENT_TARGET'] = FIXTURE_DEPLOYMENT_TARGET
+    fixture_command, fixture_binary = fixture_build_spec(ROOT)
+    run(fixture_command, 'fixture-build')
+    original_host = checked_path(fixture_binary)
     app = evidence / 'Fixture.app'
     assert not app.exists(), 'fixture App already exists'
     shutil.copytree(source_app, app)
@@ -141,6 +153,7 @@ def main(args=None):
     if case != 'store' and 'OMM_WKWEBVIEW_STORE_MANIFEST' not in env:
         host_args.append('--ephemeral-webview')
     provenance = {'sourceRevision':head,'sourceApp':str(source_app),'sourceSnapshot':before,'originalFixtureHostHash':sha(original_host),'actualHostHash':sha(binary),'sourceDriver':str(selected),'sourceDriverHash':sha(selected),'driverHash':sha(evidence/'driver.js'),'sourceCliHash':source_cli_hash,'cliHash':sha(resources/'bin/omm'),'sourceManifestHash':source_manifest_hash,'manifestHash':sha(resources/'bundle-manifest.json'),'scenario':case,'argv':host_args,'privateHome':env['HOME'],'environmentKeys':sorted(env)}
+    provenance.update({'fixtureProfile':'release','fixtureTarget':FIXTURE_TARGET,'fixtureDeploymentTarget':FIXTURE_DEPLOYMENT_TARGET,'fixtureBuildCommand':fixture_command,'fixtureSourceHost':str(original_host)})
     write(evidence, 'runner-provenance.json', provenance)
     timeout = 420 if case == 'lifecycle' else 240 if case == 'ui' else 120
     with (evidence / 'runtime.log').open('w') as log:

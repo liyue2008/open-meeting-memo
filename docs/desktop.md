@@ -61,7 +61,7 @@ native/frontend 从同一 Foundation 本地提交分别分叉，已按等价契�
 
 ## 统一门禁与证据边界
 
-公开桥、独立 UI、首用服务与 UUID 偏好入口共用 `packaging/desktop/fixture_runner.py`：要求 clean committed 源码，验证当前 revision 的正式资源包（缺失时调用现有 package 脚本），将同源 `custom-protocol,native-bridge-fixture` 宿主放入私有 App 并严格重签校验。默认显式非持久 WK，清空继承环境并分配 HOME/全部 XDG；UUID 偏好仅使用原工具分配的隔离 store。case/output 仍用原 `OMM_WKWEBVIEW_*` 环境变量，拒绝位置参数、未知 case、旧资源包、symlink/非本人/可被组或其他用户写入的资源；证据根最长55字节。原入口无需 `/tmp` wrapper，也不从 PATH 找个人 CLI。超时返回124，取消返回130；均不发信号、不删除 workspace，准确 host 身份与未 wait 状态供显式恢复。成功也保留原始证据。
+公开桥、独立 UI、首用服务与 UUID 偏好入口共用 `packaging/desktop/fixture_runner.py`：要求 clean committed 源码，验证当前 revision 的正式资源包（缺失时调用现有 package 脚本），将同源 `custom-protocol,native-bridge-fixture` 宿主放入私有 App 并严格重签校验。fixture 与正式宿主同用 `--release --target aarch64-apple-darwin`、`MACOSX_DEPLOYMENT_TARGET=15.5`；fixture 独立输出到 `target/desktop-fixture/`，不覆盖正式包宿主，构建命令与实际产物路径写入 provenance。默认显式非持久 WK，清空继承环境并分配 HOME/全部 XDG；UUID 偏好仅使用原工具分配的隔离 store。case/output 仍用原 `OMM_WKWEBVIEW_*` 环境变量，拒绝位置参数、未知 case、旧资源包、symlink/非本人/可被组或其他用户写入的资源；证据根最长55字节。原入口无需 `/tmp` wrapper，也不从 PATH 找个人 CLI。超时返回124，取消返回130；均不发信号、不删除 workspace，准确 host 身份与未 wait 状态供显式恢复。成功也保留原始证据。
 
 需求/CLI用例与源码命名测试的逐项对应见[能力映射](desktop-capability-matrix.md)。完整测试入口会执行私有 wrapper 参数回归、锁定 npm 安装、36命令/100定义共享契约、格式/严格类型、UTC 与 America/Los_Angeles 两个时区的 DOM 测试、生产构建、root 与 workspace 的 Rust fmt/test/clippy/build、fixture-feature clippy，以及指定的 Swift synthetic IPC 17+3 项。`--foundation` 只运行有限组件子集；`--wkwebview` 额外启动私有合成 profile 的真实 macOS WKWebView，不能以 Chromium 或 DOM mocks 代替。原生/ACL、F2/F5队列/内容、F7明暗/播放入口、cold-recording及partial-transcript各进程均保存独立源码前后清单和实际宿主/dist/driver/结果/owned hash。
 
