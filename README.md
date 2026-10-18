@@ -4,7 +4,7 @@
 
 本地录音和转写，使用已配置的 Pi 生成会议纪要。现有 CLI 基线面向 macOS、Apple Silicon、飞书；录音 helper 编译目标是 macOS 13+，本指南固定的官方 ASR 库依赖 macOS 15.5+，较旧系统未验证完整链路。不包含实时字幕、说话人识别、浏览器版 WebUI 或 MCP 服务。
 
-**Tauri 2 桌面 App 正在独立分支整合验收**，支持目标为 Apple Silicon、macOS 15.5+。真实 React 界面、Rust 共享用例、受限媒体协议和原生包装组件已合入；正式独立评审、完整界面验收与最终用户安装仍以验收记录为准。参见[桌面开发与统一入口](docs/desktop.md)、[组件边界](docs/desktop-lanes.md)、[能力与CLI映射](docs/desktop-capability-matrix.md)及[验收状态](docs/desktop-acceptance.md)。已确认的[静态设计](docs/webui-demo/index.html)仅作视觉依据，不是生产数据源。首轮评审后的冷首次启动、部分逐字稿、导入清理与队列互斥修复已进入当前源组合；合成夹具通过不是新正式评审、用户安装或真实权限/识别质量的完成证明。
+**Tauri 2 桌面 App 正在独立分支整合验收**，支持目标为 Apple Silicon、macOS 15.5+。真实 React 界面、Rust 共享用例、受限媒体协议和原生包装组件已合入；正式独立评审、完整界面验收与最终用户安装仍以验收记录为准。参见[桌面开发与统一入口](docs/desktop.md)、[组件边界](docs/desktop-lanes.md)、[能力与CLI映射](docs/desktop-capability-matrix.md)及[验收状态](docs/desktop-acceptance.md)。已确认的[静态设计](docs/webui-demo/index.html)仅作视觉依据，不是生产数据源。首轮评审后的冷首次启动、部分逐字稿、导入清理与队列互斥修复已进入当前源组合；合成夹具通过不是新正式评审、用户安装或真实权限/识别质量的完成证明。普通App启动保留持久偏好；显式非持久生产启动检查及其隔离边界见[安装指南](docs/install.md#桌面-app-状态)，不以测试宿主冒充安装生产App。
 
 **当前为开发版本，不是已发布或验证过真实会议的产品。** 新分段版本待独立复审及用户级部署。录音按音频帧封存为最长30分钟的片段；每段封存后立即进入独立、可恢复的本地转写队列，会议结束后聚合转写并生成一次纪要。最终音频是48kHz、单声道的真实 Ogg/Opus（`.opus`），需要显式安装固定编码工具。受控测试及自产20/60秒语音基准没有验证真实录音、系统授权或长会议质量。
 

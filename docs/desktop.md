@@ -72,3 +72,5 @@ native/frontend 从同一 Foundation 本地提交分别分叉，已按等价契�
 首用服务门禁通过 `OMM_LIFECYCLE_RESOURCE_APP` 显式绑定当前clean revision的资源包，拒绝旧包来源。自有React驱动经受限canonical/owned0600 UTF8<128KiB入口原样执行：真实初始化/取消、60秒自然到期与重检、旧plan真正stale、held归属不明和录音/未封存拒绝、恢复后启动/切换/停止。另跑默认原生4case；两阶段原包CLI/manifest前后字节不变，实际CLI PID路径经身份校验。只替换私有fixture宿主并外层ad-hoc重签，不能把测试宿主说成原生产宿主。`source-before/after`、实际driver/宿主/dist/资源及owned回执由独立入口保存；失败保留并由native自动restore/shutdown/wait。它仍不安装LaunchAgent，不请求权限或调用真实模型。
 
 发布流程是：当前源码全量验证 → fresh 只读正式评审 → 最终 clean commit 构建并验证资源/signature/license/source hash → 显式用户目录 side-by-side 安装并用私有 profile 实际启动 → 既有 SSH origin push 与 GitHub PR（不 merge）。整合 owner 不提前安装或推送；组件包中旧 Foundation 界面不能冒充最终产品包。
+
+生产App的普通启动仍保留持久主题/侧栏偏好。只有明确传`--ephemeral-webview`才在创建main前选择非持久WebKit，`--webview-store-diagnostics`配合它输出实际对象`persistent=false`的有界非内容诊断；不开放fixture控制器、不授予初始化或服务写权限。隔离验收使用真实已安装生产字节、清继承环境与全新私有HOME/所有XDG根，具体命令见[安装指南](install.md#桌面-app-状态)。不能用fixture或仅HOME/XDG替代生产WebKit隔离，也不打开个人/default store作对照。

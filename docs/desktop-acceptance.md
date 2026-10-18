@@ -2,6 +2,8 @@
 
 **最新独立影响复审已ready，会议/任务状态分域P2及此前同页/安全问题已关闭；最后一条测试投影备注已校准。** 当前冻结来源的完整门禁、包和安装结果只以各阶段实际证据交接为准，不在测试后改写本页制造同源通过。旧33457整包、81fc/b902定向记录保留为其历史来源；最终用户安装须Main内部验收放行，SSH推送/PR及最终审计仍后续。
 
+生产显式非持久启动入口`979ba2b`及Root最后notes的窄范围独立复审已ready并获准整合。普通默认持久偏好保持；只有`--ephemeral-webview`选择本次私有WebKit，诊断验证实际main对象，不用fixture替代生产。整合后的完整门禁、同源资源包及Main内部放行后的真实用户安装/生产隔离启动，须由本轮私有证据矩阵独立记录；本页不预写未发生的成功。
+
 ## 最后备注校准：真实queued任务与缺失产物
 
 测试中的queued分支现在为单一`stage=transcribe,status=queued`任务：transcribe版本missing、sha256/byteLength/createdAtMs均null、current=false，会议currentTranscriptTaskId=null，未提交前不读取正文。随后真实语义的逐字稿提交切到summary阶段，版本面板原地显示生成纪要。另一个`stage=summary,status=transcript_committed`用例原样保留其活动要求，两个用例及完整128项覆盖没有删除业务断言。本轮只校准测试/文档，没有新的产品红例或生产修复；最终绿与来源由私有证据矩阵记录。

@@ -18,6 +18,22 @@ bash scripts/install-desktop.sh --from "/absolute/path/to/Open Meeting Memo.app"
 
 桌面包包含自有 CLI、worker、Swift capture helper、固定 sherpa/ONNX Runtime 与 codec 闭包、许可证和源码材料；模型权重仍按固定 manifest 安装至 XDG DATA，Pi/Node/Lark 是外部集成。安装器先验证资源/hash/签名与已有安装元数据，发布到 `~/Applications/Open Meeting Memo <version>-<revision前12位>.app`，保留旧版本；不覆盖 CLI/LaunchAgent，不改配置、录音、认证、auto/consent，也不启动个人服务。具体 receipt 和位置以安装器输出及[原生包装说明](desktop-native.md)为准。
 
+正常无参数启动仍使用原有持久WebKit偏好。只想隔离检查生产App启动时，可显式选择本次非持久模式；不是fixture宿主，也不会初始化profile或启动服务。先用已验证安装路径设置`APP`，再在全新私有目录清继承环境运行：
+
+```sh
+APP="/absolute/path/to/installed/Open Meeting Memo <version>-<revision>.app"
+T=$(mktemp -d /private/tmp/omm-production-check-XXXXXX)
+chmod 700 "$T"
+mkdir -m 700 "$T"/{home,config,data,state,cache,runtime,tmp}
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin LANG=en_US.UTF-8 \
+  HOME="$T/home" TMPDIR="$T/tmp" XDG_CONFIG_HOME="$T/config" \
+  XDG_DATA_HOME="$T/data" XDG_STATE_HOME="$T/state" \
+  XDG_CACHE_HOME="$T/cache" XDG_RUNTIME_DIR="$T/runtime" \
+  "$APP/Contents/MacOS/omm-desktop" --ephemeral-webview --webview-store-diagnostics
+```
+
+诊断只输出实际main视图存储的非内容JSON（`persistent=false`）；参数/平台不支持时拒绝，不回退default store。不要传fixture变量或store manifest，HOME/XDG本身不是WebKit隔离证明。该检查可能只创建空0600的service.lock，不代表配置/数据库已初始化；不请求录音权限或自动开始工作。关闭并确认明确owned进程退出后再处理私有检查目录，不清个人WebKit数据。普通生产持久偏好与两进程保持不受此显式模式影响。
+
 首次打开仅只读观察。首次初始化、启动/停止/安全切换服务均需在“状态与诊断”显式确认；旧或未知服务/不兼容 schema、活动录音或未封存数据会拒绝不安全写入。模型、系统权限与专用 Pi 认证分别诊断，服务运行不冒充这些依赖已就绪。开发签名是 ad-hoc，不是 Apple 公证。
 
 后续 release 安装只进入当前用户目录，先只读检查安装元数据、备份非秘密元数据，保留所有录音/配置/认证/auto/consent，不打断在录会议、不盲杀未知进程、不因启动 App 迁移旧 profile。可安全并存版本化 App，并以实际生产包＋私有 profile 验证窗口和真实桥；个人旧 daemon 不兼容时准确报告显式切换路径。ad-hoc 签名不是公证，实际注册也不是权限/运行就绪。
