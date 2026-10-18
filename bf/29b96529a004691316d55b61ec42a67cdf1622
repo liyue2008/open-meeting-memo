@@ -1,0 +1,16 @@
+scripts/fixtures/desktop-ui-probe.js
+  h_b4d40596eab523 37-39,87-88,90-99
+tests/desktop_ui_advanced_filter.mjs
+  h_b4d40596eab523 1-117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bf29b96529a004691316d55b61ec42a67cdf1622",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
