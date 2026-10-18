@@ -1,0 +1,14 @@
+scripts/fixtures/desktop-archive-media-probe.js
+  h_b4d40596eab523 47,66-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a68c2f7c3ae8fcbc57ecf627468f919d09d72c2b",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
