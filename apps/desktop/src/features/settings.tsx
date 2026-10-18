@@ -1,7 +1,8 @@
+import { Alert, Button, Switch, Fieldset, Paper, Text, TextInput, Textarea } from '@mantine/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAction, useAdmission, useBridge } from '../app/context';
-import { ErrorNotice, Heading, Loading, Modal } from '../components/ui';
+import { Disclosure, ErrorNotice, Heading, Loading, Modal } from '../components/ui';
 import type {
   ConfigPatch,
   ConfigSnapshot,
@@ -210,23 +211,23 @@ function SettingsForm({ initial, register }: { initial: ConfigSnapshot; register
   const groups = [...new Set(Object.values(fields).map((f) => f.group))];
   return (
     <>
-      <section className="panel settings-summary">
+      <Paper className="panel settings-summary" withBorder p="md" component="section">
         {!base.initialized && (
-          <p className="notice">
+          <Alert className="notice" variant="light" role="status">
             资料库尚未初始化；下方仅展示未保存的默认值，不能编辑或保存。请先打开“状态与诊断”完成首次设置，不会自动创建配置。
-          </p>
+          </Alert>
         )}
-        <p>
+        <Text component="p">
           自动录音：{base.autoRecord === null ? '未知' : base.autoRecord ? '开' : '关'} · 录音同意：
           {base.recordingConsent === null ? '未知' : base.recordingConsent ? '已确认' : '未确认'}
           （通过顶部录音入口显式更改）
-        </p>
+        </Text>
         {base.initialized && !known && (
-          <p className="notice">
+          <Alert className="notice" variant="light" role="status">
             配置保存状态未能确认；下方值不能视为已保存配置，暂不可编辑或保存。请重新读取配置。
-          </p>
+          </Alert>
         )}
-        <p>
+        <Text component="p">
           {known ? (
             <>
               模型版本：{base.modelVersion} ·{' '}
@@ -235,14 +236,16 @@ function SettingsForm({ initial, register }: { initial: ConfigSnapshot; register
           ) : (
             '模型与配置结构状态未知'
           )}
-        </p>
+        </Text>
         {base.warnings.map((w, i) => (
-          <p className="notice" key={i}>
+          <Alert className="notice" key={i} variant="light" role="status">
             {w}
-          </p>
+          </Alert>
         ))}
-        <p className="muted">Pi 认证由 Pi 自己管理。这里不读取、显示或保存凭据。</p>
-      </section>
+        <Text className="muted" component="p" c="dimmed">
+          Pi 认证由 Pi 自己管理。这里不读取、显示或保存凭据。
+        </Text>
+      </Paper>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -251,52 +254,44 @@ function SettingsForm({ initial, register }: { initial: ConfigSnapshot; register
       >
         <div className="settings-grid">
           {groups.map((group) => (
-            <fieldset className="panel" key={group} disabled={action.busy || !known}>
-              <legend>{group}</legend>
+            <Fieldset className="panel" key={group} disabled={action.busy || !known} legend={group}>
               {(Object.entries(fields) as Array<[keyof EditableConfig, Field]>)
                 .filter(([, f]) => f.group === group)
-                .map(([key, f]) => (
-                  <label key={key} className={f.type === 'boolean' ? 'checkbox-label' : ''}>
-                    {f.type === 'boolean' ? (
-                      <>
-                        <input
-                          type="checkbox"
+                .map(([key, f]) => {
+                  const error = validation?.fieldErrors
+                    .filter((entry) => entry.field === key || entry.field.endsWith(`.${key}`))
+                    .map((entry) => entry.message)
+                    .join(' ');
+                  const common = { label: f.label, description: f.help, error: error || undefined };
+                  return (
+                    <div key={key} className="settings-field">
+                      {f.type === 'boolean' ? (
+                        <Switch
+                          {...common}
                           checked={draft[key] === true}
                           onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.checked }))}
                         />
-                        {f.label}
-                      </>
-                    ) : (
-                      <>
-                        {f.label}
-                        {f.type === 'lines' || f.type === 'events' ? (
-                          <textarea
-                            value={String(draft[key])}
-                            onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
-                          />
-                        ) : (
-                          <input
-                            inputMode={f.type === 'number' ? 'numeric' : 'text'}
-                            value={String(draft[key])}
-                            onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
-                          />
-                        )}
-                      </>
-                    )}
-                    {f.help && <small className="muted">{f.help}</small>}
-                    {validation?.fieldErrors
-                      .filter((e) => e.field === key || e.field.endsWith(`.${key}`))
-                      .map((e, i) => (
-                        <small className="error-text" key={i}>
-                          {e.message}
-                        </small>
-                      ))}
-                  </label>
-                ))}
-            </fieldset>
+                      ) : f.type === 'lines' || f.type === 'events' ? (
+                        <Textarea
+                          {...common}
+                          value={String(draft[key])}
+                          onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
+                        />
+                      ) : (
+                        <TextInput
+                          {...common}
+                          inputMode={f.type === 'number' ? 'numeric' : 'text'}
+                          value={String(draft[key])}
+                          onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+            </Fieldset>
           ))}
         </div>
-        <section className="panel settings-save">
+        <Paper className="panel settings-save" withBorder p="md" component="section">
           <span role="status">
             {dirty ? '有未保存的修改' : '当前没有未保存的修改'}
             {validating && ' · 校验中…'}
@@ -306,15 +301,14 @@ function SettingsForm({ initial, register }: { initial: ConfigSnapshot; register
           {validation && !validation.valid && (
             <div role="alert">
               {validation.fieldErrors.map((e, i) => (
-                <p key={i}>
+                <Text key={i} component="p">
                   {e.field}：{e.message}
-                </p>
+                </Text>
               ))}
             </div>
           )}
           {validation && validation.effects.length > 0 && (
-            <details>
-              <summary>配置生效时机</summary>
+            <Disclosure title="配置生效时机">
               <ul>
                 {validation.effects.map((e) => (
                   <li key={e.field}>
@@ -323,28 +317,39 @@ function SettingsForm({ initial, register }: { initial: ConfigSnapshot; register
                   </li>
                 ))}
               </ul>
-            </details>
+            </Disclosure>
           )}
           <div className="button-row">
-            <button type="button" disabled={!dirty || action.busy} onClick={() => setDiscard(true)}>
+            <Button
+              type="button"
+              disabled={!dirty || action.busy}
+              onClick={() => setDiscard(true)}
+              variant="default"
+            >
               放弃修改
-            </button>
-            <button type="button" disabled={action.busy} onClick={() => setDiscard(true)}>
+            </Button>
+            <Button
+              type="button"
+              disabled={action.busy}
+              onClick={() => setDiscard(true)}
+              variant="default"
+            >
               重新读取配置
-            </button>
-            <button
+            </Button>
+            <Button
               className="primary"
               disabled={
                 !dirty || action.busy || validating || !!parseError || validation?.valid !== true
               }
+              type="submit"
+              variant="filled"
             >
               保存配置
-            </button>
+            </Button>
           </div>
-        </section>
+        </Paper>
       </form>
-      <details className="panel section-spaced">
-        <summary>本机数据位置</summary>
+      <Disclosure className="panel section-spaced" title="本机数据位置">
         <dl>
           {Object.entries(base.roots).map(([key, value]) => (
             <div key={key}>
@@ -353,17 +358,22 @@ function SettingsForm({ initial, register }: { initial: ConfigSnapshot; register
             </div>
           ))}
         </dl>
-      </details>
+      </Disclosure>
       {discard && (
         <Modal title="放弃草稿并重新读取？" close={() => setDiscard(false)} busy={action.busy}>
-          <p>
+          <Text component="p">
             其他进程可能已经修改配置。重新读取将丢弃这里尚未保存的草稿，不会覆盖磁盘内容。版本冲突时草稿会一直保留到你确认放弃。
-          </p>
+          </Text>
           <div className="modal-actions">
-            <button disabled={action.busy} onClick={() => setDiscard(false)}>
+            <Button
+              disabled={action.busy}
+              onClick={() => setDiscard(false)}
+              type="button"
+              variant="default"
+            >
               保留草稿
-            </button>
-            <button
+            </Button>
+            <Button
               disabled={action.busy}
               onClick={() =>
                 void action.run(async () => {
@@ -373,9 +383,11 @@ function SettingsForm({ initial, register }: { initial: ConfigSnapshot; register
                   setDiscard(false);
                 })
               }
+              type="button"
+              variant="default"
             >
               放弃草稿并读取
-            </button>
+            </Button>
           </div>
         </Modal>
       )}

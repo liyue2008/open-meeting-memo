@@ -1,3 +1,4 @@
+import { seekSlider } from './slider-interaction';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -71,7 +72,7 @@ describe('features/player explicit accessible playback entry (mock media only)',
     const audio = metadata();
     expect(audio.controls).toBe(true);
     expect(audio).not.toHaveAttribute('autoplay');
-    fireEvent.change(screen.getByLabelText('会议时间定位'), { target: { value: '1200' } });
+    await seekSlider(1200);
     expect(audio.currentTime).toBe(1.2);
     expect(play).not.toHaveBeenCalled();
     const button = screen.getByRole('button', { name: '播放录音' });

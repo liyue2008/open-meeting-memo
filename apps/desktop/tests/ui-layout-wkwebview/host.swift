@@ -3,6 +3,23 @@ import Cocoa
 import WebKit
 setbuf(stdout, nil)
 let out = CommandLine.arguments[1]
+// One fixed synthetic WAV for paused metadata/seek only; not the production media protocol.
+class SyntheticMedia: NSObject, WKURLSchemeHandler {
+    let bytes = try! Data(contentsOf: URL(fileURLWithPath: out + "/synthetic.wav"))
+    var requests = 0
+    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+        guard let url = urlSchemeTask.request.url, url.absoluteString == "omm-media://localhost/fixture_media_grant_000001" else {
+            urlSchemeTask.didFailWithError(NSError(domain: "synthetic-media", code: 1))
+            return
+        }
+        requests += 1
+        urlSchemeTask.didReceive(URLResponse(url: url, mimeType: "audio/wav", expectedContentLength: bytes.count, textEncodingName: nil))
+        urlSchemeTask.didReceive(bytes)
+        urlSchemeTask.didFinish()
+    }
+    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
+}
+let media = SyntheticMedia()
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 class Probe: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
@@ -28,7 +45,11 @@ class Probe: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
             web.evaluateJavaScript("window.__ack?.()")
             return
         }
-        results.append(value)
+        var observed = value
+        observed["nativeKeyWindow"] = window.isKeyWindow
+        observed["nativeAppActive"] = NSApp.isActive
+        observed["syntheticMediaRequests"] = media.requests
+        results.append(observed)
         save()
         if value["capture"] as? Bool == true, let name = value["name"] as? String {
             web.takeSnapshot(with: nil) { image, _ in
@@ -53,13 +74,14 @@ class Probe: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
 let probe = Probe()
 let config = WKWebViewConfiguration()
 config.websiteDataStore = .nonPersistent()
+config.setURLSchemeHandler(media, forURLScheme: "omm-media")
 config.userContentController.add(probe, name: "probe")
 probe.web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1280, height: 820), configuration: config)
 probe.web.navigationDelegate = probe
 probe.window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
 probe.window.contentView = probe.web
-probe.window.orderFront(nil)
-probe.web.loadHTMLString(try! String(contentsOfFile: out + "/inline.html", encoding: .utf8), baseURL: URL(string: "https://fixture.invalid")!)
+probe.window.makeKeyAndOrderFront(nil)
+probe.web.loadFileURL(URL(fileURLWithPath: out + "/inline.html"), allowingReadAccessTo: URL(fileURLWithPath: out, isDirectory: true))
 print("persistent=\(probe.web.configuration.websiteDataStore.isPersistent); copied React; synthetic transport; no hardware playback")
 DispatchQueue.main.asyncAfter(deadline: .now() + 360) { print("timeout"); NSApp.terminate(nil) }
 app.run()

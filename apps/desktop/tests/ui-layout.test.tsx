@@ -1,8 +1,9 @@
 import fs from 'node:fs';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
+import { render } from './render';
 import { describe, expect, it } from 'vitest';
 import { ErrorNotice, Heading } from '../src/components/ui';
-import { Notices, useNotice } from '../src/app/context';
+import { Notices, NoticeOutlet, useNotice } from '../src/app/context';
 
 const token = 'SyntheticLongToken'.repeat(14);
 describe('components/ui and app/context long content layout seams', () => {
@@ -25,11 +26,11 @@ describe('components/ui and app/context long content layout seams', () => {
   });
   it('wraps bare warnings and settings validation text at their owning boundaries', () => {
     const css = fs.readFileSync('src/styles.css', 'utf8');
-    expect(css).toMatch(/\.notice\s*\{[^}]*overflow-wrap:\s*anywhere/);
+    expect(css).toMatch(/\.notice-copy\s*\{[^}]*overflow-wrap:\s*anywhere/);
     expect(css).toMatch(/\.settings-grid,\s*\.settings-save\s*\{[^}]*overflow-wrap:\s*anywhere/);
-    expect(css).toMatch(
-      /\.settings-save:has\(\[role='alert'\]\),\s*\.settings-save:has\(details\[open\]\)\s*\{[^}]*position:\s*static/,
-    );
+    // The official form footer stays in flow, including long error/effect content.
+    expect(css).toMatch(/\.settings-save\s*\{[^}]*position:\s*static/);
+    expect(css).toMatch(/\.settings-field \.mantine-Switch-labelWrapper\s*\{[^}]*min-width:\s*0/);
   });
   it('renders a visible dismissible status without relying on a demo-only class toggle', () => {
     function Trigger() {
@@ -38,15 +39,21 @@ describe('components/ui and app/context long content layout seams', () => {
     }
     render(
       <Notices>
-        <Trigger />
+        <main>
+          <Trigger />
+          <NoticeOutlet />
+        </main>
       </Notices>,
     );
     fireEvent.click(screen.getByRole('button', { name: '提示' }));
-    expect(screen.getByRole('status')).toHaveClass('visible');
+    expect(screen.getByRole('status')).toHaveClass('mantine-Notification-root');
     expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
+    expect(screen.getByRole('status').closest('main')).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '关闭提示' }));
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     const css = fs.readFileSync('src/styles.css', 'utf8');
-    expect(css).toMatch(/#toast\s*\{[^}]*pointer-events:\s*auto/);
+    expect(css).not.toMatch(/#toast\s*\{[^}]*opacity:\s*0/);
+    expect(css).not.toMatch(/#toast\s*\{[^}]*pointer-events:\s*none/);
+    expect(css).not.toMatch(/#toast\s*\{[^}]*position:\s*fixed/);
   });
 });

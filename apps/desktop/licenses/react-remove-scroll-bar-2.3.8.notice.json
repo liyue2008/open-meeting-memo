@@ -1,0 +1,14 @@
+{
+  "name": "react-remove-scroll-bar",
+  "version": "2.3.8",
+  "integrity": "sha512-9r+yi9+mgU33AKcj6IbT9oRCO78WriSj6t/cF8DWBZJ9aOGPOTEDvdUDz1FwKim7QXWwmHqtdHnRJfhAxEG46Q==",
+  "license": "MIT",
+  "repository": "https://github.com/theKashey/react-remove-scroll-bar",
+  "publishedGitHead": "b3b1287aad81def2e2ae707274b74531b61ddbaf",
+  "noticeSourceCommit": "8ca9ba5ea52de03308fe8ced94f7b159a44d28ff",
+  "noticeSourceBlob": "7c08c3990396ecefd90f99ff5d9a34f26f5b5616",
+  "noticeSourceUrl": "https://raw.githubusercontent.com/theKashey/react-remove-scroll-bar/8ca9ba5ea52de03308fe8ced94f7b159a44d28ff/LICENSE",
+  "noticeSha256": "a79aae0c0f21990d9d963bb3c5a79cdcea9a46f8523ba55c58d7fe776b6ebc84",
+  "noticeBytes": 1093,
+  "scope": "Official project MIT text supplied for this exact published package. The published 2.3.8 gitHead does not resolve in the public repository; this is not asserted to be a 2.3.8 release-tree license."
+}

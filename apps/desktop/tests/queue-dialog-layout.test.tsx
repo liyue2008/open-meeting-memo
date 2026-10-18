@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
+import { render } from './render';
 import { expect, it } from 'vitest';
 import { BridgeContext, Notices } from '../src/app/context';
 import { TaskControls } from '../src/features/queue';

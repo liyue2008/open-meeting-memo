@@ -1,3 +1,15 @@
+import {
+  Stack,
+  Alert,
+  Button,
+  Checkbox,
+  NativeSelect,
+  Paper,
+  Text,
+  TextInput,
+  Textarea,
+  Title,
+} from '@mantine/core';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAction, useAdmission, useBridge } from '../app/context';
@@ -14,7 +26,9 @@ export function EditMeeting({ meeting, close }: { meeting: MeetingRow; close: ()
   const [tags, setTags] = useState(meeting.metadata.tags.join(', '));
   return (
     <Modal title="编辑会议" close={close} busy={action.busy}>
-      <form
+      <Stack
+        component="form"
+        gap="md"
         onSubmit={(e) => {
           e.preventDefault();
           void action.run(async () => {
@@ -38,8 +52,8 @@ export function EditMeeting({ meeting, close }: { meeting: MeetingRow; close: ()
       >
         <label>
           会议标题
-          <input
-            autoFocus
+          <TextInput
+            data-autofocus
             required
             maxLength={512}
             value={title}
@@ -48,25 +62,25 @@ export function EditMeeting({ meeting, close }: { meeting: MeetingRow; close: ()
         </label>
         <label>
           备注
-          <textarea value={note} onChange={(e) => setNote(e.target.value)} />
+          <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
         </label>
         <label>
           标签（逗号分隔）
-          <input value={tags} onChange={(e) => setTags(e.target.value)} />
+          <TextInput value={tags} onChange={(e) => setTags(e.target.value)} />
         </label>
-        <p className="muted">
+        <Text className="muted" component="p" c="dimmed">
           只更新标题、备注和标签；不改写录音或原始产物。版本冲突时保留草稿，请关闭后重新读取再合并。
-        </p>
+        </Text>
         {!!action.error && <ErrorNotice error={action.error} />}
         <div className="modal-actions">
-          <button type="button" onClick={close} disabled={action.busy}>
+          <Button type="button" onClick={close} disabled={action.busy} variant="default">
             放弃
-          </button>
-          <button className="primary" disabled={action.busy}>
+          </Button>
+          <Button className="primary" disabled={action.busy} type="submit" variant="filled">
             保存
-          </button>
+          </Button>
         </div>
-      </form>
+      </Stack>
     </Modal>
   );
 }
@@ -84,18 +98,18 @@ export function RetainMeetings({
   const action = useAction();
   return (
     <Modal title={restore ? '恢复会议' : '移入回收站'} close={close} busy={action.busy}>
-      <p>
+      <Text component="p">
         {restore
           ? '恢复后会议将重新出现在会议库。'
           : '录音、产物和处理历史会完整保留。本版本不提供永久删除。活动或未封存会议不能删除。'}
-      </p>
-      <p>共 {meetings.length} 场会议；批量操作全部成功才提交。</p>
+      </Text>
+      <Text component="p">共 {meetings.length} 场会议；批量操作全部成功才提交。</Text>
       {!!action.error && <ErrorNotice error={action.error} />}
       <div className="modal-actions">
-        <button disabled={action.busy} onClick={close}>
+        <Button disabled={action.busy} onClick={close} type="button" variant="default">
           返回
-        </button>
-        <button
+        </Button>
+        <Button
           className={restore ? 'primary' : 'danger'}
           disabled={action.busy}
           onClick={() =>
@@ -111,9 +125,12 @@ export function RetainMeetings({
               return restore ? '会议已恢复' : '已移入回收站，原始内容保留';
             })
           }
+          type="button"
+          color="red"
+          variant="filled"
         >
           {restore ? '确认恢复' : '移入回收站'}
-        </button>
+        </Button>
       </div>
     </Modal>
   );
@@ -141,26 +158,26 @@ export function Reprocess({
   >([]);
   return (
     <Modal title="重新处理" close={close} busy={action.busy}>
-      <p>
+      <Text component="p">
         创建新处理版本，保留旧录音、逐字稿和纪要。新的转写成功后会继续生成纪要；界面等待结束不会取消后台任务。
-      </p>
+      </Text>
       <label>
         处理范围
-        <select value={stage} onChange={(e) => setStage(e.target.value as ProcessingStage)}>
+        <NativeSelect value={stage} onChange={(e) => setStage(e.target.value as ProcessingStage)}>
           <option value="all">重新转写并生成纪要</option>
           <option value="transcribe">重新转写</option>
           <option value="summary">仅重新生成纪要</option>
-        </select>
+        </NativeSelect>
       </label>
       {stage === 'summary' && (
-        <p className="muted">
+        <Text className="muted" component="p" c="dimmed">
           {sourceTranscriptTaskId
             ? '复用所选的已提交逐字稿（当前或历史版本）。'
             : '复用每场会议当前有效的已提交逐字稿。'}
-        </p>
+        </Text>
       )}
       {outcomes.map((o) => (
-        <p key={o.meetingId}>
+        <Text key={o.meetingId} component="p">
           {o.meetingId}：
           {o.error ??
             (o.taskId
@@ -168,14 +185,14 @@ export function Reprocess({
               : o.operationId
                 ? `后台操作 ${o.operationId}`
                 : '服务未返回任务标识，请刷新队列确认')}
-        </p>
+        </Text>
       ))}
       {!!action.error && <ErrorNotice error={action.error} />}
       <div className="modal-actions">
-        <button disabled={action.busy} onClick={close}>
+        <Button disabled={action.busy} onClick={close} type="button" variant="default">
           关闭
-        </button>
-        <button
+        </Button>
+        <Button
           className="primary"
           disabled={action.busy || outcomes.length > 0}
           onClick={() =>
@@ -198,9 +215,11 @@ export function Reprocess({
               return '请查看每项结果及处理队列';
             })
           }
+          type="button"
+          variant="filled"
         >
           开始处理 {meetings.length} 场
-        </button>
+        </Button>
       </div>
     </Modal>
   );
@@ -226,21 +245,23 @@ export function CreateMeeting({ close }: { close: () => void }) {
   );
   return (
     <Modal title="新建会议" close={close} busy={action.busy}>
-      <p>手动开始录音，或导入一份已经封存的音频。不会创建没有来源的空会议。</p>
+      <Text component="p">手动开始录音，或导入一份已经封存的音频。不会创建没有来源的空会议。</Text>
       <label>
         会议标题
-        <input
-          autoFocus
+        <TextInput
+          data-autofocus
           value={title}
           required
           maxLength={512}
           onChange={(e) => setTitle(Array.from(e.target.value).slice(0, 256).join(''))}
         />
       </label>
-      <div className="panel section-spaced">
-        <h3>导入已有录音</h3>
-        <p>WAV 或 Ogg/Opus，最多 2 GiB / 8 小时。原文件保留，导入内容标记为混音。</p>
-        <button
+      <Paper className="panel section-spaced" withBorder p="md">
+        <Title order={3}>导入已有录音</Title>
+        <Text component="p">
+          WAV 或 Ogg/Opus，最多 2 GiB / 8 小时。原文件保留，导入内容标记为混音。
+        </Text>
+        <Button
           disabled={action.busy}
           onClick={() =>
             void action.run(async () => {
@@ -256,24 +277,26 @@ export function CreateMeeting({ close }: { close: () => void }) {
               if (!result.selection) return '已取消文件选择';
             })
           }
+          type="button"
+          variant="default"
         >
           选择音频文件
-        </button>
+        </Button>
         {selection && (
           <>
-            <p>
+            <Text component="p">
               {selection.displayName} · {Math.round(selection.durationMs / 1000)} 秒 ·{' '}
               {selection.channels} 声道
-            </p>
+            </Text>
             <label>
               原会议开始时间（本地）
-              <input
+              <TextInput
                 type="datetime-local"
                 value={started}
                 onChange={(e) => setStarted(e.target.value)}
               />
             </label>
-            <button
+            <Button
               disabled={action.busy || !title.trim() || !started}
               onClick={() =>
                 void action.run(async () => {
@@ -290,19 +313,25 @@ export function CreateMeeting({ close }: { close: () => void }) {
                   return result.duplicate ? '相同音频已存在，未重复导入' : '导入已提交';
                 })
               }
+              type="button"
+              variant="default"
             >
               导入
-            </button>
+            </Button>
           </>
         )}
-      </div>
-      <div className="panel section-spaced">
-        <h3>手动录音</h3>
+      </Paper>
+      <Paper className="panel section-spaced" withBorder p="md">
+        <Title order={3}>手动录音</Title>
         <label>
-          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />{' '}
+          <Checkbox
+            type="checkbox"
+            checked={consent}
+            onChange={(e) => setConsent(e.target.checked)}
+          />{' '}
           我确认参与者同意录音，并了解系统音频可能包含其他应用声音。
         </label>
-        <button
+        <Button
           className="primary"
           disabled={action.busy || !consent || !title.trim() || !!selection}
           onClick={() =>
@@ -317,10 +346,12 @@ export function CreateMeeting({ close }: { close: () => void }) {
               return '录音状态已更新，请查看状态栏';
             })
           }
+          type="button"
+          variant="filled"
         >
           开始录音
-        </button>
-      </div>
+        </Button>
+      </Paper>
       {!!action.error && <ErrorNotice error={action.error} />}
     </Modal>
   );
@@ -337,10 +368,10 @@ export function RecordingBar() {
   });
   if (status.error)
     return (
-      <div className="notice" role="status">
+      <Alert className="notice" role="status" variant="light">
         录音状态与已保存的自动录音偏好未知，不能更改。
         <ErrorNotice error={status.error} retry={() => void status.refetch()} />
-      </div>
+      </Alert>
     );
   if (!status.data) return <div role="status">正在读取录音状态；已保存的自动录音偏好未知。</div>;
   const data = status.data;
@@ -362,7 +393,7 @@ export function RecordingBar() {
       </span>
       <div className="button-row">
         {data.state === 'recording' && (
-          <button
+          <Button
             disabled={action.busy}
             onClick={() =>
               void action.run(async () => {
@@ -373,11 +404,13 @@ export function RecordingBar() {
                 return '停止请求已返回，请确认封存状态';
               })
             }
+            type="button"
+            variant="default"
           >
             停止并封存
-          </button>
+          </Button>
         )}
-        <button
+        <Button
           disabled={action.busy || autoBlocked}
           onClick={() => {
             if (data.autoRecord)
@@ -393,38 +426,47 @@ export function RecordingBar() {
               });
             else setConfirmAuto(true);
           }}
+          type="button"
+          variant="default"
         >
           {data.autoRecord === null
             ? '自动录音偏好未知'
             : data.autoRecord
               ? '关闭自动录音'
               : '启用自动录音'}
-        </button>
+        </Button>
       </div>
       {(data.autoRecord === null ||
         data.recordingConsent === null ||
         !data.compatibility.writesAllowed) && (
-        <p role="status">
+        <Text role="status" component="p">
           当前不能更改：
           {data.autoRecord === null || data.recordingConsent === null
             ? '已保存的偏好或同意尚未确认，请重新读取。'
             : '当前服务未授权写入，保留既有偏好。'}
-        </p>
+        </Text>
       )}
       {!!action.error && !confirmAuto && <ErrorNotice error={action.error} />}
       {confirmAuto && (
         <Modal title="启用自动录音" close={() => setConfirmAuto(false)} busy={action.busy}>
           {(autoBlocked || data.autoRecord !== false) && (
-            <p role="status">不能确认：偏好、同意或写入授权已变化或未知，请关闭后重新读取。</p>
+            <Text role="status" component="p">
+              不能确认：偏好、同意或写入授权已变化或未知，请关闭后重新读取。
+            </Text>
           )}
-          <p>
+          <Text component="p">
             只有飞书强信号确认参会后才会自动录音。请确认所有参与者同意；系统声音可能包含其他应用音频。
-          </p>
+          </Text>
           <div className="modal-actions">
-            <button disabled={action.busy} onClick={() => setConfirmAuto(false)}>
+            <Button
+              disabled={action.busy}
+              onClick={() => setConfirmAuto(false)}
+              type="button"
+              variant="default"
+            >
               返回
-            </button>
-            <button
+            </Button>
+            <Button
               disabled={action.busy || autoBlocked || data.autoRecord !== false}
               onClick={() =>
                 void action.run(async () => {
@@ -439,9 +481,11 @@ export function RecordingBar() {
                   return '自动录音已启用';
                 })
               }
+              type="button"
+              variant="default"
             >
               确认同意并启用
-            </button>
+            </Button>
           </div>
           {!!action.error && <ErrorNotice error={action.error} />}
         </Modal>

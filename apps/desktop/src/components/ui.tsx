@@ -1,4 +1,16 @@
-import { useEffect, useRef, useId, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  Accordion,
+  Alert,
+  Badge,
+  Button,
+  Group,
+  Loader,
+  Modal as MantineModal,
+  Stack,
+  Text,
+  Title,
+} from '@mantine/core';
 import { errorText } from '../bridge/client';
 import type { ArtifactStatus, MeetingStatus, TaskStatus } from '../contracts.generated';
 export const STATUS: Record<MeetingStatus | TaskStatus, string> = {
@@ -32,26 +44,42 @@ export const SOURCES = {
 };
 export function ErrorNotice({ error, retry }: { error: unknown; retry?: () => void }) {
   return (
-    <div role="alert" className="notice error">
-      <span className="notice-copy">{errorText(error)}</span>
-      {retry && <button onClick={retry}>重试读取</button>}
-    </div>
+    <Alert color="red" role="alert" className="notice" title="操作未完成">
+      <Stack gap="sm">
+        <Text className="notice-copy">{errorText(error)}</Text>
+        {retry && (
+          <Button variant="default" onClick={retry}>
+            重试读取
+          </Button>
+        )}
+      </Stack>
+    </Alert>
   );
 }
 export function Loading() {
   return (
-    <p role="status" className="empty-state">
-      正在读取…
-    </p>
+    <Group role="status" justify="center" p="xl">
+      <Loader size="sm" />
+      <Text c="dimmed">正在读取…</Text>
+    </Group>
   );
 }
 export function Status({ status }: { status: MeetingStatus | TaskStatus }) {
   return (
-    <span
-      className={`badge ${status === 'completed' ? 'success' : status === 'failed' || status === 'blocked' ? 'warning' : ''}`}
+    <Badge
+      variant="light"
+      color={
+        status === 'completed'
+          ? 'green'
+          : status === 'failed' || status === 'blocked'
+            ? 'red'
+            : status === 'recording'
+              ? 'orange'
+              : 'blue'
+      }
     >
       {STATUS[status]}
-    </span>
+    </Badge>
   );
 }
 export function Heading({
@@ -64,14 +92,21 @@ export function Heading({
   children?: ReactNode;
 }) {
   return (
-    <div className="page-heading">
+    <Group justify="space-between" align="flex-start" wrap="wrap" mb="lg" className="page-heading">
       <div className="heading-copy">
-        <div className="eyebrow">OPEN MEETING MEMO</div>
-        <h1>{title}</h1>
-        {text && <p>{text}</p>}
+        <Title order={1}>{title}</Title>
+        {text && (
+          <Text c="dimmed" mt="xs">
+            {text}
+          </Text>
+        )}
       </div>
-      <div className="button-row">{children}</div>
-    </div>
+      {children && (
+        <Group gap="sm" className="button-row">
+          {children}
+        </Group>
+      )}
+    </Group>
   );
 }
 export function Modal({
@@ -85,34 +120,89 @@ export function Modal({
   close: () => void;
   busy?: boolean;
 }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  const titleId = useId();
+  const [dialog, setDialog] = useState<HTMLDivElement | null>(null);
+  const lastFocused = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!dialog) return;
+    // Mantine traps Tab. WebKit additionally drops disabled focus to
+    // BODY: recover only an invalidated target, without stealing valid field focus.
+    const observer = new MutationObserver(() => {
+      const last = lastFocused.current;
+      const active = document.activeElement;
+      if (
+        last &&
+        [...document.querySelectorAll('[role="dialog"]')].at(-1) === dialog &&
+        (!dialog.contains(last) || last.matches(':disabled')) &&
+        (active === document.body || active === last)
+      )
+        dialog.focus({ preventScroll: true });
+    });
+    observer.observe(dialog, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['disabled'],
+    });
+    return () => observer.disconnect();
+  }, [dialog]);
+  // Callers conditionally mount dialogs; Mantine's opened-transition return
+  // cannot run when the whole component unmounts. Restore that trigger here.
   useEffect(() => {
     const previous = document.activeElement;
-    const dialog = ref.current;
-    dialog?.showModal();
     return () => {
-      dialog?.close();
-      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+      if (previous instanceof HTMLElement && previous.isConnected)
+        previous.focus({ preventScroll: true });
     };
   }, []);
   return (
-    <dialog
-      ref={ref}
-      aria-labelledby={titleId}
-      onCancel={(e) => {
-        e.preventDefault();
+    <MantineModal.Root
+      opened
+      onClose={() => {
         if (!busy) close();
       }}
+      closeOnEscape={!busy}
+      closeOnClickOutside={false}
+      returnFocus={false}
+      lockScroll={false}
+      keepMounted={false}
+      size="lg"
+      transitionProps={{ duration: 0 }}
     >
-      <div className="modal-header">
-        <h2 id={titleId}>{title}</h2>
-        <button aria-label="关闭对话框" disabled={busy} onClick={close}>
-          ×
-        </button>
-      </div>
-      {children}
-    </dialog>
+      <MantineModal.Overlay />
+      <MantineModal.Content
+        ref={setDialog}
+        aria-busy={busy}
+        onFocusCapture={(event) => {
+          if (event.target instanceof HTMLElement) lastFocused.current = event.target;
+        }}
+      >
+        <MantineModal.Header>
+          <MantineModal.Title>{title}</MantineModal.Title>
+          <MantineModal.CloseButton disabled={busy} aria-label="关闭对话框" />
+        </MantineModal.Header>
+        <MantineModal.Body>
+          <Stack gap="md">{children}</Stack>
+        </MantineModal.Body>
+      </MantineModal.Content>
+    </MantineModal.Root>
+  );
+}
+export function Disclosure({
+  title,
+  children,
+  className,
+}: {
+  title: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <Accordion variant="separated" className={className}>
+      <Accordion.Item value="details">
+        <Accordion.Control>{title}</Accordion.Control>
+        <Accordion.Panel>{children}</Accordion.Panel>
+      </Accordion.Item>
+    </Accordion>
   );
 }
 export function Icon({ name }: { name: string }) {

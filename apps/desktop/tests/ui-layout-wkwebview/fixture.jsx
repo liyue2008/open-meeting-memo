@@ -3,10 +3,21 @@ import { createRoot } from 'react-dom/client';
 import { App } from '../../src/App';
 import { createBridge } from '../../src/bridge/client';
 import * as validators from '../../src/bridge/validators.generated.js';
+import '@mantine/core/styles.css';
 import '../../src/styles.css';
 const samples = window.__samples;
 const token = 'LONGTOKEN'.repeat(20);
 window.__mode = 'normal';
+window.__externalRequests = [];
+window.fetch = async (input) => {
+  window.__externalRequests.push(String(input));
+  throw new Error('External requests forbidden in component fixture');
+};
+XMLHttpRequest.prototype.open = function (_method, url) {
+  window.__externalRequests.push(String(url));
+  throw new Error('External requests forbidden in component fixture');
+};
+
 window.__calls = [];
 window.__playCalls = 0;
 window.__copiedGuidance = '';
@@ -120,7 +131,7 @@ const checkedBridge = createBridge(async (command, { request }) => {
     data = { ...data, task, diagnostics: [mode === 'long' ? token : '合成脱敏信息'] };
   if (command === 'artifact_versions')
     data.items =
-      mode === 'empty'
+      mode === 'empty' || scenario.emptyArtifacts
         ? []
         : ['summary', 'transcribe'].flatMap((stage) =>
             [true, false].map((current) => ({
@@ -146,10 +157,10 @@ const checkedBridge = createBridge(async (command, { request }) => {
     data = {
       ...data,
       artifact: request.payload.artifact,
-      status: mode === 'empty' ? 'missing' : 'committed',
+      status: mode === 'empty' || scenario.emptyArtifacts ? 'missing' : 'committed',
       format: request.payload.artifact.stage === 'summary' ? 'markdown' : 'transcript',
       text:
-        mode === 'empty'
+        mode === 'empty' || scenario.emptyArtifacts
           ? ''
           : '# 合成纪要\n[00:01] 定位\n\n' +
             (mode === 'long'
@@ -162,7 +173,7 @@ const checkedBridge = createBridge(async (command, { request }) => {
               : '仅供布局检查') +
             '\n## 行动项\n- [ ] 合成待办',
       lines:
-        mode === 'empty'
+        mode === 'empty' || scenario.emptyArtifacts
           ? []
           : [
               {
@@ -245,6 +256,37 @@ const checkedBridge = createBridge(async (command, { request }) => {
               action: mode === 'long' ? token : '仅合成状态',
             },
           ];
+  if (scenario.mediaAvailable && command === 'media_manifest')
+    data = {
+      meetingId: mid,
+      revision: rev,
+      durationMs: 60000,
+      complete: true,
+      nextCursor: null,
+      segments: [
+        {
+          segmentId: '00000000-0000-4000-8000-000000000010',
+          sequence: 0,
+          offsetMs: 0,
+          durationMs: 20000,
+          mime: 'audio/wav',
+          byteLength: 320044,
+          sha256: window.__syntheticWavHash,
+          available: true,
+          reason: null,
+        },
+      ],
+    };
+  if (scenario.mediaAvailable && command === 'media_open')
+    data = {
+      ...data,
+      grantId: 'fixture_media_grant_000001',
+      url: 'omm-media://localhost/fixture_media_grant_000001',
+      revision: rev,
+      mime: 'audio/wav',
+      byteLength: 320044,
+      expiresAtMs: Date.now() + 60000,
+    };
   if (command === 'artifact_export') data = { outcome: 'saved', fileName: 'synthetic.md' };
   if (command === 'diagnostics_export')
     data = { outcome: 'saved', fileName: 'synthetic-diagnostics.json' };

@@ -1,3 +1,4 @@
+import { Notification } from '@mantine/core';
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BridgeFailure, errorText, type Bridge } from '../bridge/client';
@@ -48,23 +49,30 @@ export function useAdmission() {
     },
   };
 }
-const NoticeContext = createContext<(text: string) => void>(() => undefined);
-export const useNotice = () => useContext(NoticeContext);
+const NoticeContext = createContext({ show: (_text: string) => {}, text: '', dismiss: () => {} });
+export const useNotice = () => useContext(NoticeContext).show;
 export function Notices({ children }: { children: ReactNode }) {
-  const [notice, setNotice] = useState('');
+  const [text, setText] = useState('');
   return (
-    <NoticeContext.Provider value={setNotice}>
+    <NoticeContext.Provider value={{ show: setText, text, dismiss: () => setText('') }}>
       {children}
-      {notice && (
-        <div id="toast" className="visible" role="status" aria-live="polite" aria-atomic="true">
-          <span className="notice-copy">{notice}</span>
-          <button aria-label="关闭提示" onClick={() => setNotice('')}>
-            ×
-          </button>
-        </div>
-      )}
     </NoticeContext.Provider>
   );
+}
+export function NoticeOutlet() {
+  const notice = useContext(NoticeContext);
+  return notice.text ? (
+    <Notification
+      id="toast"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      onClose={notice.dismiss}
+      closeButtonProps={{ 'aria-label': '关闭提示' }}
+    >
+      <span className="notice-copy">{notice.text}</span>
+    </Notification>
+  ) : null;
 }
 export function useAction() {
   const [busy, setBusy] = useState(false);

@@ -1,3 +1,4 @@
+import { Alert, Button, Paper, Tabs, Text, TextInput, Title, Typography } from '@mantine/core';
 import { useEffect, useState } from 'react';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { BridgeFailure } from '../bridge/client';
@@ -5,7 +6,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAction, useBridge } from '../app/context';
 import { clock, dateTime } from '../app/dates';
-import { ARTIFACT_STATUS, STATUS, ErrorNotice, Loading } from '../components/ui';
+import { ARTIFACT_STATUS, STATUS, Disclosure, ErrorNotice, Loading } from '../components/ui';
 import { isActiveMeetingStatus, isActiveTaskStatus } from './meeting-task-activity';
 import type { ArtifactRef, ArtifactVersion, MeetingRow, Stage } from '../contracts.generated';
 
@@ -79,7 +80,7 @@ export function SafeMarkdown({
   locate: (time: number) => void;
 }) {
   return (
-    <div className="markdown">
+    <Typography className="markdown">
       <Markdown
         remarkPlugins={[remarkGfm, timestampLinks]}
         skipHtml
@@ -89,9 +90,14 @@ export function SafeMarkdown({
             const match = /^#t=(\d+)$/.exec(href ?? '');
             const time = match ? Number(match[1]) * 1000 : null;
             return time !== null && duration !== null && time >= 0 && time <= duration ? (
-              <button className="text-button" onClick={() => locate(time)}>
+              <Button
+                className="text-button"
+                onClick={() => locate(time)}
+                type="button"
+                variant="subtle"
+              >
                 {children}
-              </button>
+              </Button>
             ) : (
               <span>{children}</span>
             );
@@ -101,7 +107,7 @@ export function SafeMarkdown({
       >
         {text}
       </Markdown>
-    </div>
+    </Typography>
   );
 }
 function cursorConflict(error: unknown): boolean {
@@ -145,7 +151,7 @@ function ArtifactBody({
     <>
       <div className="document-toolbar">
         <div className="button-row">
-          <button
+          <Button
             disabled={action.busy}
             onClick={() =>
               void action.run(async () => {
@@ -153,10 +159,12 @@ function ArtifactBody({
                 return r.acknowledged ? '已复制完整产物' : '未复制';
               })
             }
+            type="button"
+            variant="default"
           >
             复制完整内容
-          </button>
-          <button
+          </Button>
+          <Button
             disabled={action.busy}
             onClick={() =>
               void action.run(async () => {
@@ -167,14 +175,16 @@ function ArtifactBody({
                 return r.outcome === 'saved' ? '内容已导出' : '已取消导出';
               })
             }
+            type="button"
+            variant="default"
           >
             导出
-          </button>
+          </Button>
         </div>
         {artifact.stage === 'transcribe' && (
           <label>
             当前已载入逐字稿内搜索
-            <input value={search} onChange={(e) => setSearch(e.target.value)} maxLength={512} />
+            <TextInput value={search} onChange={(e) => setSearch(e.target.value)} maxLength={512} />
           </label>
         )}
       </div>
@@ -185,13 +195,13 @@ function ArtifactBody({
       ) : (
         <>
           {status !== 'committed' && (
-            <div className="notice">
+            <Alert className="notice" variant="light" role="status">
               {status === 'partial'
                 ? '部分逐字稿：处理尚未完成，当前内容不是终稿。'
                 : status === 'historical'
                   ? '历史产物：保留供查阅，不代表当前逐字稿对应的纪要。'
                   : `产物状态：${status ? ARTIFACT_STATUS[status] : '未知'}`}
-            </div>
+            </Alert>
           )}
           {artifact.stage === 'transcribe' ? (
             <div className="transcript-list">
@@ -201,13 +211,15 @@ function ArtifactBody({
                 )
                 .map((line, index) => (
                   <div className="transcript-line" key={`${line.startMs}-${index}`}>
-                    <button
+                    <Button
                       className="timestamp text-button"
                       disabled={duration === null || line.startMs > duration}
                       onClick={() => locate(line.startMs)}
+                      type="button"
+                      variant="subtle"
                     >
                       {clock(line.startMs)}
-                    </button>
+                    </Button>
                     <span className="speaker">
                       {line.speaker === 'mic'
                         ? '麦克风'
@@ -217,20 +229,20 @@ function ArtifactBody({
                             ? '混音'
                             : '未知声源'}
                     </span>
-                    <p>{line.text}</p>
+                    <Text component="p">{line.text}</Text>
                   </div>
                 ))}
               {lines.length === 0 && (
-                <p className="empty-state">
+                <Text className="empty-state" component="p">
                   {status === 'partial' ? '还没有已完成的转写片段。' : '当前产物没有转写行。'}
-                </p>
+                </Text>
               )}
             </div>
           ) : (
             <>
               <SafeMarkdown text={text} duration={duration} locate={locate} />
               <section className="action-items">
-                <h3>行动项 · 只读</h3>
+                <Title order={3}>行动项 · 只读</Title>
                 {actions.length ? (
                   <ul>
                     {actions.map((item, index) => (
@@ -238,20 +250,26 @@ function ArtifactBody({
                     ))}
                   </ul>
                 ) : (
-                  <p className="muted">纪要中没有可识别的结构化行动项。完整纪要仍在上方。</p>
+                  <Text className="muted" component="p" c="dimmed">
+                    纪要中没有可识别的结构化行动项。完整纪要仍在上方。
+                  </Text>
                 )}
               </section>
             </>
           )}
           {chunks.hasNextPage && (
-            <button
+            <Button
               disabled={chunks.isFetchingNextPage || data.length >= 32}
               onClick={() => void chunks.fetchNextPage()}
+              type="button"
+              variant="default"
             >
               载入更多内容
-            </button>
+            </Button>
           )}
-          {data.length >= 32 && chunks.hasNextPage && <p>已达到窗口阅读上限，请导出完整产物。</p>}
+          {data.length >= 32 && chunks.hasNextPage && (
+            <Text component="p">已达到窗口阅读上限，请导出完整产物。</Text>
+          )}
         </>
       )}
     </>
@@ -340,135 +358,131 @@ export function Artifacts({
     );
   }, [tab, selected?.artifact.taskId, selected?.status, meeting.currentTranscriptTaskId]);
   return (
-    <section className="panel artifact-panel">
-      <div className="tabs" role="tablist" aria-label="会议内容">
-        {(['summary', 'transcribe', 'versions'] as const).map((t) => (
-          <button
-            key={t}
-            role="tab"
-            aria-selected={tab === t}
-            tabIndex={tab === t ? 0 : -1}
-            onKeyDown={(e) => {
-              const tabs = ['summary', 'transcribe', 'versions'] as const;
-              const index = tabs.indexOf(t);
-              const next =
-                e.key === 'ArrowRight'
-                  ? tabs[(index + 1) % tabs.length]
-                  : e.key === 'ArrowLeft'
-                    ? tabs[(index + tabs.length - 1) % tabs.length]
-                    : e.key === 'Home'
-                      ? tabs[0]
-                      : e.key === 'End'
-                        ? tabs[tabs.length - 1]
-                        : undefined;
-              if (next) {
-                e.preventDefault();
-                setTab(next);
-                setChosen(null);
-                document.getElementById(`tab-${next}`)?.focus();
-              }
-            }}
-            aria-controls="artifact-panel"
-            id={`tab-${t}`}
-            onClick={() => {
-              setTab(t);
-              setChosen(null);
-            }}
-          >
-            {t === 'summary' ? '会议纪要' : t === 'transcribe' ? '逐字稿' : '处理版本'}
-          </button>
-        ))}
-      </div>
-      <div
-        id="artifact-panel"
-        role="tabpanel"
-        aria-labelledby={`tab-${tab}`}
-        className="document-content"
+    <Paper className="panel artifact-panel" withBorder p="md" component="section">
+      <Tabs
+        value={tab}
+        onChange={(next) => {
+          if (next) {
+            setTab(next as Stage | 'versions');
+            setChosen(null);
+          }
+        }}
+        keepMounted={false}
       >
-        {versions.error && (
-          <ErrorNotice error={versions.error} retry={() => void versions.refetch()} />
-        )}
-        {tab === 'versions' ? (
-          <>
-            <p className="muted">
-              显示真实处理次数、产物校验和与来源。失败的新版本不会覆盖旧的已提交产物。
-            </p>
-            {versions.isPending && <Loading />}
-            {available.map((v) => (
-              <div className="version-row" key={`${v.artifact.taskId}-${v.artifact.stage}`}>
-                <div>
-                  <strong>
-                    第 {v.attempt} 次 · {v.artifact.stage === 'summary' ? '纪要' : '逐字稿'}
-                  </strong>{' '}
-                  · {v.current ? '当前' : '历史'} · {ARTIFACT_STATUS[v.status]} /{' '}
-                  {STATUS[v.taskStatus]}
-                  <p>
-                    {dateTime(v.createdAtMs)} · 模型 {v.modelVersion}
-                  </p>
-                  <details>
-                    <summary>校验与输入血缘</summary>
-                    <dl>
-                      <dt>产物 SHA-256</dt>
-                      <dd>{v.sha256 ?? '尚未提交'}</dd>
-                      <dt>配置 SHA-256</dt>
-                      <dd>{v.configHash}</dd>
-                      <dt>来源逐字稿</dt>
-                      <dd>
-                        {v.sourceTranscriptTaskId ?? '无'} / {v.sourceTranscriptHash ?? '无'}
-                      </dd>
-                    </dl>
-                  </details>
-                </div>
-                <button
-                  disabled={!['committed', 'historical', 'partial'].includes(v.status)}
-                  onClick={() => {
-                    setChosen(v);
-                    setTab(v.artifact.stage);
-                  }}
-                >
-                  读取此版本
-                </button>
-              </div>
-            ))}
-            {!versions.isPending && available.length === 0 && (
-              <p className="empty-state">尚无处理版本。</p>
+        <Tabs.List aria-label="会议内容">
+          {(['summary', 'transcribe', 'versions'] as const).map((t) => (
+            <Tabs.Tab
+              key={t}
+              value={t}
+              onKeyDown={(event) => {
+                if (event.key === 'Home' || event.key === 'End') {
+                  setTab(event.key === 'Home' ? 'summary' : 'versions');
+                  setChosen(null);
+                }
+              }}
+            >
+              {t === 'summary' ? '会议纪要' : t === 'transcribe' ? '逐字稿' : '处理版本'}
+            </Tabs.Tab>
+          ))}
+        </Tabs.List>
+        {(['summary', 'transcribe', 'versions'] as const).map((panel) => (
+          <Tabs.Panel key={panel} value={panel} className="document-content" pt="md">
+            {tab === panel && (
+              <>
+                {versions.error && (
+                  <ErrorNotice error={versions.error} retry={() => void versions.refetch()} />
+                )}
+                {tab === 'versions' ? (
+                  <>
+                    <Text className="muted" component="p" c="dimmed">
+                      显示真实处理次数、产物校验和与来源。失败的新版本不会覆盖旧的已提交产物。
+                    </Text>
+                    {versions.isPending && <Loading />}
+                    {available.map((v) => (
+                      <div className="version-row" key={`${v.artifact.taskId}-${v.artifact.stage}`}>
+                        <div>
+                          <strong>
+                            第 {v.attempt} 次 · {v.artifact.stage === 'summary' ? '纪要' : '逐字稿'}
+                          </strong>{' '}
+                          · {v.current ? '当前' : '历史'} · {ARTIFACT_STATUS[v.status]} /{' '}
+                          {STATUS[v.taskStatus]}
+                          <Text component="p">
+                            {dateTime(v.createdAtMs)} · 模型 {v.modelVersion}
+                          </Text>
+                          <Disclosure title="校验与输入血缘">
+                            <dl>
+                              <dt>产物 SHA-256</dt>
+                              <dd>{v.sha256 ?? '尚未提交'}</dd>
+                              <dt>配置 SHA-256</dt>
+                              <dd>{v.configHash}</dd>
+                              <dt>来源逐字稿</dt>
+                              <dd>
+                                {v.sourceTranscriptTaskId ?? '无'} /{' '}
+                                {v.sourceTranscriptHash ?? '无'}
+                              </dd>
+                            </dl>
+                          </Disclosure>
+                        </div>
+                        <Button
+                          disabled={!['committed', 'historical', 'partial'].includes(v.status)}
+                          onClick={() => {
+                            setChosen(v);
+                            setTab(v.artifact.stage);
+                          }}
+                          type="button"
+                          variant="default"
+                        >
+                          读取此版本
+                        </Button>
+                      </div>
+                    ))}
+                    {!versions.isPending && available.length === 0 && (
+                      <Text className="empty-state" component="p">
+                        尚无处理版本。
+                      </Text>
+                    )}
+                    {versions.hasNextPage && (
+                      <Button
+                        disabled={versions.isFetchingNextPage}
+                        onClick={() => void versions.fetchNextPage()}
+                        type="button"
+                        variant="default"
+                      >
+                        更多版本
+                      </Button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {selected && (
+                      <Alert className="notice" variant="light" role="status">
+                        第 {selected.attempt} 次处理 · {selected.current ? '当前产物' : '历史产物'}{' '}
+                        · {ARTIFACT_STATUS[selected.status]}
+                        {!selected.current && '；重新处理仍保留此版本'}
+                      </Alert>
+                    )}
+                    {artifact ? (
+                      <ArtifactBody
+                        key={`${artifact.taskId}-${artifact.stage}`}
+                        artifact={artifact}
+                        snapshot={`${selected?.status ?? 'missing'}:${selected?.sha256 ?? ''}`}
+                        duration={meeting.durationMs}
+                        locate={locate}
+                      />
+                    ) : (
+                      <Text className="empty-state" component="p">
+                        {tab === 'transcribe' && (partial || isActiveMeetingStatus(meeting.status))
+                          ? '正在准备部分逐字稿；可在处理版本中查看已完成片段。'
+                          : '尚无对应的有效产物。处理失败时可以到处理版本中查阅旧结果。'}
+                      </Text>
+                    )}
+                  </>
+                )}
+              </>
             )}
-            {versions.hasNextPage && (
-              <button
-                disabled={versions.isFetchingNextPage}
-                onClick={() => void versions.fetchNextPage()}
-              >
-                更多版本
-              </button>
-            )}
-          </>
-        ) : (
-          <>
-            {selected && (
-              <div className="notice">
-                第 {selected.attempt} 次处理 · {selected.current ? '当前产物' : '历史产物'} ·{' '}
-                {ARTIFACT_STATUS[selected.status]}
-                {!selected.current && '；重新处理仍保留此版本'}
-              </div>
-            )}
-            {artifact ? (
-              <ArtifactBody
-                key={`${artifact.taskId}-${artifact.stage}`}
-                artifact={artifact}
-                snapshot={`${selected?.status ?? 'missing'}:${selected?.sha256 ?? ''}`}
-                duration={meeting.durationMs}
-                locate={locate}
-              />
-            ) : (
-              <p className="empty-state">
-                {tab === 'transcribe' && (partial || isActiveMeetingStatus(meeting.status))
-                  ? '正在准备部分逐字稿；可在处理版本中查看已完成片段。'
-                  : '尚无对应的有效产物。处理失败时可以到处理版本中查阅旧结果。'}
-              </p>
-            )}
-          </>
-        )}
-      </div>
-    </section>
+          </Tabs.Panel>
+        ))}
+      </Tabs>
+    </Paper>
   );
 }

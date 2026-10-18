@@ -1,3 +1,4 @@
+import { Slider, Button, NativeSelect, Paper, Text, Title } from '@mantine/core';
 import { useEffect, useRef, useState } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useBridge } from '../app/context';
@@ -148,23 +149,31 @@ function MeetingPlayer({ meetingId, seek }: PlayerProps) {
   }
   if (manifest.isPending)
     return (
-      <section className="audio-player panel">
+      <Paper className="audio-player panel" withBorder p="md" component="section">
         <Loading />
-      </section>
+      </Paper>
     );
   return (
-    <section className="audio-player panel" aria-label="会议录音">
+    <Paper
+      className="audio-player panel"
+      aria-label="会议录音"
+      withBorder
+      p="md"
+      component="section"
+    >
       <div className="player-header">
-        <h2>会议录音</h2>
-        <span className="muted">已验证的公开混音 · 点击播放键才会发声</span>
+        <Title order={2}>会议录音</Title>
+        <Text component="span" size="sm" c="dimmed">
+          已验证的公开混音 · 点击播放键才会发声
+        </Text>
       </div>
       {manifest.error && (
         <ErrorNotice error={manifest.error} retry={() => void manifest.refetch()} />
       )}
       {segments.length === 0 && (
-        <p className="empty-state">
+        <Text className="empty-state" component="p">
           暂无可用的已归档公开混音。不会读取内部声源或无来源凭证的 WAV。
-        </p>
+        </Text>
       )}
       {segments.length > 0 && (
         <>
@@ -204,47 +213,59 @@ function MeetingPlayer({ meetingId, seek }: PlayerProps) {
               if (url) setError(new Error('录音解码失败或媒体授权已失效，请重新打开。'));
             }}
           />
-          <button
+          <Button
             type="button"
             className="player-playback"
             disabled={opening || !url || !ready}
             onClick={togglePlayback}
             aria-controls="meeting-recording-audio"
+            variant="default"
           >
             {playing ? '暂停录音' : '播放录音'}
-          </button>
+          </Button>
           <label className="timeline-label">
             会议时间 {clock(position)} / {clock(duration)}
-            <input
-              type="range"
-              aria-label="会议时间定位"
-              min="0"
+            <Slider
+              thumbLabel="会议时间定位"
+              thumbValueText={clock}
+              label={clock}
+              min={0}
               max={duration}
-              step="100"
+              step={100}
               value={position}
-              onChange={(e) => locate(Number(e.target.value))}
+              onChange={locate}
             />
           </label>
           <div className="button-row">
-            <button disabled={opening} onClick={() => locate(position - 15000)}>
+            <Button
+              disabled={opening}
+              onClick={() => locate(position - 15000)}
+              type="button"
+              variant="default"
+            >
               后退 15 秒
-            </button>
-            <button disabled={opening} onClick={() => locate(position + 15000)}>
+            </Button>
+            <Button
+              disabled={opening}
+              onClick={() => locate(position + 15000)}
+              type="button"
+              variant="default"
+            >
               前进 15 秒
-            </button>
+            </Button>
             <label>
               速度
-              <select value={rate} onChange={(e) => setRate(Number(e.target.value))}>
+              <NativeSelect value={rate} onChange={(e) => setRate(Number(e.target.value))}>
                 {[0.75, 1, 1.25, 1.5, 2].map((v) => (
                   <option key={v} value={v}>
                     {v}×
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </label>
             <label>
               分段
-              <select
+              <NativeSelect
                 aria-label="录音分段"
                 value={segment?.segmentId ?? ''}
                 onChange={(e) => {
@@ -258,30 +279,40 @@ function MeetingPlayer({ meetingId, seek }: PlayerProps) {
                     {!s.available ? ' · 不可用' : ''}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </label>
-            <button
+            <Button
               onClick={() => {
                 audio.current?.pause();
                 setReload((n) => n + 1);
               }}
+              type="button"
+              variant="default"
             >
               重新打开录音
-            </button>
+            </Button>
           </div>
-          <p className="muted">跨段定位保持暂停，不自动播放。录音空隙保留；时间轴不是测量波形。</p>
-          {opening && <p role="status">正在验证录音…</p>}
+          <Text className="muted" component="p" c="dimmed">
+            跨段定位保持暂停，不自动播放。录音空隙保留；时间轴不是测量波形。
+          </Text>
+          {opening && (
+            <Text role="status" component="p">
+              正在验证录音…
+            </Text>
+          )}
         </>
       )}
       {!!error && <ErrorNotice error={error} />}{' '}
       {manifest.hasNextPage && (
-        <button
+        <Button
           disabled={manifest.isFetchingNextPage}
           onClick={() => void manifest.fetchNextPage()}
+          type="button"
+          variant="default"
         >
           读取更多录音分段
-        </button>
+        </Button>
       )}
-    </section>
+    </Paper>
   );
 }

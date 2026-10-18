@@ -1,3 +1,4 @@
+import { Alert, Button, Paper, Text, Textarea, Title } from '@mantine/core';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAction, useBridge } from '../app/context';
@@ -59,7 +60,7 @@ function PlanDetails({ plan }: { plan: ServicePlan }) {
     <>
       {plan.effects.length > 0 && (
         <>
-          <h3>本次操作的实际影响</h3>
+          <Title order={3}>本次操作的实际影响</Title>
           <ul>
             {plan.effects.map((effect, i) => (
               <li key={i}>{effect}</li>
@@ -69,15 +70,15 @@ function PlanDetails({ plan }: { plan: ServicePlan }) {
       )}
       {plan.guidance && (
         <>
-          <p>
+          <Text component="p">
             人工步骤仅供查看或复制，不会自动运行命令。先核实原工具和当前用户域已加载的服务任务（job）确属本软件，且工作已安全完成；保留磁盘服务登记文件（plist）、录音和配置，不使用会删除恢复所需登记文件的
             service uninstall。
-          </p>
+          </Text>
           <label>
             原生端人工处理指导
-            <textarea aria-label="原生端人工处理指导" readOnly rows={6} value={plan.guidance} />
+            <Textarea aria-label="原生端人工处理指导" readOnly rows={6} value={plan.guidance} />
           </label>
-          <button
+          <Button
             disabled={action.busy}
             onClick={() =>
               void action.run(async () => {
@@ -87,9 +88,11 @@ function PlanDetails({ plan }: { plan: ServicePlan }) {
                 return '人工处理指导已复制；请核查后自行操作。';
               })
             }
+            type="button"
+            variant="default"
           >
             复制人工处理指导
-          </button>
+          </Button>
           {!!action.error && <ErrorNotice error={action.error} />}
         </>
       )}
@@ -109,7 +112,13 @@ export function ServiceBanner({ open }: { open: () => void }) {
   const plan = startup.data;
   if (plan?.state === 'running' && plan.compatibility.writesAllowed) return null;
   return (
-    <section className="compatibility-banner" aria-label="本机首次设置与服务状态">
+    <Alert
+      component="section"
+      className="compatibility-banner"
+      aria-label="本机首次设置与服务状态"
+      color="orange"
+      role="status"
+    >
       <span>
         {startup.error
           ? '无法核实本机资料库与服务状态。请打开设置查看真实诊断。'
@@ -119,10 +128,10 @@ export function ServiceBanner({ open }: { open: () => void }) {
               ? '首次使用：尚未初始化本机资料库。打开设置不会自动创建资料或启动录音。'
               : `后台服务：${stateLabel[plan.state]}。请查看可执行的服务操作和逐项就绪诊断。`}
       </span>
-      <button className="service-entry" onClick={open}>
+      <Button className="service-entry" onClick={open} type="button" variant="default">
         {plan?.state === 'uninitialized' ? '打开首次设置' : '打开服务设置'}
-      </button>
-    </section>
+      </Button>
+    </Alert>
   );
 }
 
@@ -213,21 +222,27 @@ export function ServiceLifecycle() {
     if (success) setPlan(null);
   };
   return (
-    <section className="panel section-spaced" aria-label="首次设置与后台服务">
-      <h2>首次设置与后台服务</h2>
-      <p>
+    <Paper
+      className="panel section-spaced"
+      aria-label="首次设置与后台服务"
+      withBorder
+      p="md"
+      component="section"
+    >
+      <Title order={2}>首次设置与后台服务</Title>
+      <Text component="p">
         打开 App 只读取状态。初始化、启动、停止和切换均需你明确确认；退出 App 后后台服务继续运行。
-      </p>
+      </Text>
       {startup.isPending ? (
         <Loading />
       ) : startup.error ? (
         <ErrorNotice error={startup.error} retry={() => void startup.refetch()} />
       ) : (
         <>
-          <p>
+          <Text component="p">
             当前状态：<strong>{stateLabel[startup.data.state]}</strong> · 目标 App 版本：
             {startup.data.targetVersion}
-          </p>
+          </Text>
           <ul>
             {startup.data.reasons.map((reason) => (
               <li key={reason}>{reasonLabel[reason]}</li>
@@ -235,35 +250,52 @@ export function ServiceLifecycle() {
           </ul>
           <PlanDetails plan={startup.data} />
           {startup.data.state === 'uninitialized' && startup.data.canInitialize && (
-            <button
+            <Button
               className="primary"
               disabled={busy}
               onClick={() => {
                 action.clearError();
                 setInitialize(true);
               }}
+              type="button"
+              variant="filled"
             >
               初始化本机资料库
-            </button>
+            </Button>
           )}
           {startup.data.state === 'uninitialized' && !startup.data.canInitialize && (
-            <p className="notice">
+            <Alert className="notice" variant="light" role="status">
               当前目录不能初始化。保留已有文件；先按拒绝原因处理，不会自动覆盖或迁移。
-            </p>
+            </Alert>
           )}
         </>
       )}
       <div className="button-row">
-        <button disabled={busy} onClick={() => void prepare('start')}>
+        <Button
+          disabled={busy}
+          onClick={() => void prepare('start')}
+          type="button"
+          variant="default"
+        >
           启动后台服务
-        </button>
-        <button disabled={busy} onClick={() => void prepare('stop')}>
+        </Button>
+        <Button
+          disabled={busy}
+          onClick={() => void prepare('stop')}
+          type="button"
+          variant="default"
+        >
           停止后台服务
-        </button>
-        <button disabled={busy} onClick={() => void prepare('switch')}>
+        </Button>
+        <Button
+          disabled={busy}
+          onClick={() => void prepare('switch')}
+          type="button"
+          variant="default"
+        >
           安全切换服务版本
-        </button>
-        <button
+        </Button>
+        <Button
           disabled={busy || startup.isFetching}
           onClick={() =>
             void startup
@@ -276,31 +308,50 @@ export function ServiceLifecycle() {
                 ),
               )
           }
+          type="button"
+          variant="default"
         >
           {startup.isFetching ? '正在检查服务状态…' : '重新检查服务状态'}
-        </button>
+        </Button>
       </div>
-      {refreshFeedback && <p role="status">{refreshFeedback}</p>}
-      <p className="muted">
+      {refreshFeedback && (
+        <Text role="status" component="p">
+          {refreshFeedback}
+        </Text>
+      )}
+      <Text className="muted" component="p" c="dimmed">
         录音同意单独确认。这里不下载模型、不请求权限、不更改自动录音或同意设置、不读取 Pi
         凭据；启动后按既有自动录音偏好与同意设置运行，可能自动录音；仍需分别核对依赖和权限。
-      </p>
+      </Text>
       {!!prepareError && !plan && <ErrorNotice error={prepareError} />}{' '}
       {!!action.error && !initialize && !plan && <ErrorNotice error={action.error} />}
       {initialize && (
         <Modal title="确认初始化本机资料库" close={() => setInitialize(false)} busy={busy}>
-          <p>
+          <Text component="p">
             仅在配置、数据和状态目录都确认为空时，创建本机默认配置与写入所有者记录。已有资料或未知文件会拒绝初始化，保留原件。
-          </p>
-          <p>初始化后自动录音与录音同意均为关闭；不会启动服务、录音、下载模型或请求权限。</p>
+          </Text>
+          <Text component="p">
+            初始化后自动录音与录音同意均为关闭；不会启动服务、录音、下载模型或请求权限。
+          </Text>
           {!!action.error && <ErrorNotice error={action.error} />}
           <div className="modal-actions">
-            <button disabled={busy} onClick={() => setInitialize(false)}>
+            <Button
+              disabled={busy}
+              onClick={() => setInitialize(false)}
+              type="button"
+              variant="default"
+            >
               暂不初始化
-            </button>
-            <button className="primary" disabled={busy} onClick={() => void initializeProfile()}>
+            </Button>
+            <Button
+              className="primary"
+              disabled={busy}
+              onClick={() => void initializeProfile()}
+              type="button"
+              variant="filled"
+            >
               确认初始化
-            </button>
+            </Button>
           </div>
         </Modal>
       )}
@@ -310,9 +361,9 @@ export function ServiceLifecycle() {
           close={() => setPlan(null)}
           busy={busy}
         >
-          <p>
+          <Text component="p">
             实际状态：{stateLabel[plan.state]} · 目标版本：{plan.targetVersion}
-          </p>
+          </Text>
           {plan.canApply && (
             <ul>
               {plan.reasons.map((reason) => (
@@ -321,47 +372,60 @@ export function ServiceLifecycle() {
             </ul>
           )}
           <PlanDetails plan={plan} />
-          {checked && <p role="status">已重新检查计划；请核对本次影响后再确认。</p>}
-          {plan.expiresAtMs !== null && plan.expiresAtMs <= now && (
-            <p role="status">计划已过期；请重新检查，不会自动重放。</p>
+          {checked && (
+            <Text role="status" component="p">
+              已重新检查计划；请核对本次影响后再确认。
+            </Text>
           )}
-          {plan.expiresAtMs !== null && <p>计划有效期至：{dateTime(plan.expiresAtMs)}</p>}
-          <p>
+          {plan.expiresAtMs !== null && plan.expiresAtMs <= now && (
+            <Text role="status" component="p">
+              计划已过期；请重新检查，不会自动重放。
+            </Text>
+          )}
+          {plan.expiresAtMs !== null && (
+            <Text component="p">计划有效期至：{dateTime(plan.expiresAtMs)}</Text>
+          )}
+          <Text component="p">
             执行时原生端会再次核对资料库、配置、服务身份、包内程序和活动工作。状态变化会拒绝执行，需要重新检查与确认。
-          </p>
+          </Text>
           {plan.action === 'stop' && (
-            <p>
+            <Text component="p">
               只停止归属明确、没有活动录音或处理任务的兼容服务。等待已拥有的工作退出和封存完成，保留配置、音频与产物。
-            </p>
+            </Text>
           )}
           {adopting(plan) && (
-            <p>
+            <Text component="p">
               仅采用资料库并更新停机登记，不启动服务；保留资料、配置和同意，完成后另点启动后台服务。
-            </p>
+            </Text>
           )}
           {plan.action === 'switch' && plan.canApply && !adopting(plan) && (
-            <p>
+            <Text component="p">
               只有归属可验证且没有活动工作时，才安全停止旧服务并启动当前 App
               内置版本。失败会如实报告；不改既有自动录音偏好或录音同意，启动后按原设置运行，可能自动录音。
-            </p>
+            </Text>
           )}
           {plan.action === 'start' && (
-            <p>
+            <Text component="p">
               只启动当前 App
               内经过验证的后台程序。启动后按既有自动录音偏好与同意设置运行，可能自动录音；转写模型与
               Pi 的就绪情况分别检查。
-            </p>
+            </Text>
           )}
           {!!prepareError && <ErrorNotice error={prepareError} />}{' '}
           {!!action.error && <ErrorNotice error={action.error} />}
           <div className="modal-actions">
-            <button disabled={busy} onClick={() => setPlan(null)}>
+            <Button disabled={busy} onClick={() => setPlan(null)} type="button" variant="default">
               暂不操作
-            </button>
-            <button disabled={busy} onClick={() => void prepare(plan.action)}>
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={() => void prepare(plan.action)}
+              type="button"
+              variant="default"
+            >
               重新检查计划
-            </button>
-            <button
+            </Button>
+            <Button
               className="primary"
               disabled={
                 busy ||
@@ -372,19 +436,25 @@ export function ServiceLifecycle() {
                 plan.expiresAtMs <= now
               }
               onClick={() => void apply()}
+              type="button"
+              variant="filled"
             >
               {adopting(plan) ? '确认采用（不启动）' : confirmation[plan.action]}
-            </button>
+            </Button>
           </div>
           {!plan.canApply && (
-            <p role="status">
+            <Text role="status" component="p">
               不能执行：{plan.reasons.map((reason) => reasonLabel[reason]).join(' ')}{' '}
               不会自动改用其他启动、停止或接管方式。
-            </p>
+            </Text>
           )}
-          {consumed && <p role="status">本次计划已使用或失效，必须重新检查后才能再次确认。</p>}
+          {consumed && (
+            <Text role="status" component="p">
+              本次计划已使用或失效，必须重新检查后才能再次确认。
+            </Text>
+          )}
         </Modal>
       )}
-    </section>
+    </Paper>
   );
 }

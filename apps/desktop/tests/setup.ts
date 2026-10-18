@@ -7,18 +7,8 @@ afterEach(() => {
   localStorage.clear();
   delete document.documentElement.dataset.theme;
   delete document.documentElement.dataset.sidebar;
-});
-Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
-  configurable: true,
-  value: function (this: HTMLDialogElement) {
-    this.setAttribute('open', '');
-  },
-});
-Object.defineProperty(HTMLDialogElement.prototype, 'close', {
-  configurable: true,
-  value: function (this: HTMLDialogElement) {
-    this.removeAttribute('open');
-  },
+  delete document.documentElement.dataset.mantineColorScheme;
+  systemDark(false);
 });
 Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
   configurable: true,
@@ -50,5 +40,19 @@ Object.assign(media, {
 Object.defineProperty(window, 'matchMedia', { configurable: true, value: () => media });
 export function systemDark(dark: boolean) {
   Object.defineProperty(media, 'matches', { configurable: true, value: dark });
-  media.dispatchEvent(new Event('change'));
+  const event = new Event('change');
+  Object.defineProperty(event, 'matches', { value: dark });
+  Object.defineProperty(event, 'media', { value: '(prefers-color-scheme: dark)' });
+  media.dispatchEvent(event);
 }
+
+// JSDOM has no layout engine: size observation is inert here; real geometry is
+// verified in the private WK fixture, not synthesized into passing rectangles.
+vi.stubGlobal(
+  'ResizeObserver',
+  class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+);

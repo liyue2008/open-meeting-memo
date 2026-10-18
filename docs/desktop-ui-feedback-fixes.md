@@ -1,56 +1,56 @@
-# 桌面播放器与布局修复（前端阶段）
+# 桌面界面：Mantine 迁移与既有修复
 
-基线：`99887e848c0298d1c928dcf9bb94caa2a17910e5`。业务修改仅限前端与前端测试；服务恢复已接入经批准的冻结契约依赖，没有修改原生恢复行为。没有安装、发布、操作个人服务或播放硬件音频。
+前端现在使用精确锁定的 `@mantine/core` / `@mantine/hooks` **9.7.3**。使用官方 `DEFAULT_THEME`，没有 `createTheme`、自建色板、字体下载或第二套控件库。原来的全局控件皮肤 `demo.css` 已删除；`styles.css` 只管理布局、尺寸、滚动、阅读断行和独立 Logo 品牌资产。React、TypeScript、Tauri 和业务接口版本不变。
 
-## 修复
+## 选择与实现依据
 
-- 播放器按会议和媒体来源隔离元素。离开页面、换会议/片段、版本或授权重开时，旧元素执行 `pause → removeAttribute('src') → load`；关闭授权不能撤回浏览器已缓冲的数据。
-- 一次明确点击只请求一次播放；未完成的播放请求去重，迟到的授权关闭、迟到的播放完成/失败只处理旧元素，不改新元素。测试仅模拟 `play()`。
-- 共用标题、错误与提示文字在自己的容器内收缩和断行；保留全文，不用页面级裁剪掩盖出界。表格允许容器内部横滚。
-- 提示可见、可关闭，有状态播报；与保存条分开。设置错误/展开的生效说明改用普通文档流，避免粘性保存区盖住待修正字段。
-- 取消任务失败显示在当前确认弹窗内，避免错误藏在后面的任务弹窗中。
+选择采用 Main 已核验的 [9.7.3 正式发布](https://github.com/mantinedev/mantine/releases/tag/9.7.3)、React 19.2+ peer 条件、MIT 许可及社区采用情况。当前 React 19.3.1 满足条件。实施核对了官方 [入门](https://mantine.dev/getting-started/)、[Provider](https://mantine.dev/theming/mantine-provider/)、[颜色模式](https://mantine.dev/theming/color-schemes/)、[浏览器支持](https://mantine.dev/browser-support/)、[Modal](https://mantine.dev/core/modal/) 和 [Portal](https://mantine.dev/core/portal/) 文档，并检查安装版本的实际源码。
 
-## 验证
+生产内容安全策略没有放宽。采用官方静态 `styles.css` 和默认变量，关闭 Provider 运行时样式注入；颜色切换使用官方 `keepTransitions` 选项，避免临时插入 style 标签。导航使用 NavLink 和纯布局容器；没有使用会插入响应式 style 的 AppShell。Modal 使用官方 Portal、FocusTrap、标题/关闭与焦点恢复；滚动锁通过静态布局规则完成。仅保留“聚焦控件被禁用或移除且焦点失效”的窄恢复，避免 WebKit 丢到 BODY；不在普通渲染时抢焦点。
 
-`apps/desktop/tests/player-lifecycle.test.tsx`、`ui-layout.test.tsx`、`queue-dialog-layout.test.tsx` 均先记录失败再修复；完整前端测试 19 文件 / 137 条通过。严格类型、格式、生成校验器一致性、依赖许可证清单检查和前端构建均通过。
+Light、Dark、系统 auto 均保留。旧 `omm.theme=system`、`omm.sidebar` 的键和值不变；跨窗口更新不回写，未知值不被粗暴覆盖。
 
-服务界面追加回归先在旧界面记录 6 条失败，再修复；最终全部前端测试为 21 文件 / 149 条通过。新增服务响应逐条通过冻结校验器，未知原因、字符串形态的偏好和对象形态的人工指导仍被拒绝。
+## 全页面覆盖
 
-私有 WKWebView 夹具在 `apps/desktop/tests/ui-layout-wkwebview/`：复制当前 React，使用严格生产接口校验器和合成传输，清空继承环境、独立 HOME/XDG，实际检查数据存储 `isPersistent=false`，自有进程正常退出并等待。绝不连接生产 Tauri 传输；媒体 `play()` 被拦截，所有运行调用数为零。
+| 页面/区域 | 官方组件与保留行为 |
+|---|---|
+| 导航、外观、公共反馈 | NavLink、Tooltip、Paper、NativeSelect、Alert、Notification；提示位于页面普通文档流，不覆盖保存按钮 |
+| 会议库 | 搜索/日期快捷（默认 7 天）、NativeSelect、Checkbox、Table.ScrollContainer、Pagination；原游标和修订控制不变 |
+| 详情 | 顶部播放器、Tabs 三标签、产物版本、Markdown 阅读；Tabs 不保留隐藏内容，单活媒体清理不变 |
+| 处理队列 | 官方表格、状态 Badge、任务详情及嵌套取消确认 |
+| 设置 | Fieldset、TextInput、Textarea、Switch、Accordion；五个可编辑组和只读存储/模型概览，保存、校验、草稿保护不变 |
+| 状态与诊断 | Alert、状态 Badge、服务计划及两步恢复、诊断导出与纯文本人工指导 |
+| 使用帮助 | Paper、Title、Text、Accordion；不增加行动项管理 |
+| 弹窗 | 创建/导入、编辑、回收/恢复、重处理、任务详情/取消、自动录音确认、草稿丢弃/离页、初始化及服务启动/停止/更新登记 |
+
+长标题、路径、错误、Switch 字段错误在所属容器收缩断行；完整内容保留。表格和长代码允许容器内部横滚，不用页面级 overflow 裁剪掩盖错误。保存区处于普通文档流。
+
+## 必须保留的边界
+
+- 原生 bridge、生成契约、请求去重、只读准入、配置修订检查均未修改。`autoRecord` / `recordingConsent` 为 null 时显示未知，不当作 false；unknown 不显示未录音。
+- 旧服务登记采用和启动分开。阻断原因、纯文本指导、失败/过期后的显式重检、忙态禁用保持。启动仍按已保存偏好运行，不承诺绝不录音。
+- 单次明确播放、迟到授权/播放清理与 `pause → removeAttribute('src') → load` 保持。关闭授权不能撤销浏览器已缓冲字节。用户听到的回声原因尚未确认。
+- Markdown 的 raw HTML、链接和内容安全规则不变。没有新增上传、认证或权限绕过。
+
+## 依赖许可证
+
+新增传递依赖的许可证均进入离线 `THIRD-PARTY-NOTICES.txt`。`react-remove-scroll-bar@2.3.8` 的发布 tarball 缺少全文，使用 [精确单项映射](../apps/desktop/licenses/react-remove-scroll-bar-2.3.8.notice.json) 和同官方项目固定 commit 的 MIT 原文补齐。该发布包声明的 gitHead 在公开仓库未解析，不能把此全文说成来自 2.3.8 release 树。映射校验包名、版本、完整性、MIT/repository 声明及原文 SHA-256；其它缺文继续失败。10 项正负测试覆盖该边界。
+
+## 验证入口与证据边界
 
 ```sh
 cd apps/desktop
-node tests/ui-layout-wkwebview/run.mjs /private/tmp/omm-ui-layout-UNIQUE
-# 可单独追加状态/校验错误/服务弹窗/诊断，不必重复整套已通过组合：
-node tests/ui-layout-wkwebview/run.mjs /private/tmp/omm-ui-states-UNIQUE --states
-node tests/ui-layout-wkwebview/run.mjs /private/tmp/omm-ui-validation-UNIQUE --validation
-node tests/ui-layout-wkwebview/run.mjs /private/tmp/omm-ui-dialogs-UNIQUE --dialogs
-node tests/ui-layout-wkwebview/run.mjs /private/tmp/omm-ui-diagnostics-UNIQUE --diagnostics
-node tests/ui-layout-wkwebview/run.mjs /private/tmp/omm-ui-recovery-UNIQUE --recovery
+npm test
+npm run test:notices
+npm run typecheck
+npm run format:check
+npm run validators:check
+npm run build
+E=$(mktemp -d /private/tmp/omm-mantine-wk.XXXXXX)
+node tests/ui-layout-wkwebview/run.mjs "$E"
+# 可选小范围组件检查：--smoke 或 --dialogs
 ```
 
-| 范围 | 实际覆盖 |
-|---|---|
-| 5 主页面：会议库、处理队列、设置、状态与诊断、使用帮助 | 800×600 / 1280×820，浅/深色，侧栏展/收；正常/空/读取失败/合法长文本 |
-| 详情 3 tab | 纪要、逐字稿、处理版本；当前/历史产物、长表格、代码、长行、空/失败、部分/无效/历史状态 |
-| 设置 6 组 | 录音、通知、本地转写、会议检测、纪要、本机数据位置；长路径展开，保存冲突、校验错误、提示与保存条间距 |
-| 实际弹窗 | 编辑、重处理、移入/恢复、新建/导入、手动录音、自动录音同意、任务/取消、初始化、启动/停止/切换计划、重读配置/未保存草稿；含长文本及适用失败、等待状态 |
-| 补充状态 | 录音中/封存/未知只读，任务各状态，会议录制/封存/中断/失败/回收站；补充状态使用 800 浅色展开与 1280 深色收起两个代表组合 |
+当前组件矩阵使用真实非持久 WKWebView，覆盖实际内容 **800×568 / 1280×788**、明暗、侧栏展收、resize、五路由与详情标签的正常/空/失败/长文本/待返回查询、设置分组和长校验、服务 busy/失败/重检/过期、全部弹窗、系统模式及切换。检查边界、滚到底、按钮命中、焦点、严格响应校验和内容安全策略，并绑定复制前后源 hash 与实际 HTML/CSS/driver/host。
 
-完整布局扫描记录 744 个检查点、112 张代表截图；追加状态 80 个检查点发现 2 个设置校验错误出界，随后定点修复；最终定点校验 2 个检查点无出界且所有表单控件无覆盖。服务/取消等弹窗追加 22 点，诊断修正夹具后重验 32 点，均无出界。诊断早期夹具缺 `code` 字段、临时服务 token 不足 32 字符，已纠正并由生成校验器检查；不使用早期错误夹具冒充正常诊断证据。
-
-证据：`/private/tmp/omm-ui-fixes-VUGaix`，含 red/green 日志、逐步 DOM 边界与按钮/焦点记录、截图、每轮来源 SHA-256 和等待回执。截图是实际非持久 WKWebView 的组件证据，**不是 Tauri 生产窗口/媒体协议验收**。焦点记录包括滚动后可达与弹窗内焦点，不冒充完整真人键盘遍历。
-
-## 服务恢复界面
-
-- 区分“资料库待显式采用”和真实资料库版本不兼容；录音未知不显示未录音。已保存的自动录音偏好与录音同意允许未知；读取失败或未知时不当作关闭、未同意或已保存默认配置，相应操作禁用并解释原因。已知偏好和未知服务分开显示。
-- 受支持的停机旧登记采用：确认框明确仅采用资料库、更新停机登记，**不启动**；成功仍显示已停止，下一步另点启动。启动失败不声称运行，当前弹窗显示错误，需重新检查后重试。可信现代服务原有安全切换语义保留。
-- 原生端的实际影响和人工指导按纯文本显示、可选择或复制；不会自动运行命令。无法验证的旧服务需人工核实属于本软件且工作完成，再用确认过的原命令行程序正常停止并等待；人工核查后仅卸载当前用户域已加载的服务任务，**保留磁盘 plist 登记文件、录音与配置**。不建议会删除恢复所需登记文件的 `service uninstall`。
-- 不改既有自动录音偏好或同意；启动后服务按原设置运行，可能自动录音。到期、重复确认、重新检查、复制失败均有当前上下文反馈。
-- 新增服务代表夹具：800×600 浅色侧栏展开、1280×820 深色侧栏收起，覆盖 14 类服务/配置状态，各一张截图；29 条记录（含无播放收尾）无页面出界，弹窗可滚到底，启用控件逐个命中检查、指导全文复制使用夹具剪贴板。原 744 点全矩阵未重复执行。
-
-## 未闭合
-
-- 用户听到回声的真正原因仍未证实；本次修复已确认的退出清理和并发生命周期缺口，没有改混音或录音内核，没有读取/试听个人录音。
-- 本树仅采用冻结契约依赖，没有采用原生业务提交；完整服务恢复与真实 Tauri 传输需要整合后继续验证。旧登记即使没有进程，只要仍被系统加载也不由 App 卸载；只有明确未加载且受支持的停机登记才允许采用。
-- 未运行本轮真实 Tauri 生产协议/窗口路径、真实媒体播放、硬件/权限/通知/模型；正式独立评审另行进行。
+夹具只使用复制 React 和严格校验的合成桥。固定合成 WAV 仅做离线 metadata、暂停 seek 和离页释放；所有 play 被拦截。它不是生产 Tauri 协议、真实 archive/Range、系统剪贴板或听感验收。最终生产整合、独立评审、安装及个人服务操作由整合方单独完成。

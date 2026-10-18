@@ -1,3 +1,4 @@
+import { seekSlider } from './slider-interaction';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -199,12 +200,12 @@ describe('Detail source artifacts and paused segmented media through typed bridg
     Object.defineProperty(audio, 'duration', { configurable: true, value: 20 });
     Object.defineProperty(audio, 'readyState', { configurable: true, value: 1 });
     fireEvent.loadedMetadata(audio);
-    fireEvent.change(screen.getByLabelText('会议时间定位'), { target: { value: '10000' } });
+    await seekSlider(10000);
     expect(audio.currentTime).toBe(10);
-    fireEvent.change(screen.getByLabelText('会议时间定位'), { target: { value: '25000' } });
+    await seekSlider(25000);
     expect(await screen.findByText(/此时间位于录音间隙/)).toBeVisible();
     expect(audio.currentTime).toBe(10);
-    fireEvent.change(screen.getByLabelText('会议时间定位'), { target: { value: '35000' } });
+    await seekSlider(35000);
     await waitFor(() =>
       expect(screen.getByLabelText('录音播放控件')).toHaveAttribute(
         'src',
