@@ -1,0 +1,83 @@
+Cargo.toml
+  s_e6fcf3cda4e1bb::t_181aa55314f41d 51
+docs/overview-design.md
+  s_e6fcf3cda4e1bb::t_ec4daa0d3cfa62 204-213
+src/adapters/asr/codec.rs
+  s_e6fcf3cda4e1bb::t_5d3381d8f20d31 27,137-139,183,185,233,377
+src/adapters/asr/mod.rs
+  s_e6fcf3cda4e1bb::t_9f039d65dfba44 639-649,655,751-754
+src/adapters/asr/native/tests.rs
+  s_e6fcf3cda4e1bb::t_1312a5d8ec6b0a 1,137-138,147-149,151-152,156
+src/application/imports.rs
+  s_e6fcf3cda4e1bb::t_3f27da930ed7a3 15,133,144-148,158-162,169,171-175,274
+src/application/lifecycle.rs
+  s_e6fcf3cda4e1bb::t_7e6eb6bd66ffa1 321-322
+src/application/recovery.rs
+  s_e6fcf3cda4e1bb::t_ff2fa5658aefd8 130-138,140,142-146,148-165
+src/core/execution.rs
+  s_e6fcf3cda4e1bb::t_0717503da9de5b 452-472,575-578
+src/core/execution_format.rs
+  s_e6fcf3cda4e1bb::t_a3df0bd036379e 397-398,401-408
+src/core/execution_receipts.rs
+  s_e6fcf3cda4e1bb::t_087f27861298fa 17,89,108-113,123,145-150,157-163,165-167,201,203-205,316-319,322-383,477-494,500-504,523-540,717-727,735
+src/core/pipeline.rs
+  s_e6fcf3cda4e1bb::t_9cc68ca8029bbc 90,93,138,141,250-254,257,319,341-344,347-348
+src/core/store.rs
+  s_e6fcf3cda4e1bb::t_5ca7e50e7c2d60 57-62,76-81,129-134,712-717,1028-1083
+src/core/store/attempt_errors.rs
+  s_e6fcf3cda4e1bb::t_f18bf4bfd064f2 80-83
+src/core/store/executions.rs
+  s_e6fcf3cda4e1bb::t_7e082304ae69cc 38-42,105-109,211-216,218,231-235,251,264-274,320-324,379-385,390
+src/core/store/segments.rs
+  s_e6fcf3cda4e1bb::t_ad1e6d1cbeb01d 668-671
+src/lib.rs
+  s_e6fcf3cda4e1bb::t_69a3f239a0cfbc 1-2,9-15
+src/service/daemon.rs
+  s_e6fcf3cda4e1bb::t_4bced9c3b56565 1475-1476
+tests/asr_checkpoint/worker.rs
+  s_e6fcf3cda4e1bb::t_aa9b4a555cd601 1-24
+tests/cancellation_recovery.rs
+  s_e6fcf3cda4e1bb::t_20f3a9dc022a24 4-7,11-13,220-221,294-353,382-389,555-556,573-907
+tests/codec_ownership.rs
+  s_e6fcf3cda4e1bb::t_a5f0a3790d16d1 65-67,88,99,108-112,130-436
+tests/core_foundation.rs
+  s_e6fcf3cda4e1bb::t_0cc1e7351259b5 1-2,17,114-115,120,128-136,138,141-149,151,153-161,170,172-180,254-255,259,277-285,287,307-315
+tests/desktop_native.rs
+  s_e6fcf3cda4e1bb::t_19dc4643bf6b50 2-3,36-41,46-48,87-88,108-126,246,251-252,274-275,418,436,560,562,884,899-903,910-911,954,1071,1095
+tests/desktop_service_recovery.rs
+  s_e6fcf3cda4e1bb::t_4e1fee394755c4 153-156,528-529,532,908-920,922,1064,1066-1076,1115-1301
+tests/execution/failures.rs
+  s_e6fcf3cda4e1bb::t_3142918b824681 1-217
+tests/execution_format/format.rs
+  s_e6fcf3cda4e1bb::t_4e9fe7e1f2989a 319-392
+tests/execution_receipts/receipts.rs
+  s_e6fcf3cda4e1bb::t_fdd1fef9d5326e 31
+tests/notifications.rs
+  s_e6fcf3cda4e1bb::t_4c0f027349234a 1-2,223,301,397,461,756,1045,1063-1073,1136,1194,1278,1327,1384
+tests/pipeline_diagnostics/cases.rs
+  s_e6fcf3cda4e1bb::t_abcb7474d1f941 2,22,212,280,344,375,378-379
+tests/process_ownership.rs
+  s_e6fcf3cda4e1bb::t_26b95436ed5b9a 1-53
+tests/segment_pipeline.rs
+  s_e6fcf3cda4e1bb::t_cc041b7170f0f1 1-23,32-36,151,157,164,166,171,187,189,327,331-332,340,346,351,390,399,417,423,426,439,443,456,459,475,553,559,566,568,662,668,675,677,679,682,1048,1097-1099,1101-1115,1147,1149-1150,1158,1201,1235,1237,1249,1251
+tests/support/cancellation.rs
+  s_e6fcf3cda4e1bb::t_4d64b527146557 1-160
+tests/today_pipeline/cases.rs
+  s_e6fcf3cda4e1bb::t_514a331e514386 2,122,136,140-142,153,157-159,165,169-171,259,276,280-282,288,350,362,366-368,386,398-400,434,469,477,481-483
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3780742aa3bb5ca26a9761db54a1517aa6673821",
+  "prompts": {},
+  "sessions": {
+    "s_e6fcf3cda4e1bb": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d6f-1e4a-745b-9d2c-638258fd0d45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
