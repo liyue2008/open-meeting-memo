@@ -76,7 +76,8 @@
     await wait('actual advanced Accordion expanded', () => control.getAttribute('aria-expanded') === 'true' && label('排序'));
   };
   const modalCheckpoint = async name => {
-    const active = await wait('real modal initial focus ' + name, () => { const d = modal(); return d?.contains(document.activeElement) && !document.activeElement.matches(':disabled') && d; });
+    // Async file inspection changes enabled controls; test the settled modal's boundary set.
+    const active = await wait('real modal initial focus ' + name, () => { const d = modal(); return d?.getAttribute('aria-busy') !== 'true' && d?.contains(document.activeElement) && !document.activeElement.matches(':disabled') && d; });
     const initial = document.activeElement;
     const targets = elements('button,input,select,textarea,a[href],[tabindex="0"]',active).filter(e => !e.disabled && e.tabIndex >= 0);
     check('real focusable modal controls ' + name, targets.length > 0);
@@ -304,7 +305,7 @@
     const readCounts = reads.reduce((counts, read) => { const key = read.command + ':' + (read.error ?? 'ok'); counts[key] = (counts[key] ?? 0) + 1; return counts; }, {});
     const closeGuard = { cancelledWindowAndDraftRetained: true, cancelledDiskUnchanged: true, baselineRevision: closeBaseline.revision, draft: closeDraft };
     check('fourteen actual modal focus checkpoints completed', focusEvidence.length === 14);
-    const armed = await requestClose({ id: 'ui-close-finish', action: 'arm-destroy', result: { ok: true, checks, playCalls, views: views.map(({ body, ...view }) => view), focusEvidence, mediaEvidence, independentNativeReadCounts: readCounts, closeGuard, storage: 'nonpersistent isolated fixture; no cross-process persistence claim', userAgent: navigator.userAgent } });
+    const armed = await requestClose({ id: 'ui-close-finish', action: 'arm-destroy', result: { ok: true, checks, playCalls, views: views.map(({ body: _body, ...view }) => view), focusEvidence, mediaEvidence, independentNativeReadCounts: readCounts, closeGuard, storage: 'nonpersistent isolated fixture; no cross-process persistence claim', userAgent: navigator.userAgent } });
     check('native evidence armed before actual React discard', armed.armed === true && armed.mainAlive === true);
     check('real discard still connected after native arming', discard.isConnected && !discard.disabled);
     // No IPC or generic completion after this click: native destruction and owned cleanup decide success.
