@@ -387,6 +387,13 @@ pub fn run() {
         .build(context)
         .expect("desktop runtime failed");
     app.run(move |handle, event| {
+        #[cfg(feature = "native-bridge-fixture")]
+        if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+            if bridge_fixture::children::exit_blocked() {
+                api.prevent_exit();
+                return;
+            }
+        }
         if matches!(event, tauri::RunEvent::Ready) {
             startup.ready(handle);
         }

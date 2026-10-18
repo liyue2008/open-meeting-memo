@@ -18,6 +18,7 @@ use std::{
 use tauri::Manager;
 use uuid::Uuid;
 pub mod capture;
+pub mod children;
 mod close;
 mod lifecycle;
 pub mod recovery;
@@ -52,7 +53,7 @@ pub fn output(name: &str) -> PathBuf {
     root.join(name)
 }
 struct FixtureService {
-    child: std::process::Child,
+    child: children::ManagedChild,
     identity: serde_json::Value,
 }
 
@@ -97,7 +98,7 @@ fn start_fixture_service(app: &tauri::AppHandle<tauri::Wry>, paths: &Paths) -> R
     *app.state::<std::sync::Mutex<Option<FixtureService>>>()
         .lock()
         .unwrap() = Some(FixtureService {
-        child,
+        child: children::ManagedChild::new(child),
         identity: identity.clone(),
     });
     write_private_new(

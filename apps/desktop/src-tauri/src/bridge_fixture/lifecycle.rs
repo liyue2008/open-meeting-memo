@@ -19,6 +19,7 @@ fn trusted(view: &tauri::Webview) -> bool {
             .is_some_and(|w| crate::host::trusted(&w))
 }
 pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Builder<tauri::Wry> {
+    children::core_pending(true);
     let paths = paths.clone();
     let started = Arc::new(AtomicBool::new(false));
     builder.manage(Mutex::new(held::Controller::default())).manage(Bundle::locate().unwrap()).manage(Mutex::<Vec<Value>>::new(vec![])).manage(Mutex::<Option<capture::ChildGuard>>::new(None)).on_page_load(move |view, event| {
@@ -223,9 +224,20 @@ fn finish(
     }
     drop(control);
     let location = paths.runtime_location(&std::env::vars().collect()).unwrap();
-    if runtime::verify_active(&location.path, &paths.state).is_ok() {
-        let _ =
-            tauri::async_runtime::block_on(omm::service::daemon::request(&paths, "shutdown", None));
+    let bundle = app.state::<Bundle>().inner().clone();
+    let mut shutdown_ack = None;
+    if let Ok(owner) = runtime::verify_active(&location.path, &paths.state) {
+        if lifecycle::owned_service(&owner, &bundle).unwrap_or(false)
+            && cli_matches(owner.pid, &bundle)
+        {
+            seen.lock().unwrap().insert(owner.pid, owner);
+            shutdown_ack = Some(
+                tauri::async_runtime::block_on(omm::service::daemon::request(
+                    &paths, "shutdown", None,
+                ))
+                .is_ok(),
+            );
+        }
     }
     let owners: Vec<_> = seen.lock().unwrap().values().cloned().collect();
     for _ in 0..100 {
@@ -236,47 +248,8 @@ fn finish(
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    let mut forced = vec![];
-    let bundle = app.state::<Bundle>().inner().clone();
-    // Failed synthetic runs must not orphan children. Only an exact currently
-    // authenticated CLI identity from this fresh private run may be terminated,
-    // and only after its synthetic recording sentinel has been cleared.
-    for owner in &owners {
-        if runtime::owner_is_live(owner)
-            && runtime::verify_active(&location.path, &paths.state)
-                .is_ok_and(|o| o.instance_id == owner.instance_id && o.pid == owner.pid)
-            && Store::open_read_only(&paths)
-                .and_then(|s| s.state::<Value>("recording"))
-                .is_ok_and(|r| r.is_none())
-            && cli_matches(owner.pid, &bundle)
-        {
-            unsafe {
-                libc::kill(owner.pid, libc::SIGTERM);
-            }
-            for _ in 0..20 {
-                if !runtime::owner_is_live(owner) {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            if runtime::owner_is_live(owner) {
-                unsafe {
-                    libc::kill(owner.pid, libc::SIGKILL);
-                }
-            }
-            for _ in 0..100 {
-                if !runtime::owner_is_live(owner) {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            forced.push(owner.pid);
-        }
-    }
-    if !forced.is_empty() {
-        result["ok"] = json!(false);
-        result["forcedOwnedFailureCleanup"] = json!(forced);
-    }
+    // Core owns its CLI reaper thread. Owner disappearance is not a fixture Child wait receipt.
+    result["coreCliCleanup"] = json!({"shutdownAcknowledged":shutdown_ack,"owners":owners,"fixtureChildWaited":false,"coreWaitResultObserved":false,"reaperSource":"src/application/lifecycle.rs:start -> child.wait","forcedSignals":0});
     let all_exited = owners.iter().all(|o| !runtime::owner_is_live(o));
     let locks_released = profile::offline_lock(&paths).is_ok();
     let socket_removed = !location.path.join("service.sock").exists();
@@ -287,14 +260,13 @@ fn finish(
         .take();
     let helper_receipt = helper.map(|mut helper| {
         let pid = helper.0.id();
-        let exited = helper.0.try_wait().unwrap().is_some();
-        let status = if exited {
-            helper.0.wait().unwrap()
-        } else {
-            helper.0.kill().unwrap();
-            helper.0.wait().unwrap()
-        };
-        json!({"pid":pid,"exitedByServiceQuit":exited,"waited":true,"exitCode":status.code()})
+        let mut status = None;
+        for _ in 0..100 {
+            status = helper.0.try_wait().ok().flatten();
+            if status.is_some() { break; }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        json!({"pid":pid,"exitedByServiceQuit":status.is_some(),"waited":status.is_some(),"exitCode":status.and_then(|s|s.code()),"forcedSignals":0})
     });
     result["capturePeer"] = json!(helper_receipt);
     let cases = app.state::<Mutex<Vec<Value>>>().lock().unwrap().clone();
@@ -319,5 +291,13 @@ fn finish(
         .unwrap(),
     )
     .unwrap();
-    app.exit(if result["ok"] == true { 0 } else { 1 });
+    let safe_to_release = all_exited && locks_released && socket_removed && cleanup.is_ok();
+    if safe_to_release {
+        children::core_pending(false);
+    }
+    if safe_to_release && !children::exit_blocked() {
+        app.exit(if result["ok"] == true { 0 } else { 1 });
+    } else {
+        write_private_new(&output("retained-control.json"), &serde_json::to_vec_pretty(&json!({"hostPid":std::process::id(),"coreOwners":owners,"retainedChildPids":children::retained_ids(),"workspaceRetained":true,"forcedSignals":0,"reason":"normal cleanup incomplete; host retains control; no signals sent"})).unwrap()).unwrap();
+    }
 }

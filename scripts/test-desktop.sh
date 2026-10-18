@@ -10,6 +10,7 @@ if "$wkwebview"; then
   : "${OMM_LIFECYCLE_RESOURCE_APP:?set to a verified release App from the current clean revision for the lifecycle gate}"
 fi
 bash scripts/test-desktop-entrypoints.sh
+python3 packaging/desktop/test_fixture_runner.py
 desktop_dependencies
 (cd apps/desktop && npm run contracts:check && npm run format:check && npm run typecheck && TZ=UTC npm test && TZ=America/Los_Angeles npm test && npm run build)
 cargo fmt --all --check
