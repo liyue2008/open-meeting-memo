@@ -1,0 +1,22 @@
+apps/desktop/src/features/artifacts.tsx
+  h_b4d40596eab523 9,298-299,464
+apps/desktop/src/features/detail.tsx
+  h_b4d40596eab523 8-9,31
+apps/desktop/src/features/meeting-task-activity.ts
+  h_b4d40596eab523 1-39
+apps/desktop/tests/detail-hidden-terminal-polling.test.tsx
+  h_b4d40596eab523 6,26-34,45-47,63-85,90-112,116-133,171-174,204-287
+docs/desktop-acceptance.md
+  h_b4d40596eab523 3,5-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b90268c1d71979832a45911fb58c4cdf7aa223b2",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
