@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { focusManager, useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useBridge } from '../app/context';
 import { clock, dateTime } from '../app/dates';
@@ -7,6 +7,7 @@ import { EditMeeting, Reprocess, RetainMeetings } from './meeting-actions';
 import { Player } from './player';
 import { activeArtifactWork, Artifacts } from './artifacts';
 import { TaskControls, TaskDialog } from './queue';
+const subscribeQueryFocus = (notify: () => void) => focusManager.subscribe(notify);
 export function Detail({
   id,
   back,
@@ -17,6 +18,7 @@ export function Detail({
   openMeeting: (id: string) => void;
 }) {
   const bridge = useBridge();
+  const queryFocused = useSyncExternalStore(subscribeQueryFocus, () => focusManager.isFocused());
   const [dialog, setDialog] = useState<'edit' | 'trash' | 'process' | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [seek, setSeek] = useState<{ time: number; serial: number } | null>(null);
@@ -27,7 +29,7 @@ export function Detail({
     refetchInterval: (query) => {
       if (activeArtifactWork(query.state.data?.meeting.status ?? '')) return 2000;
       // Keep authority current while hidden; terminal details retain ordinary foreground refresh.
-      return focusManager.isFocused() ? 10000 : false;
+      return queryFocused ? 10000 : false;
     },
     refetchIntervalInBackground: true,
   });

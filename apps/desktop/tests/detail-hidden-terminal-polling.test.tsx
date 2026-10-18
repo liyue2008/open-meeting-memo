@@ -165,6 +165,20 @@ describe('Detail and Artifacts authoritative hidden terminal polling', () => {
     await tick(20000);
     expect(f.requests()).toEqual(unmounted);
   });
+  it('resumes ordinary foreground refresh even when shown again before the terminal snapshot becomes stale', async () => {
+    const f = fixture();
+    await tick();
+    fireEvent.click(screen.getByRole('tab', { name: '逐字稿' }));
+    await visible('hidden');
+    f.phase(2);
+    f.status('completed');
+    await tick(2050);
+    expect(screen.getByText('原地终稿正文')).toBeVisible();
+    const terminal = f.requests().meeting_get;
+    await visible('visible');
+    await tick(11000);
+    expect(f.requests().meeting_get).toBeGreaterThan(terminal);
+  });
   it('keeps discovering while unsealed with only terminal history, then stops without losing that selected history', async () => {
     const f = fixture('unsealed', true);
     await tick();
