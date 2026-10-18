@@ -1,0 +1,29 @@
+src/application/recovery.rs
+  s_e6fcf3cda4e1bb::t_31e4562eac33ca 141,143
+tests/desktop_service_recovery.rs
+  s_7ec2c61f29d7b5::t_e48196652c03cc 942-1034
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "22a4cd3bb562e5e15ffe7eb090b904c331a9f01d",
+  "prompts": {},
+  "sessions": {
+    "s_7ec2c61f29d7b5": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14028-f8a3-7513-b88e-a2424c210bbb",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_e6fcf3cda4e1bb": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d6f-1e4a-745b-9d2c-638258fd0d45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
