@@ -1,0 +1,14 @@
+scripts/fixtures/desktop-ui-probe.js
+  h_b4d40596eab523 79-80,308
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e36daada4dd4412115312de21bf3175a506d9a50",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
