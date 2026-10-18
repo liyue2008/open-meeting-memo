@@ -34,9 +34,9 @@
     const button = await wait(name, () => elements('button,a,[role=tab]', root).find(e => !e.disabled && (e.textContent.trim() === name || e.getAttribute('aria-label') === name)));
     check('enabled control: ' + name, !button.disabled); button.scrollIntoView({block:'nearest'}); button.focus({preventScroll:true}); button.click(); await tick(); return button;
   };
-  const label = name => {
-    const wrapper = elements('label').find(e => e.childNodes[0]?.textContent.trim() === name);
-    return wrapper?.querySelector('input,select,textarea') || (wrapper?.htmlFor && document.getElementById(wrapper.htmlFor)) || elements('[aria-label]').find(e => e.getAttribute('aria-label') === name);
+  const label = (name, root = document) => {
+    const wrapper = elements('label', root).find(e => e.childNodes[0]?.textContent.trim() === name);
+    return wrapper?.querySelector('input,select,textarea') || (wrapper?.htmlFor && document.getElementById(wrapper.htmlFor)) || elements('[aria-label]', root).find(e => e.getAttribute('aria-label') === name);
   };
   const change = async (element, value) => {
     check('input exists: ' + value, !!element);
@@ -84,9 +84,19 @@
     views.push({ name, width: innerWidth, height: innerHeight, titlebarInset, overflow, theme: document.documentElement.dataset.mantineColorScheme, sidebar: document.documentElement.dataset.sidebar, body: text().slice(0, 12000) });
   };
   const openAdvanced = async () => {
-    const control = await wait('actual advanced Accordion control', () => elements('button[aria-expanded]').find(e => e.textContent.trim().startsWith('高级筛选与数据说明')));
+    const findControl = () => elements('button[aria-expanded]').find(e => e.isConnected && !e.disabled && e.textContent.trim().startsWith('高级筛选与数据说明'));
+    const control = await wait('actual advanced Accordion control', findControl);
     if (control.getAttribute('aria-expanded') !== 'true') { control.scrollIntoView({block:'nearest'}); control.click(); }
-    await wait('actual advanced Accordion expanded', () => control.getAttribute('aria-expanded') === 'true' && label('排序'));
+    await wait('actual advanced Accordion expanded', () => {
+      // React can replace a control after activation; never assert on its detached predecessor.
+      const current = findControl();
+      const panelId = current?.getAttribute('aria-controls');
+      const panel = panelId && document.getElementById(panelId);
+      const sort = panel && label('排序', panel);
+      return current?.getAttribute('aria-expanded') === 'true' && panel?.isConnected &&
+        panel.getAttribute('role') === 'region' && panel.getAttribute('aria-labelledby') === current.id &&
+        sort?.isConnected && panel.contains(sort) && visible(sort) && !sort.matches(':disabled') && sort;
+    });
   };
   const modalCheckpoint = async name => {
     // Async file inspection changes enabled controls; test the settled modal's boundary set.
