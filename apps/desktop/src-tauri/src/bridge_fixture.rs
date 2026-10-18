@@ -277,7 +277,9 @@ fn seed_archives(
     store.seal_segmented(meeting).unwrap();
     let aggregate = store.claim_ready_aggregate(250, 10000).unwrap().unwrap();
     let transcript = store.partial_transcript(meeting.session_id).unwrap();
-    store.commit_transcript(&aggregate, &transcript, 251).unwrap();
+    store
+        .commit_transcript(&aggregate, &transcript, 251)
+        .unwrap();
     let claim = store.claim_summary(300, 10000).unwrap().unwrap();
     store
         .commit_summary(
