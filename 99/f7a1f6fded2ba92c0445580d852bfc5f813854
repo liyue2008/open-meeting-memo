@@ -1,0 +1,37 @@
+apps/desktop/src-tauri/src/bridge_fixture.rs
+  s_229b1f979a836b::t_f1341560562858 21,56,101
+apps/desktop/src-tauri/src/bridge_fixture/capture.rs
+  s_229b1f979a836b::t_2a200d6f5cc98e 11,15-18,37
+apps/desktop/src-tauri/src/bridge_fixture/children.rs
+  s_229b1f979a836b::t_e1f5631da639cc 1-144
+apps/desktop/src-tauri/src/bridge_fixture/lifecycle.rs
+  s_229b1f979a836b::t_bc786d63c90f66 22,227-240,251-252,263-269,294-302
+apps/desktop/src-tauri/src/lib.rs
+  s_e6fcf3cda4e1bb::t_c799e743f6a5ec 390-396
+packaging/desktop/test-wkwebview.sh
+  s_e6fcf3cda4e1bb::t_243c1c1e696733 2,5,8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "99f7a1f6fded2ba92c0445580d852bfc5f813854",
+  "prompts": {},
+  "sessions": {
+    "s_229b1f979a836b": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d30-4c5d-77ae-90c2-a242611d76ff",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_e6fcf3cda4e1bb": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d6f-1e4a-745b-9d2c-638258fd0d45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
