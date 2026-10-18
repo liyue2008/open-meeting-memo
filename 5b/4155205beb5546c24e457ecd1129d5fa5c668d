@@ -1,0 +1,16 @@
+apps/desktop/src-tauri/fixtures/fake-worker.sh
+  h_b4d40596eab523 2-91
+tests/desktop_fixture_worker.rs
+  h_b4d40596eab523 1-328
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5b4155205beb5546c24e457ecd1129d5fa5c668d",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
