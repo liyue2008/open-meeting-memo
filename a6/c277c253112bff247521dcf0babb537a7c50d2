@@ -1,0 +1,29 @@
+AGENTS.md
+  s_7ec2c61f29d7b5::t_552f1be39f44c9 9
+README.md
+  s_7ec2c61f29d7b5::t_bb40dfa0d3186b 9-10
+docs/desktop.md
+  s_7ec2c61f29d7b5::t_8bf71b99bcbd45 52,54,58
+docs/install.md
+  s_7ec2c61f29d7b5::t_e5c5093a5812fe 37
+scripts/fixtures/desktop-archive-media-probe.js
+  s_7ec2c61f29d7b5::t_bb59fb44ecc6ba 51,65-72
+scripts/fixtures/desktop-service-player-probe.js
+  s_7ec2c61f29d7b5::t_bba72c6a2fcf39 19-20,22-40,42-45,54-56,61,64,67,76,80,82-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a6c277c253112bff247521dcf0babb537a7c50d2",
+  "prompts": {},
+  "sessions": {
+    "s_7ec2c61f29d7b5": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14028-f8a3-7513-b88e-a2424c210bbb",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
