@@ -38,15 +38,22 @@ export function TaskControls({ task }: { task: TaskRow }) {
       >
         重新入队
       </button>
-      <button disabled={!task.canCancel || action.busy} onClick={() => setCancel(true)}>
+      <button
+        disabled={!task.canCancel || action.busy}
+        onClick={() => {
+          action.clearError();
+          setCancel(true);
+        }}
+      >
         取消任务
       </button>
-      {!!action.error && <ErrorNotice error={action.error} />}
+      {!!action.error && !cancel && <ErrorNotice error={action.error} />}
       {cancel && (
         <Modal title="取消处理任务" close={() => setCancel(false)} busy={action.busy}>
           <p>
             保留已经提交的产物。运行中的任务需等待已拥有的子进程退出后才会完成取消；关闭此界面不会撤回取消意图。
           </p>
+          {!!action.error && <ErrorNotice error={action.error} />}
           <div className="modal-actions">
             <button disabled={action.busy} onClick={() => setCancel(false)}>
               继续处理

@@ -33,7 +33,8 @@ export const SOURCES = {
 export function ErrorNotice({ error, retry }: { error: unknown; retry?: () => void }) {
   return (
     <div role="alert" className="notice error">
-      {errorText(error)} {retry && <button onClick={retry}>重试读取</button>}
+      <span className="notice-copy">{errorText(error)}</span>
+      {retry && <button onClick={retry}>重试读取</button>}
     </div>
   );
 }
@@ -64,7 +65,7 @@ export function Heading({
 }) {
   return (
     <div className="page-heading">
-      <div>
+      <div className="heading-copy">
         <div className="eyebrow">OPEN MEETING MEMO</div>
         <h1>{title}</h1>
         {text && <p>{text}</p>}

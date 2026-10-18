@@ -12,17 +12,23 @@ export function segmentAt(segments: MediaSegment[], position: number): MediaSegm
     ) ?? segments.find((s) => s.available && position === s.offsetMs + s.durationMs)
   );
 }
-export function Player({
-  meetingId,
-  seek,
-}: {
+type PlayerProps = {
   meetingId: string;
   seek: { time: number; serial: number } | null;
-}) {
+};
+export function Player(props: PlayerProps) {
+  return <MeetingPlayer key={props.meetingId} {...props} />;
+}
+function releaseMedia(element: HTMLAudioElement) {
+  element.pause();
+  element.removeAttribute('src');
+  element.load();
+}
+function MeetingPlayer({ meetingId, seek }: PlayerProps) {
   const bridge = useBridge();
   const audio = useRef<HTMLAudioElement>(null);
   const [segment, setSegment] = useState<MediaSegment | null>(null);
-  const [url, setUrl] = useState('');
+  const [source, setSource] = useState<{ key: string; url: string } | null>(null);
   const [position, setPosition] = useState(0);
   const [rate, setRate] = useState(1);
   const [error, setError] = useState<unknown>(null);
@@ -30,6 +36,7 @@ export function Player({
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const pendingSeek = useRef(0);
+  const pendingPlay = useRef<HTMLAudioElement | null>(null);
   const [reload, setReload] = useState(0);
   const manifest = useInfiniteQuery({
     queryKey: ['media_manifest', meetingId],
@@ -41,6 +48,8 @@ export function Player({
   const segments = manifest.data?.pages.flatMap((p) => p.segments) ?? [];
   const revision = manifest.data?.pages[0]?.revision;
   const duration = manifest.data?.pages[0]?.durationMs ?? 0;
+  const sourceKey = `${segment?.segmentId}:${revision}:${reload}`;
+  const url = source?.key === sourceKey ? source.url : '';
   function locate(time: number) {
     const bounded = Math.max(0, Math.min(duration, time));
     const target = segmentAt(segments, bounded);
@@ -76,7 +85,9 @@ export function Player({
     if (!segment || !revision) return;
     let disposed = false;
     let grantId: string | null = null;
-    setUrl('');
+    // Capture this source's element: cleanup must never clear its replacement.
+    const element = audio.current;
+    setSource(null);
     setReady(false);
     setPlaying(false);
     setOpening(true);
@@ -89,7 +100,7 @@ export function Player({
           void bridge.call('media_close', { grantId }).catch(() => undefined);
           return;
         }
-        setUrl(grant.url);
+        setSource({ key: sourceKey, url: grant.url });
         setOpening(false);
       })
       .catch((e) => {
@@ -100,6 +111,8 @@ export function Player({
       });
     return () => {
       disposed = true;
+      // Closing a grant cannot revoke bytes already buffered by WebKit.
+      if (element) releaseMedia(element);
       if (grantId) void bridge.call('media_close', { grantId }).catch(() => undefined);
     };
   }, [bridge, meetingId, segment?.segmentId, revision, reload]);
@@ -114,11 +127,24 @@ export function Player({
       element.pause();
       return;
     }
-    const source = element.src;
+    if (pendingPlay.current === element) return;
+    const source = element.getAttribute('src');
+    const isCurrent = () => audio.current === element && element.getAttribute('src') === source;
+    pendingPlay.current = element;
     // Only this explicit user action requests playback; locating/reopening never does.
-    void element.play().catch((failure: unknown) => {
-      if (audio.current === element && element.src === source) setError(failure);
-    });
+    void element
+      .play()
+      .then(
+        () => {
+          if (!isCurrent()) releaseMedia(element);
+        },
+        (failure: unknown) => {
+          if (isCurrent()) setError(failure);
+        },
+      )
+      .finally(() => {
+        if (pendingPlay.current === element) pendingPlay.current = null;
+      });
   }
   if (manifest.isPending)
     return (
@@ -143,6 +169,7 @@ export function Player({
       {segments.length > 0 && (
         <>
           <audio
+            key={sourceKey}
             ref={audio}
             id="meeting-recording-audio"
             controls

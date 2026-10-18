@@ -48,8 +48,8 @@ export function Notices({ children }: { children: ReactNode }) {
     <NoticeContext.Provider value={setNotice}>
       {children}
       {notice && (
-        <div id="toast" role="status">
-          {notice}{' '}
+        <div id="toast" className="visible" role="status" aria-live="polite" aria-atomic="true">
+          <span className="notice-copy">{notice}</span>
           <button aria-label="关闭提示" onClick={() => setNotice('')}>
             ×
           </button>

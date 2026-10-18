@@ -206,14 +206,21 @@ describe('Detail source artifacts and paused segmented media through typed bridg
     expect(audio.currentTime).toBe(10);
     fireEvent.change(screen.getByLabelText('会议时间定位'), { target: { value: '35000' } });
     await waitFor(() =>
-      expect(audio).toHaveAttribute('src', 'omm-media://localhost/fixture_media_grant_000002'),
+      expect(screen.getByLabelText('录音播放控件')).toHaveAttribute(
+        'src',
+        'omm-media://localhost/fixture_media_grant_000002',
+      ),
     );
-    fireEvent.loadedMetadata(audio);
-    expect(audio.currentTime).toBe(5);
+    const nextAudio = screen.getByLabelText('录音播放控件') as HTMLAudioElement;
+    expect(nextAudio).not.toBe(audio);
+    expect(audio).not.toHaveAttribute('src');
+    Object.defineProperty(nextAudio, 'duration', { configurable: true, value: 20 });
+    fireEvent.loadedMetadata(nextAudio);
+    expect(nextAudio.currentTime).toBe(5);
     expect(pause).toHaveBeenCalled();
     expect(play).not.toHaveBeenCalled();
     await userEvent.selectOptions(screen.getByLabelText('速度'), '1.5');
-    expect(audio.playbackRate).toBe(1.5);
+    expect(nextAudio.playbackRate).toBe(1.5);
     unmount();
     await waitFor(() =>
       expect(fake.calls.filter((c) => c.command === 'media_close')).toHaveLength(2),
