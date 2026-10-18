@@ -56,7 +56,7 @@ const js = assets
   .join('\n');
 fs.writeFileSync(
   path.join(out, 'inline.html'),
-  `<!doctype html><meta charset="utf-8"><style>${css}</style><div id="root"></div><script>window.__samples=${JSON.stringify(samples)};window.__stateSweep=${['--states', '--validation', '--dialogs'].includes(process.argv[3])};window.__validationOnly=${process.argv[3] === '--validation'};window.__dialogsOnly=${process.argv[3] === '--dialogs'};window.__diagnosticsOnly=${process.argv[3] === '--diagnostics'};</script><script type="module">${js.replaceAll('</script', '<\\/script')}</script>`,
+  `<!doctype html><meta charset="utf-8"><style>${css}</style><div id="root"></div><script>window.__samples=${JSON.stringify(samples)};window.__stateSweep=${['--states', '--validation', '--dialogs', '--recovery'].includes(process.argv[3])};window.__validationOnly=${process.argv[3] === '--validation'};window.__dialogsOnly=${process.argv[3] === '--dialogs'};window.__diagnosticsOnly=${process.argv[3] === '--diagnostics'};window.__recoveryOnly=${process.argv[3] === '--recovery'};</script><script type="module">${js.replaceAll('</script', '<\\/script')}</script>`,
 );
 fs.copyFileSync(path.join(here, 'driver.js'), path.join(out, 'driver.js'));
 fs.copyFileSync(path.join(here, 'host.swift'), path.join(out, 'host.swift'));
@@ -154,6 +154,6 @@ if (
   failures.length ||
   !host.stdout.includes('persistent=false;') ||
   results.find((r) => r.name === 'summary')?.combinationsCompleted !==
-    (['--states', '--validation', '--dialogs'].includes(process.argv[3]) ? 2 : 8)
+    (['--states', '--validation', '--dialogs', '--recovery'].includes(process.argv[3]) ? 2 : 8)
 )
   process.exitCode = 1;

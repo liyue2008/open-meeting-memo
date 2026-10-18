@@ -60,7 +60,7 @@
       (e) => visible(e) && !e.disabled,
     );
     const obscuredControls = [];
-    if (window.__validationOnly)
+    if (window.__validationOnly || window.__recoveryOnly)
       for (const control of controls.filter((e) => !ignored(e))) {
         control.scrollIntoView({ block: 'center' });
         control.focus();
@@ -74,6 +74,9 @@
     const last = controls.at(-1);
     if (dialog) dialog.scrollTop = dialog.scrollHeight;
     else window.scrollTo(0, document.documentElement.scrollHeight);
+    const scrolledToBottom = dialog
+      ? dialog.scrollHeight - dialog.clientHeight - dialog.scrollTop <= 1
+      : document.documentElement.scrollHeight - innerHeight - window.scrollY <= 1;
     last?.scrollIntoView({ block: 'center' });
     last?.focus();
     await sleep(30);
@@ -92,7 +95,8 @@
           )
         : 0;
     window.scrollTo(0, initialScrollY);
-    if (dialog) dialog.scrollTop = initialDialogScroll;
+    if (dialog && !(window.__recoveryOnly && name.endsWith('external_unload_required')))
+      dialog.scrollTop = initialDialogScroll;
     await send({
       name,
       capture,
@@ -103,6 +107,13 @@
       outside,
       controlCount: controls.length,
       lastControlInView,
+      scrolledToBottom,
+      guidanceLength:
+        root.querySelector('textarea[aria-label="原生端人工处理指导"]')?.value.length || 0,
+      guidanceScrolledToBottom: (() => {
+        const field = root.querySelector('textarea[aria-label="原生端人工处理指导"]');
+        return !field || field.scrollHeight - field.clientHeight - field.scrollTop <= 1;
+      })(),
       focusInsideDialog: !dialog || dialog.contains(document.activeElement),
       dialogCount: document.querySelectorAll('dialog[open]').length,
       toastOpacity: toast ? getComputedStyle(toast).opacity : null,
@@ -159,6 +170,112 @@
         localStorage.setItem('omm.theme', theme);
         localStorage.setItem('omm.sidebar', sidebar);
         const prefix = `${width}-${height}-${theme}-${sidebar}-states`;
+        if (window.__recoveryOnly) {
+          const guidance =
+            'Verify the original OMM tool and current-user job; complete work, use the verified original CLI service stop and wait; manually verify identity then /bin/launchctl bootout gui/501/org.openmeetingmemo.service. Keep the disk plist, recordings and configuration; do not use service uninstall. Return to inspect Switch, adopt stopped, then separately Start. ' +
+            'SYNTHETIC-LONG-GUIDANCE '.repeat(24);
+          const recovery = {
+            state: 'unknown',
+            canApply: false,
+            planToken: null,
+            expiresAtMs: null,
+            effects: ['No control of unverified processes; no files changed'],
+            guidance,
+          };
+          window.__scenario = {
+            recordPrefs: { state: 'unknown', autoRecord: null, recordingConsent: null },
+            configPrefs: { initialized: true, autoRecord: null, recordingConsent: null },
+          };
+          await remount('normal');
+          await click('设置');
+          await measure(`${prefix}-recovery-unknown-preferences`, true);
+          if (
+            document.querySelector('.recording-bar').textContent.includes('当前未录音') ||
+            document.querySelector('.settings-summary').textContent.includes('自动录音：关')
+          )
+            throw new Error('Unknown preference presented as false');
+          for (const reason of [
+            'profile_requires_takeover',
+            'external_stop_required',
+            'external_unload_required',
+            'registration_review_required',
+            'incompatible_schema',
+          ]) {
+            window.__scenario = { recoveryPlan: { ...recovery, reasons: [reason] } };
+            await remount('normal');
+            await click('状态与诊断');
+            await click('安全切换服务版本');
+            const field = document.querySelector('dialog[open] textarea');
+            if (!field || field.value !== guidance)
+              throw new Error('Missing exact native guidance');
+            field.scrollTop = field.scrollHeight;
+            field.focus();
+            field.select();
+            await click('复制人工处理指导');
+            if (window.__copiedGuidance !== guidance) throw new Error('Guidance copy differs');
+            if (!find('确认安全切换').disabled) throw new Error('Unsafe confirmation enabled');
+            await measure(`${prefix}-recovery-${reason}`, true);
+          }
+          window.__adopted = false;
+          window.__scenario = {
+            adoption: true,
+            recoveryPlan: {
+              state: 'stopped',
+              reasons: ['profile_requires_takeover'],
+              effects: ['Keep configuration, consent and database bytes unchanged; do not start'],
+              guidance: 'Adopt only. Explicit Start is a separate confirmation.',
+            },
+          };
+          await remount('normal');
+          await click('状态与诊断');
+          await click('安全切换服务版本');
+          await measure(`${prefix}-recovery-adopt-confirm`, true);
+          await click('确认采用（不启动）');
+          await sleep(100);
+          await measure(`${prefix}-recovery-adopted-stopped`, true);
+          if (!document.getElementById('toast')?.textContent.includes('服务仍已停止'))
+            throw new Error('Adoption claimed running');
+          window.__scenario.failedCommands = ['service_apply'];
+          await click('启动后台服务');
+          await click('确认启动');
+          await sleep(100);
+          await measure(`${prefix}-recovery-start-failure`, true);
+          if (!document.querySelector('dialog[open] [role=alert]') || !find('确认启动').disabled)
+            throw new Error('Start failure not visible or plan reused');
+          window.__scenario.failedCommands = ['service_plan'];
+          await click('重新检查计划');
+          await measure(`${prefix}-recovery-recheck-failure`, true);
+          window.__scenario.failedCommands = [];
+          await click('重新检查计划');
+          await measure(`${prefix}-recovery-start-retry`, true);
+          await click('确认启动');
+          await measure(`${prefix}-recovery-started`, true);
+          window.__scenario = {
+            expired: true,
+            recoveryPlan: {
+              state: 'stopped',
+              reasons: ['ready'],
+              canApply: true,
+              effects: [],
+              guidance: null,
+            },
+          };
+          await remount('normal');
+          await click('状态与诊断');
+          await click('启动后台服务');
+          await measure(`${prefix}-recovery-expired`, true);
+          if (
+            !find('确认启动').disabled ||
+            !document.querySelector('dialog[open]').textContent.includes('计划已过期')
+          )
+            throw new Error('Expired plan lacks feedback');
+          window.__scenario = { failedCommands: ['record_status', 'config_get'] };
+          await remount('normal');
+          await click('设置');
+          await measure(`${prefix}-recovery-read-failure`, true);
+          serial++;
+          continue;
+        }
         if (window.__dialogsOnly) {
           window.__scenario = { readOnly: true, recordState: 'unknown' };
           await remount('normal');

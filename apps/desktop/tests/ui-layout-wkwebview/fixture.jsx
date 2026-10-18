@@ -9,6 +9,15 @@ const token = 'LONGTOKEN'.repeat(20);
 window.__mode = 'normal';
 window.__calls = [];
 window.__playCalls = 0;
+window.__copiedGuidance = '';
+Object.defineProperty(navigator, 'clipboard', {
+  configurable: true,
+  value: {
+    writeText: async (text) => {
+      window.__copiedGuidance = text;
+    },
+  },
+});
 window.__pending = [];
 window.__invalidResponses = [];
 HTMLMediaElement.prototype.play = function () {
@@ -270,6 +279,26 @@ const checkedBridge = createBridge(async (command, { request }) => {
     data.fieldErrors = Object.keys(samples.config_get.values)
       .slice(0, scenario.invalidConfigCount || 1)
       .map((field) => ({ field, message: token }));
+  }
+  if (scenario.recordPrefs && command === 'record_status')
+    Object.assign(data, scenario.recordPrefs);
+  if (scenario.configPrefs && command === 'config_get') Object.assign(data, scenario.configPrefs);
+  if (scenario.recoveryPlan && command === 'service_plan') {
+    Object.assign(data, scenario.recoveryPlan, { action: request.payload.action });
+    if (scenario.expired) data.expiresAtMs = Date.now() - 1;
+    if (scenario.adoption) {
+      data.canApply = window.__adopted || request.payload.action === 'switch';
+      if (window.__adopted) {
+        data.reasons = ['ready'];
+        data.effects = ['Start verified bundled service using unchanged saved preferences'];
+        data.guidance = null;
+      }
+    }
+  }
+  if (scenario.adoption && command === 'service_apply') {
+    data.action = window.__adopted ? 'start' : 'switch';
+    data.state = window.__adopted ? 'running' : 'stopped';
+    window.__adopted = true;
   }
   const response = { schemaVersion: 1, requestId: request.requestId, data };
   if (!validators[command + '_response'](response)) window.__invalidResponses.push(command);

@@ -1,6 +1,6 @@
 # 桌面播放器与布局修复（前端阶段）
 
-基线：`99887e848c0298d1c928dcf9bb94caa2a17910e5`。本阶段只改前端与前端测试；服务恢复等待原生端冻结接口。没有安装、发布、操作个人服务或播放硬件音频。
+基线：`99887e848c0298d1c928dcf9bb94caa2a17910e5`。业务修改仅限前端与前端测试；服务恢复已接入经批准的冻结契约依赖，没有修改原生恢复行为。没有安装、发布、操作个人服务或播放硬件音频。
 
 ## 修复
 
@@ -14,6 +14,8 @@
 
 `apps/desktop/tests/player-lifecycle.test.tsx`、`ui-layout.test.tsx`、`queue-dialog-layout.test.tsx` 均先记录失败再修复；完整前端测试 19 文件 / 137 条通过。严格类型、格式、生成校验器一致性、依赖许可证清单检查和前端构建均通过。
 
+服务界面追加回归先在旧界面记录 6 条失败，再修复；最终全部前端测试为 21 文件 / 149 条通过。新增服务响应逐条通过冻结校验器，未知原因、字符串形态的偏好和对象形态的人工指导仍被拒绝。
+
 私有 WKWebView 夹具在 `apps/desktop/tests/ui-layout-wkwebview/`：复制当前 React，使用严格生产接口校验器和合成传输，清空继承环境、独立 HOME/XDG，实际检查数据存储 `isPersistent=false`，自有进程正常退出并等待。绝不连接生产 Tauri 传输；媒体 `play()` 被拦截，所有运行调用数为零。
 
 ```sh
@@ -24,6 +26,7 @@ node tests/ui-layout-wkwebview/run.mjs /private/tmp/omm-ui-states-UNIQUE --state
 node tests/ui-layout-wkwebview/run.mjs /private/tmp/omm-ui-validation-UNIQUE --validation
 node tests/ui-layout-wkwebview/run.mjs /private/tmp/omm-ui-dialogs-UNIQUE --dialogs
 node tests/ui-layout-wkwebview/run.mjs /private/tmp/omm-ui-diagnostics-UNIQUE --diagnostics
+node tests/ui-layout-wkwebview/run.mjs /private/tmp/omm-ui-recovery-UNIQUE --recovery
 ```
 
 | 范围 | 实际覆盖 |
@@ -38,8 +41,16 @@ node tests/ui-layout-wkwebview/run.mjs /private/tmp/omm-ui-diagnostics-UNIQUE --
 
 证据：`/private/tmp/omm-ui-fixes-VUGaix`，含 red/green 日志、逐步 DOM 边界与按钮/焦点记录、截图、每轮来源 SHA-256 和等待回执。截图是实际非持久 WKWebView 的组件证据，**不是 Tauri 生产窗口/媒体协议验收**。焦点记录包括滚动后可达与弹窗内焦点，不冒充完整真人键盘遍历。
 
+## 服务恢复界面
+
+- 区分“资料库待显式采用”和真实资料库版本不兼容；录音未知不显示未录音。已保存的自动录音偏好与录音同意允许未知；读取失败或未知时不当作关闭、未同意或已保存默认配置，相应操作禁用并解释原因。已知偏好和未知服务分开显示。
+- 受支持的停机旧登记采用：确认框明确仅采用资料库、更新停机登记，**不启动**；成功仍显示已停止，下一步另点启动。启动失败不声称运行，当前弹窗显示错误，需重新检查后重试。可信现代服务原有安全切换语义保留。
+- 原生端的实际影响和人工指导按纯文本显示、可选择或复制；不会自动运行命令。无法验证的旧服务需人工核实属于本软件且工作完成，再用确认过的原命令行程序正常停止并等待；人工核查后仅卸载当前用户域已加载的服务任务，**保留磁盘 plist 登记文件、录音与配置**。不建议会删除恢复所需登记文件的 `service uninstall`。
+- 不改既有自动录音偏好或同意；启动后服务按原设置运行，可能自动录音。到期、重复确认、重新检查、复制失败均有当前上下文反馈。
+- 新增服务代表夹具：800×600 浅色侧栏展开、1280×820 深色侧栏收起，覆盖 14 类服务/配置状态，各一张截图；29 条记录（含无播放收尾）无页面出界，弹窗可滚到底，启用控件逐个命中检查、指导全文复制使用夹具剪贴板。原 744 点全矩阵未重复执行。
+
 ## 未闭合
 
 - 用户听到回声的真正原因仍未证实；本次修复已确认的退出清理和并发生命周期缺口，没有改混音或录音内核，没有读取/试听个人录音。
-- 原生服务恢复接口尚未接入。旧登记即使 PID 为零，只要仍被系统加载，也不由 App 卸载；需提示用户用原工具正常停止并移除旧自启登记、保留资料后重新检查。只有明确未加载且支持的停机登记可采用，采用成功为 stopped，用户另点启动；等待原生冻结字段与机器原因。
+- 本树仅采用冻结契约依赖，没有采用原生业务提交；完整服务恢复与真实 Tauri 传输需要整合后继续验证。旧登记即使没有进程，只要仍被系统加载也不由 App 卸载；只有明确未加载且受支持的停机登记才允许采用。
 - 未运行本轮真实 Tauri 生产协议/窗口路径、真实媒体播放、硬件/权限/通知/模型；正式独立评审另行进行。

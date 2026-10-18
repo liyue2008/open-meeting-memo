@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BridgeFailure, errorText, type Bridge } from '../bridge/client';
-import type { Capability, WriteAdmission } from '../contracts.generated';
+import type { BridgeError, Capability, WriteAdmission } from '../contracts.generated';
 export const BridgeContext = createContext<Bridge | null>(null);
 export function useBridge() {
   const bridge = useContext(BridgeContext);
@@ -15,6 +15,14 @@ export function useInfo() {
     queryFn: ({ signal }) => bridge.call('desktop_info', {}, signal),
     refetchInterval: 10000,
   });
+}
+export function compatibilityReasonText(reason: BridgeError['reason']): string {
+  if (reason === 'profile_requires_takeover')
+    return '资料库尚待显式采用；缺少桌面所有者记录不是已证实的数据库版本不兼容。';
+  if (reason === 'incompatible_schema')
+    return '实际资料库或所有者版本不受支持；保留现有文件，不初始化覆盖。';
+  if (reason === 'incompatible_service') return '当前服务版本或归属不能验证；不能控制未知旧服务。';
+  return '尚未获得写入授权；请核查服务状态与原生人工指导。';
 }
 export function useAdmission() {
   const info = useInfo();
@@ -32,7 +40,7 @@ export function useAdmission() {
         throw new BridgeFailure({
           code: 'unavailable',
           reason: c.reason,
-          message: '当前服务或资料库不允许此操作，请查看状态与诊断。',
+          message: `当前服务或资料库不允许此操作。${compatibilityReasonText(c.reason)}`,
           retryable: false,
           fieldErrors: [],
         });

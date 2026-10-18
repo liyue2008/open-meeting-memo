@@ -336,9 +336,16 @@ export function RecordingBar() {
     refetchInterval: 10000,
   });
   if (status.error)
-    return <div className="notice">无法读取录音状态；请查看诊断。不会自动启动录音。</div>;
-  if (!status.data) return null;
+    return (
+      <div className="notice" role="status">
+        录音状态与已保存的自动录音偏好未知，不能更改。
+        <ErrorNotice error={status.error} retry={() => void status.refetch()} />
+      </div>
+    );
+  if (!status.data) return <div role="status">正在读取录音状态；已保存的自动录音偏好未知。</div>;
   const data = status.data;
+  const autoBlocked =
+    data.autoRecord === null || data.recordingConsent === null || !data.compatibility.writesAllowed;
   return (
     <div className="recording-bar">
       <span>
@@ -349,7 +356,9 @@ export function RecordingBar() {
             : data.state === 'unknown'
               ? '录音状态未知'
               : '当前未录音'}{' '}
-        · 自动录音{data.autoRecord ? '已启用' : '已关闭'}
+        · 已保存的自动录音偏好：
+        {data.autoRecord === null ? '未知' : data.autoRecord ? '已启用' : '已关闭'} · 录音同意：
+        {data.recordingConsent === null ? '未知' : data.recordingConsent ? '已确认' : '未确认'}
       </span>
       <div className="button-row">
         {data.state === 'recording' && (
@@ -369,7 +378,7 @@ export function RecordingBar() {
           </button>
         )}
         <button
-          disabled={action.busy || !data.compatibility.writesAllowed}
+          disabled={action.busy || autoBlocked}
           onClick={() => {
             if (data.autoRecord)
               void action.run(async () => {
@@ -379,17 +388,35 @@ export function RecordingBar() {
                   confirmRecordingConsent: false,
                 });
                 if (result.error) throw new Error(result.error.message);
-                if (result.autoRecord) throw new Error('自动录音尚未关闭，请查看诊断。');
+                if (result.autoRecord !== false) throw new Error('自动录音尚未关闭，请查看诊断。');
                 return '自动录音已关闭';
               });
             else setConfirmAuto(true);
           }}
         >
-          {data.autoRecord ? '关闭自动录音' : '启用自动录音'}
+          {data.autoRecord === null
+            ? '自动录音偏好未知'
+            : data.autoRecord
+              ? '关闭自动录音'
+              : '启用自动录音'}
         </button>
       </div>
+      {(data.autoRecord === null ||
+        data.recordingConsent === null ||
+        !data.compatibility.writesAllowed) && (
+        <p role="status">
+          当前不能更改：
+          {data.autoRecord === null || data.recordingConsent === null
+            ? '已保存的偏好或同意尚未确认，请重新读取。'
+            : '当前服务未授权写入，保留既有偏好。'}
+        </p>
+      )}
+      {!!action.error && !confirmAuto && <ErrorNotice error={action.error} />}
       {confirmAuto && (
         <Modal title="启用自动录音" close={() => setConfirmAuto(false)} busy={action.busy}>
+          {(autoBlocked || data.autoRecord !== false) && (
+            <p role="status">不能确认：偏好、同意或写入授权已变化或未知，请关闭后重新读取。</p>
+          )}
           <p>
             只有飞书强信号确认参会后才会自动录音。请确认所有参与者同意；系统声音可能包含其他应用音频。
           </p>
@@ -398,7 +425,7 @@ export function RecordingBar() {
               返回
             </button>
             <button
-              disabled={action.busy}
+              disabled={action.busy || autoBlocked || data.autoRecord !== false}
               onClick={() =>
                 void action.run(async () => {
                   const result = await bridge.call('record_auto_set', {
@@ -407,7 +434,7 @@ export function RecordingBar() {
                     confirmRecordingConsent: true,
                   });
                   if (result.error) throw new Error(result.error.message);
-                  if (!result.autoRecord) throw new Error('自动录音尚未启用，请查看诊断。');
+                  if (result.autoRecord !== true) throw new Error('自动录音尚未启用，请查看诊断。');
                   setConfirmAuto(false);
                   return '自动录音已启用';
                 })

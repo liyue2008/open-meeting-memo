@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { useAction, useBridge, useInfo } from '../app/context';
+import { compatibilityReasonText, useAction, useBridge, useInfo } from '../app/context';
 import { dateTime } from '../app/dates';
 import { ErrorNotice, Heading, Loading } from '../components/ui';
 import { ServiceLifecycle } from './lifecycle';
@@ -89,7 +89,7 @@ export function DiagnosticsPage() {
         </dl>
         {compatibility && !compatibility.writesAllowed && (
           <div className="notice">
-            当前只读：{compatibility.reason ?? '服务没有授权写入'}
+            当前只读：{compatibilityReasonText(compatibility.reason)}
             。保留既有资料；请按下方诊断建议检查服务版本。不会自动迁移或重启旧服务。
           </div>
         )}

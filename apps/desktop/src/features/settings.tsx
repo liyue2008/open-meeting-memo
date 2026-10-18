@@ -128,6 +128,7 @@ function SettingsForm({ initial, register }: { initial: ConfigSnapshot; register
   const admission = useAdmission();
   const action = useAction();
   const [base, setBase] = useState(initial);
+  const known = base.initialized && base.autoRecord !== null && base.recordingConsent !== null;
   const [draft, setDraft] = useState(() => configDraft(initial.values));
   const [validation, setValidation] = useState<ConfigValidation | null>(null);
   const [validationError, setValidationError] = useState<unknown>(null);
@@ -188,6 +189,7 @@ function SettingsForm({ initial, register }: { initial: ConfigSnapshot; register
     return action.run(async () => {
       if (!base.initialized)
         throw new Error('资料库尚未初始化。请先到“状态与诊断”明确完成首次设置。');
+      if (!known) throw new Error('已保存的配置与偏好尚未确认；请重新读取配置，不能保存推测值。');
       const check = await bridge.call('config_validate', { patch });
       setValidation(check);
       if (!check.valid) throw new Error('配置校验未通过，请修正标注的字段。');
@@ -215,11 +217,24 @@ function SettingsForm({ initial, register }: { initial: ConfigSnapshot; register
           </p>
         )}
         <p>
-          自动录音：{base.autoRecord ? '开' : '关'} · 录音同意：
-          {base.recordingConsent ? '已确认' : '未确认'}（通过顶部录音入口显式更改）
+          自动录音：{base.autoRecord === null ? '未知' : base.autoRecord ? '开' : '关'} · 录音同意：
+          {base.recordingConsent === null ? '未知' : base.recordingConsent ? '已确认' : '未确认'}
+          （通过顶部录音入口显式更改）
         </p>
+        {base.initialized && !known && (
+          <p className="notice">
+            配置保存状态未能确认；下方值不能视为已保存配置，暂不可编辑或保存。请重新读取配置。
+          </p>
+        )}
         <p>
-          模型版本：{base.modelVersion} · {base.structurallyComplete ? '结构完整' : '配置不完整'}
+          {known ? (
+            <>
+              模型版本：{base.modelVersion} ·{' '}
+              {base.structurallyComplete ? '结构完整' : '配置不完整'}
+            </>
+          ) : (
+            '模型与配置结构状态未知'
+          )}
         </p>
         {base.warnings.map((w, i) => (
           <p className="notice" key={i}>
@@ -236,7 +251,7 @@ function SettingsForm({ initial, register }: { initial: ConfigSnapshot; register
       >
         <div className="settings-grid">
           {groups.map((group) => (
-            <fieldset className="panel" key={group} disabled={action.busy || !base.initialized}>
+            <fieldset className="panel" key={group} disabled={action.busy || !known}>
               <legend>{group}</legend>
               {(Object.entries(fields) as Array<[keyof EditableConfig, Field]>)
                 .filter(([, f]) => f.group === group)

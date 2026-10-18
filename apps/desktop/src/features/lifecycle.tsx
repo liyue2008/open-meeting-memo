@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAction, useBridge } from '../app/context';
 import { dateTime } from '../app/dates';
@@ -39,7 +39,63 @@ const reasonLabel: Record<ServicePlanReason, string> = {
   already_running: '后台服务已经在运行，无需再次启动。',
   already_stopped: '后台服务已经停止，无需再次停止。',
   incompatible_service: '当前服务版本不兼容。只能在归属可核实且没有活动工作时显式安全切换。',
+  profile_requires_takeover:
+    '资料库尚待显式采用，不是已证实的数据库版本不兼容。请检查安全切换计划；采用与启动是两次操作。',
+  external_stop_required:
+    '发现无法验证的旧服务。App不会向它查询状态或停服；先核实原工具确属本软件、工作已完成，再用确认过的原命令行程序正常停止并等待成功，按原生指导人工核查登记。',
+  external_unload_required:
+    '旧自启服务仍被系统加载，即使没有运行进程也不能采用。App不会卸载它；请先按原生指导核查归属，再仅从当前用户域卸载该服务任务，保留磁盘服务登记文件，回到App重新检查。',
+  registration_review_required:
+    '无法完整验证登记、归属或残留工作。保留录音、配置与服务登记文件，先人工核查；不要尝试一键接管。',
+  incompatible_schema: '实际资料库或所有者版本不受当前版本支持；保留文件，不初始化覆盖或自动迁移。',
 };
+const adopting = (plan: ServicePlan) =>
+  plan.action === 'switch' &&
+  plan.state === 'stopped' &&
+  plan.reasons.includes('profile_requires_takeover');
+function PlanDetails({ plan }: { plan: ServicePlan }) {
+  const action = useAction();
+  return (
+    <>
+      {plan.effects.length > 0 && (
+        <>
+          <h3>本次操作的实际影响</h3>
+          <ul>
+            {plan.effects.map((effect, i) => (
+              <li key={i}>{effect}</li>
+            ))}
+          </ul>
+        </>
+      )}
+      {plan.guidance && (
+        <>
+          <p>
+            人工步骤仅供查看或复制，不会自动运行命令。先核实原工具和当前用户域已加载的服务任务（job）确属本软件，且工作已安全完成；保留磁盘服务登记文件（plist）、录音和配置，不使用会删除恢复所需登记文件的
+            service uninstall。
+          </p>
+          <label>
+            原生端人工处理指导
+            <textarea aria-label="原生端人工处理指导" readOnly rows={6} value={plan.guidance} />
+          </label>
+          <button
+            disabled={action.busy}
+            onClick={() =>
+              void action.run(async () => {
+                if (!navigator.clipboard)
+                  throw new Error('无法使用剪贴板；请在指导框内全选并复制。');
+                await navigator.clipboard.writeText(plan.guidance!);
+                return '人工处理指导已复制；请核查后自行操作。';
+              })
+            }
+          >
+            复制人工处理指导
+          </button>
+          {!!action.error && <ErrorNotice error={action.error} />}
+        </>
+      )}
+    </>
+  );
+}
 function useStartupPlan() {
   const bridge = useBridge();
   return useQuery({
@@ -78,22 +134,32 @@ export function ServiceLifecycle() {
   const [initialize, setInitialize] = useState(false);
   const [plan, setPlan] = useState<ServicePlan | null>(null);
   const [consumed, setConsumed] = useState(false);
+  const [checked, setChecked] = useState(false);
+  const [refreshFeedback, setRefreshFeedback] = useState('');
+  const [clock, setClock] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
   const [preparing, setPreparing] = useState(false);
   const [prepareError, setPrepareError] = useState<unknown>(null);
   const lock = useRef(false);
   const busy = action.busy || preparing;
+  const now = Math.max(clock, Date.now());
   const prepare = async (requested: ServiceAction) => {
     if (lock.current || action.busy) return;
     lock.current = true;
     setPreparing(true);
     setConsumed(true);
     setPrepareError(null);
+    setChecked(false);
     action.clearError();
     try {
       const fresh = await bridge.call('service_plan', { action: requested });
       if (fresh.action !== requested) throw new Error('服务返回的计划动作不匹配，未执行任何操作。');
       setPlan(fresh);
       setConsumed(false);
+      setChecked(true);
     } catch (error) {
       setPrepareError(error);
     } finally {
@@ -130,13 +196,17 @@ export function ServiceLifecycle() {
     setConsumed(true);
     const success = await action.run(async () => {
       const result = await bridge.call('service_apply', { planToken: selected.planToken! });
-      const expected = selected.action === 'stop' ? 'stopped' : 'running';
+      const adoption = adopting(selected);
+      const expected = selected.action === 'stop' || adoption ? 'stopped' : 'running';
       if (result.action !== selected.action || result.state !== expected)
         throw new Error(
           `服务尚未达到已确认的目标，实际状态：${stateLabel[result.state]}。请重新检查。`,
         );
-      const config = await bridge.call('config_get', {});
-      client.setQueryData(['config_get'], config);
+      const config = await bridge.call('config_get', {}).catch(() => null);
+      if (config) client.setQueryData(['config_get'], config);
+      else void client.invalidateQueries({ queryKey: ['config_get'] });
+      if (adoption)
+        return '采用完成，服务仍已停止；下一步请另点“启动后台服务”。既有偏好与同意保持不变。';
       return `后台服务当前状态：${stateLabel[result.state]}。请查看下方逐项就绪诊断。`;
     });
     if (!success) await client.invalidateQueries();
@@ -163,6 +233,7 @@ export function ServiceLifecycle() {
               <li key={reason}>{reasonLabel[reason]}</li>
             ))}
           </ul>
+          <PlanDetails plan={startup.data} />
           {startup.data.state === 'uninitialized' && startup.data.canInitialize && (
             <button
               className="primary"
@@ -192,13 +263,27 @@ export function ServiceLifecycle() {
         <button disabled={busy} onClick={() => void prepare('switch')}>
           安全切换服务版本
         </button>
-        <button disabled={busy || startup.isFetching} onClick={() => void startup.refetch()}>
-          重新检查服务状态
+        <button
+          disabled={busy || startup.isFetching}
+          onClick={() =>
+            void startup
+              .refetch()
+              .then((result) =>
+                setRefreshFeedback(
+                  result.error
+                    ? '重新读取失败，保留资料；请按错误提示重试。'
+                    : '已重新读取服务状态；尚未执行任何服务操作。',
+                ),
+              )
+          }
+        >
+          {startup.isFetching ? '正在检查服务状态…' : '重新检查服务状态'}
         </button>
       </div>
+      {refreshFeedback && <p role="status">{refreshFeedback}</p>}
       <p className="muted">
         录音同意单独确认。这里不下载模型、不请求权限、不更改自动录音或同意设置、不读取 Pi
-        凭据；服务启动后仍需分别核对依赖和权限。
+        凭据；启动后按既有自动录音偏好与同意设置运行，可能自动录音；仍需分别核对依赖和权限。
       </p>
       {!!prepareError && !plan && <ErrorNotice error={prepareError} />}{' '}
       {!!action.error && !initialize && !plan && <ErrorNotice error={action.error} />}
@@ -220,15 +305,26 @@ export function ServiceLifecycle() {
         </Modal>
       )}
       {plan && (
-        <Modal title={actionLabel[plan.action]} close={() => setPlan(null)} busy={busy}>
+        <Modal
+          title={adopting(plan) ? '采用资料库并更新停机登记（不启动）' : actionLabel[plan.action]}
+          close={() => setPlan(null)}
+          busy={busy}
+        >
           <p>
             实际状态：{stateLabel[plan.state]} · 目标版本：{plan.targetVersion}
           </p>
-          <ul>
-            {plan.reasons.map((reason) => (
-              <li key={reason}>{reasonLabel[reason]}</li>
-            ))}
-          </ul>
+          {plan.canApply && (
+            <ul>
+              {plan.reasons.map((reason) => (
+                <li key={reason}>{reasonLabel[reason]}</li>
+              ))}
+            </ul>
+          )}
+          <PlanDetails plan={plan} />
+          {checked && <p role="status">已重新检查计划；请核对本次影响后再确认。</p>}
+          {plan.expiresAtMs !== null && plan.expiresAtMs <= now && (
+            <p role="status">计划已过期；请重新检查，不会自动重放。</p>
+          )}
           {plan.expiresAtMs !== null && <p>计划有效期至：{dateTime(plan.expiresAtMs)}</p>}
           <p>
             执行时原生端会再次核对资料库、配置、服务身份、包内程序和活动工作。状态变化会拒绝执行，需要重新检查与确认。
@@ -238,14 +334,23 @@ export function ServiceLifecycle() {
               只停止归属明确、没有活动录音或处理任务的兼容服务。等待已拥有的工作退出和封存完成，保留配置、音频与产物。
             </p>
           )}
-          {plan.action === 'switch' && (
+          {adopting(plan) && (
+            <p>
+              仅采用资料库并更新停机登记，不启动服务；保留资料、配置和同意，完成后另点启动后台服务。
+            </p>
+          )}
+          {plan.action === 'switch' && plan.canApply && !adopting(plan) && (
             <p>
               只有归属可验证且没有活动工作时，才安全停止旧服务并启动当前 App
-              内置版本。失败会如实报告，不自动恢复录音，不改录音同意。
+              内置版本。失败会如实报告；不改既有自动录音偏好或录音同意，启动后按原设置运行，可能自动录音。
             </p>
           )}
           {plan.action === 'start' && (
-            <p>只启动当前 App 内经过验证的后台程序。录音、转写模型与 Pi 的就绪情况分别检查。</p>
+            <p>
+              只启动当前 App
+              内经过验证的后台程序。启动后按既有自动录音偏好与同意设置运行，可能自动录音；转写模型与
+              Pi 的就绪情况分别检查。
+            </p>
           )}
           {!!prepareError && <ErrorNotice error={prepareError} />}{' '}
           {!!action.error && <ErrorNotice error={action.error} />}
@@ -264,15 +369,18 @@ export function ServiceLifecycle() {
                 !plan.canApply ||
                 !plan.planToken ||
                 plan.expiresAtMs === null ||
-                plan.expiresAtMs <= Date.now()
+                plan.expiresAtMs <= now
               }
               onClick={() => void apply()}
             >
-              {confirmation[plan.action]}
+              {adopting(plan) ? '确认采用（不启动）' : confirmation[plan.action]}
             </button>
           </div>
           {!plan.canApply && (
-            <p role="status">当前不能执行此操作；不会自动改用其他启动、停止或接管方式。</p>
+            <p role="status">
+              不能执行：{plan.reasons.map((reason) => reasonLabel[reason]).join(' ')}{' '}
+              不会自动改用其他启动、停止或接管方式。
+            </p>
           )}
           {consumed && <p role="status">本次计划已使用或失效，必须重新检查后才能再次确认。</p>}
         </Modal>
