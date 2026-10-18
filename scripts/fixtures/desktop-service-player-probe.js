@@ -54,7 +54,7 @@
     meeting.click();
     const audio = await wait('actual ready paused audio', () => { const a = document.querySelector('audio'); return a?.readyState >= 1 && a; });
     const playback = await wait('enabled visible user playback entry', () => [...document.querySelectorAll('button')].find(e => e.textContent.trim() === '播放录音' && !e.disabled && e.getClientRects().length));
-    check('native controls kept and autoplay absent', audio.controls && !audio.autoplay && audio.preload === 'metadata');
+    check('single media element with metadata preload and no autoplay', document.querySelectorAll('audio').length === 1 && !audio.autoplay && audio.preload === 'metadata');
     check('visible named playback button controls actual audio', playback.getAttribute('aria-controls') === audio.id && playback.tabIndex === 0);
     check('metadata is finite and remains paused', Number.isFinite(audio.duration) && audio.paused);
     const playbackStyle = getComputedStyle(playback);

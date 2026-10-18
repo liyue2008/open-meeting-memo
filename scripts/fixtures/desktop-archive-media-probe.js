@@ -48,8 +48,18 @@
     // WK reports 100 ms Opus container pre-roll; the archive codec separately verifies exact decoded frames.
     media.push({metadataDuration:audio.duration, timelineDurationMs:manifest.durationMs, paused:audio.paused, autoplay:audio.autoplay});
     check('native metadata remains paused without autoplay', audio.paused && !audio.autoplay && audio.duration > 2.9 && audio.duration <= 3.11);
-    audio.currentTime = 1.2;
-    await wait('paused native seek', () => audio.paused && Math.abs(audio.currentTime - 1.2) < .1);
+    const slider = document.querySelector('[role="slider"][aria-label="会议时间定位"]');
+    const track = slider?.closest('.mantine-Slider-root')?.querySelector('.mantine-Slider-trackContainer');
+    check('visible Mantine timeline mouse target', !!track);
+    track.scrollIntoView({block:'center'});
+    const bounds = track.getBoundingClientRect();
+    const minimum = Number(slider.getAttribute('aria-valuemin'));
+    const maximum = Number(slider.getAttribute('aria-valuemax'));
+    check('timeline advertises native manifest duration', minimum === 0 && maximum === manifest.durationMs && bounds.width > 0);
+    const point = {bubbles:true, cancelable:true, clientX:bounds.left + bounds.width * (1200 - minimum) / (maximum - minimum), clientY:bounds.top + bounds.height / 2, button:0};
+    track.dispatchEvent(new MouseEvent('mousedown', {...point, buttons:1}));
+    document.dispatchEvent(new MouseEvent('mouseup', {...point, buttons:0}));
+    await wait('paused native seek through Mantine mouse handlers', () => audio.paused && Math.abs(audio.currentTime - 1.2) < .1);
     media.push({ metadataDuration: audio.duration, pausedSeek: audio.currentTime, paused: audio.paused });
     const oldUrl = audio.src;
     check('exactly one attached audio element', document.querySelectorAll('audio').length === 1);

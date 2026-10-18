@@ -1,6 +1,7 @@
 // Actual React + production Tauri transport/core, with only the private system-manager boundary faked.
 (async () => {
-  const checks = [], snapshots = [], layouts = [], operations = [];
+  const checks = [], snapshots = [], layouts = [], operations = [], cspViolations = [];
+  document.addEventListener('securitypolicyviolation', event => cspViolations.push({directive:event.effectiveDirective, blocked:event.blockedURI}));
   let playCalls = 0;
   HTMLMediaElement.prototype.play = () => { playCalls++; throw Error('Playback forbidden'); };
   const check = (name, value) => { if (!value) throw Error(name); checks.push(name); };
@@ -17,7 +18,7 @@
   const visible = e => !!e && !!e.getClientRects().length;
   const modal = () => [...document.querySelectorAll('dialog[open],[role=dialog]')].find(visible);
   const button = (text, root = document) => [...root.querySelectorAll('button')].find(e => visible(e) && e.textContent.trim() === text);
-  const click = async (text, root = document) => { const b = await wait(text, () => { const b = button(text, root); return b && !b.disabled && b; }); b.click(); await new Promise(r => setTimeout(r, 150)); };
+  const click = async (text, root = document) => { const b = await wait(text, () => { const b = button(text, root); return b && !b.disabled && b; }); b.scrollIntoView({block:'nearest'}); b.focus({preventScroll:true}); b.click(); await new Promise(r => setTimeout(r, 150)); };
   const panel = () => document.querySelector('[aria-label="首次设置与后台服务"]');
   let sequence = 0;
   const control = async (action, nonce = window.__ommRecoveryNonce) => {
@@ -43,11 +44,13 @@
         const focused = document.activeElement;
         window.__ommFixtureFocusEvidence = {name, documentFocused:document.hasFocus(), tag:focused?.tagName, aria:focused?.getAttribute('aria-label'), text:focused?.textContent?.slice(0,160), inDialog:active.contains(focused), disabled:focused?.disabled};
         check('actual dialog focus retained ' + name, active.contains(document.activeElement));
+        check('actual dialog focused target remains usable ' + name, !document.activeElement.matches(':disabled'));
         const last = [...active.querySelectorAll('button')].filter(b => !b.disabled).at(-1);
         last?.scrollIntoView({block:'nearest'});
       }
       const over = Math.max(0, doc.scrollWidth - innerWidth);
-      layouts.push({name, viewport:[innerWidth,innerHeight], scrollWidth:doc.scrollWidth, horizontalOverflow:over, dialog:!!active, guidance:active?.querySelector('textarea')?.value ?? null});
+      layouts.push({name, viewport:[innerWidth,innerHeight], scrollWidth:doc.scrollWidth, horizontalOverflow:over, dialog:!!active, theme:doc.dataset.mantineColorScheme, bodyBackground:getComputedStyle(document.body).backgroundColor, guidance:active?.querySelector('textarea')?.value ?? null});
+      check('official Mantine theme active ' + name, doc.dataset.mantineColorScheme === theme);
       check('no page horizontal overflow ' + name, over <= 1);
     }
   };
@@ -94,7 +97,8 @@
     check('stopped owned daemon through real UI', (await raw('service_plan', {action:'start'})).state === 'stopped');
     operations.push('stop-stopped');
     check('no hardware playback called', playCalls === 0);
-    window.__ommFixtureResult = {ok:true, checks, snapshots, layouts, operations, playCalls, boundary:'Actual Tauri/WK/React/native lifecycle; private launchctl job state and generation-control fixture only. Start failure is native stale-generation rejection, not simulated daemon crash.'};
+    check('production CSP admits static Mantine without violations', cspViolations.length === 0);
+    window.__ommFixtureResult = {ok:true, checks, snapshots, layouts, operations, playCalls, cspViolations, boundary:'Actual Tauri/WK/React/native lifecycle; private launchctl job state and generation-control fixture only. Start failure is native stale-generation rejection, not simulated daemon crash.'};
   } catch (error) {
     window.__ommFixtureResult = {ok:false, checks, snapshots, layouts, operations, playCalls, focusEvidence:window.__ommFixtureFocusEvidence, error:String(error), body:document.body.innerText.slice(0,20000)};
   }

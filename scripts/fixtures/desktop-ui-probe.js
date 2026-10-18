@@ -23,9 +23,26 @@
     const button = await wait(name, () => elements('button,a,[role=tab]', root).find(e => !e.disabled && (e.textContent.trim() === name || e.getAttribute('aria-label') === name)));
     check('enabled control: ' + name, !button.disabled); button.click(); await tick(); return button;
   };
-  const label = name => elements('label').find(e => e.childNodes[0]?.textContent.trim() === name)?.querySelector('input,select,textarea') || elements('[aria-label]').find(e => e.getAttribute('aria-label') === name);
+  const label = name => {
+    const wrapper = elements('label').find(e => e.childNodes[0]?.textContent.trim() === name);
+    return wrapper?.querySelector('input,select,textarea') || (wrapper?.htmlFor && document.getElementById(wrapper.htmlFor)) || elements('[aria-label]').find(e => e.getAttribute('aria-label') === name);
+  };
   const change = async (element, value) => {
     check('input exists: ' + value, !!element);
+    if (element.getAttribute('role') === 'slider') {
+      const track = element.closest('.mantine-Slider-root')?.querySelector('.mantine-Slider-trackContainer');
+      check('actual Mantine mouse target', !!track);
+      track.scrollIntoView({block:'center'});
+      const rect = track.getBoundingClientRect();
+      const minimum = Number(element.getAttribute('aria-valuemin'));
+      const maximum = Number(element.getAttribute('aria-valuemax'));
+      const fraction = (Number(value) - minimum) / (maximum - minimum);
+      check('slider target within advertised bounds', fraction >= 0 && fraction <= 1 && rect.width > 0);
+      const point = {bubbles:true, cancelable:true, clientX:rect.left + rect.width * fraction, clientY:rect.top + rect.height / 2, button:0};
+      track.dispatchEvent(new MouseEvent('mousedown', {...point, buttons:1}));
+      document.dispatchEvent(new MouseEvent('mouseup', {...point, buttons:0}));
+      await tick(); return;
+    }
     const proto = element instanceof HTMLSelectElement ? HTMLSelectElement.prototype : element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(proto, 'value').set.call(element, value);
     element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true })); await tick();
