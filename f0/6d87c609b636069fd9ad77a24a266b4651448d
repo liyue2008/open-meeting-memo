@@ -1,0 +1,19 @@
+apps/desktop/tests/detail-hidden-terminal-polling.test.tsx
+  s_ae02d12992cb1d::t_63931993ebf4a2 41,45-51,55-61,66,97,269-270,272-274,283-291
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f06d87c609b636069fd9ad77a24a266b4651448d",
+  "prompts": {},
+  "sessions": {
+    "s_ae02d12992cb1d": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14acf-e318-76cd-a43b-6bd5ff8c8bfe",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
