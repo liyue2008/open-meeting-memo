@@ -2,6 +2,9 @@
 #[cfg(test)]
 #[path = "host/media_revision.rs"]
 mod media_revision;
+#[cfg(test)]
+#[path = "host/recovery_coordination.rs"]
+mod recovery_coordination;
 use omm::{
     application::{self as app, media::VerifiedMedia, profile},
     core::{contracts::*, paths::Paths, store::Store},
@@ -17,6 +20,8 @@ struct Grant {
 }
 pub struct Host {
     pub paths: Paths,
+    #[cfg(test)]
+    test_runtime: Option<omm::core::runtime::RuntimeLocation>,
     admission: Mutex<Option<Value>>,
     grants: Mutex<HashMap<String, Grant>>,
     plans: Mutex<HashMap<String, app::lifecycle::Plan>>,
@@ -29,6 +34,8 @@ impl Host {
     pub fn new(paths: Paths) -> Self {
         Self {
             paths,
+            #[cfg(test)]
+            test_runtime: None,
             admission: Mutex::new(None),
             grants: Mutex::new(HashMap::new()),
             plans: Mutex::new(HashMap::new()),
@@ -52,6 +59,49 @@ pub fn trusted(window: &WebviewWindow) -> bool {
         })
 }
 impl Host {
+    // One boundary for the complete operation, including both plan inspections and apply.
+    async fn profile_operation<T>(
+        &self,
+        command: &str,
+        operation: impl std::future::Future<Output = Result<T>>,
+    ) -> Result<T> {
+        self.profile_operation_with_budget(command, std::time::Duration::from_secs(5), operation)
+            .await
+    }
+    async fn profile_operation_with_budget<T>(
+        &self,
+        command: &str,
+        budget: std::time::Duration,
+        operation: impl std::future::Future<Output = Result<T>>,
+    ) -> Result<T> {
+        let coordinated = matches!(
+            command,
+            "profile_initialize"
+                | "service_plan"
+                | "service_apply"
+                | "desktop_info"
+                | "config_get"
+                | "config_save"
+                | "diagnostics_get"
+                | "record_status"
+                | "record_start"
+                | "record_stop"
+                | "record_auto_set"
+        );
+        let _guard = if coordinated {
+            Some(app::local_coordination::enter(&self.paths, budget).await?)
+        } else {
+            None
+        };
+        operation.await
+    }
+    fn runtime_location(&self) -> Result<omm::core::runtime::RuntimeLocation> {
+        #[cfg(test)]
+        if let Some(runtime) = &self.test_runtime {
+            return Ok(runtime.clone());
+        }
+        self.paths.runtime_location(&std::env::vars().collect())
+    }
     async fn compatibility(&self) -> Value {
         let owner = match profile::read(&self.paths) {
             Ok(Some(owner)) => owner,
@@ -60,7 +110,7 @@ impl Host {
             }
             Err(_) => return profile::incompatible("unknown", "incompatible_schema", true),
         };
-        let runtime = match self.paths.runtime_location(&std::env::vars().collect()) {
+        let runtime = match self.runtime_location() {
             Ok(runtime) => runtime,
             Err(_) => return profile::incompatible("unknown", "incompatible_service", true),
         };
@@ -195,6 +245,10 @@ impl Host {
     }
     async fn dispatch(&self, command: &str, request: &Value) -> Result<Value> {
         app::validation::request(command, request)?;
+        self.profile_operation(command, self.dispatch_inner(command, request))
+            .await
+    }
+    async fn dispatch_inner(&self, command: &str, request: &Value) -> Result<Value> {
         let payload = &request["payload"];
         let value = match command {
             "desktop_info" => {
@@ -389,7 +443,13 @@ impl Host {
     }
     async fn export(&self, command: &str, payload: &Value) -> Result<Value> {
         let bytes = if command == "diagnostics_export" {
-            serde_json::to_vec_pretty(&self.diagnostics().await?)?
+            {
+                // Do not keep the profile gate during the native save dialog or file export.
+                let diagnostics = self
+                    .profile_operation("diagnostics_get", self.diagnostics())
+                    .await?;
+                serde_json::to_vec_pretty(&diagnostics)?
+            }
         } else {
             let store = Store::open_read_only(&self.paths)?;
             if command == "artifact_export" {

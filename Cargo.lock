@@ -2390,10 +2390,13 @@ dependencies = [
  "objc2",
  "open-meeting-memo",
  "rfd",
+ "rusqlite",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
+ "tempfile",
+ "tokio",
  "uuid",
 ]
 
