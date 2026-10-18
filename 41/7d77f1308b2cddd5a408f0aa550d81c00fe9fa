@@ -1,0 +1,21 @@
+src/core/store.rs
+  s_e6fcf3cda4e1bb::t_32eac5081e7cfd 1084-1087
+tests/core_recovery/cases.rs
+  s_e6fcf3cda4e1bb::t_79926e54fc85dc 16,38,51,53,57,65-67,83,113,133,146,171,179-180,194,202,215,223,229,239,261-266,277,295,297-301,311,334,376,388-421
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "417d77f1308b2cddd5a408f0aa550d81c00fe9fa",
+  "prompts": {},
+  "sessions": {
+    "s_e6fcf3cda4e1bb": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d6f-1e4a-745b-9d2c-638258fd0d45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
