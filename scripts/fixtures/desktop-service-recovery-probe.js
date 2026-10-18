@@ -26,6 +26,20 @@
     window.__ommRecoveryControl = { nonce, id, action };
     return wait(action, () => window.__ommRecoveryControlResult?.id === id && window.__ommRecoveryControlResult);
   };
+  let titlebarInset;
+  const snapshot = async request => {
+    window.__ommFixtureSnapshotResult = null; window.__ommFixtureSnapshotRequest = request;
+    const shot = await wait(request.name, () => window.__ommFixtureSnapshotResult);
+    check('actual owned WK snapshot ' + request.name, shot.ok && shot.bytes > 0);
+    return shot;
+  };
+  const reachable = async element => {
+    element.scrollIntoView({block:'nearest', inline:'nearest'});
+    await new Promise(r => setTimeout(r, 40));
+    const rect = element.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    return rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.right <= innerWidth + 1 && rect.top >= 0 && rect.bottom <= innerHeight + 1 && !!hit && (hit === element || element.contains(hit));
+  };
   const capture = async (stage) => {
     for (const [width, height, theme, collapsed] of [[800, 600, 'light', false], [1280, 820, 'dark', true]]) {
       const select = document.querySelector('select[aria-label="外观主题"]');
@@ -33,23 +47,36 @@
       select.dispatchEvent(new Event('change', {bubbles:true}));
       const toggle = document.querySelector(`[aria-label="${collapsed ? '收起侧栏' : '展开侧栏'}"]`);
       if (toggle) toggle.click();
-      if (modal()) { const scroll = modal().querySelector('.modal-scroll') || modal(); scroll.scrollTop = scroll.scrollHeight; }
       const name = `${stage}-${width}-${height}-${theme}-${collapsed ? 'collapsed' : 'expanded'}`;
-      window.__ommFixtureSnapshotResult = null; window.__ommFixtureSnapshotRequest = {name, width, height};
-      const shot = await wait(name, () => window.__ommFixtureSnapshotResult);
-      check('actual owned WK snapshot ' + name, shot.ok && shot.bytes > 0); snapshots.push(shot);
+      if (titlebarInset === undefined) {
+        await snapshot({name:'viewport-calibration', width, height});
+        titlebarInset = height - innerHeight;
+        check('measured owned WK titlebar inset', titlebarInset >= 0 && titlebarInset <= 100);
+      }
+      await snapshot({name:name + '-size', width, height:height + titlebarInset});
+      check('exact actual content dimensions ' + name, innerWidth === width && innerHeight === height);
       const doc = document.documentElement;
       const active = modal();
+      let errorReachable = null, enabledControls = 0;
       if (active) {
         const focused = document.activeElement;
         window.__ommFixtureFocusEvidence = {name, documentFocused:document.hasFocus(), tag:focused?.tagName, aria:focused?.getAttribute('aria-label'), text:focused?.textContent?.slice(0,160), inDialog:active.contains(focused), disabled:focused?.disabled};
         check('actual dialog focus retained ' + name, active.contains(document.activeElement));
         check('actual dialog focused target remains usable ' + name, !document.activeElement.matches(':disabled'));
-        const last = [...active.querySelectorAll('button')].filter(b => !b.disabled).at(-1);
-        last?.scrollIntoView({block:'nearest'});
+        const error = active.querySelector('[role=alert]');
+        if (error) {
+          errorReachable = await reachable(error);
+          check('actual error reachable ' + name, errorReachable);
+        }
+        for (const control of [...active.querySelectorAll('button')].filter(b => !b.disabled && visible(b))) {
+          check('enabled dialog control reachable ' + name + ':' + control.textContent.trim(), await reachable(control));
+          enabledControls++;
+        }
       }
+      // Capture after resize and scroll/hit checks; never re-resize this settled content.
+      const shot = await snapshot({name}); snapshots.push(shot);
       const over = Math.max(0, doc.scrollWidth - innerWidth);
-      layouts.push({name, viewport:[innerWidth,innerHeight], scrollWidth:doc.scrollWidth, horizontalOverflow:over, dialog:!!active, theme:doc.dataset.mantineColorScheme, bodyBackground:getComputedStyle(document.body).backgroundColor, guidance:active?.querySelector('textarea')?.value ?? null});
+      layouts.push({name, viewport:[innerWidth,innerHeight], windowSize:[width,height + titlebarInset], titlebarInset, scrollWidth:doc.scrollWidth, horizontalOverflow:over, dialog:!!active, errorReachable, enabledControls, theme:doc.dataset.mantineColorScheme, bodyBackground:getComputedStyle(document.body).backgroundColor, guidance:active?.querySelector('textarea')?.value ?? null});
       check('official Mantine theme active ' + name, doc.dataset.mantineColorScheme === theme);
       check('no page horizontal overflow ' + name, over <= 1);
     }
