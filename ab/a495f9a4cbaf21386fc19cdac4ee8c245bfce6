@@ -1,0 +1,47 @@
+apps/desktop/src-tauri/src/host.rs
+  s_229b1f979a836b::t_efc32ad6e2f49d 58-64,67-93,99,167-177,179-183,189
+src/application/configuration.rs
+  s_4d86a810e52613::t_f7f98d3ccfb908 100,102
+src/application/lifecycle.rs
+  s_229b1f979a836b::t_5498ff336c22e8 2,23-24,128,140-166,171-181,189-193,198-200,203,216-219,221-257,260-261,263-298,301-303,308-326,332,338-344,353,356,364-381,386,394-415,426-443,451-452,456-462,469,503-514,519-523,546-571
+src/application/observation.rs
+  s_229b1f979a836b::t_cb4d7c1b1bce55 1-83
+src/application/profile.rs
+  s_229b1f979a836b::t_74d5cae8a23fbc 67-73,88-125
+src/application/recovery-schema.json
+  s_229b1f979a836b::t_9e8f03cd84cb00 1-17
+src/application/recovery.rs
+  s_229b1f979a836b::t_532a1ecb4b2daa 1-305
+src/service/daemon.rs
+  s_4d86a810e52613::t_cc02639a9686cd 829-836,900-905,1001
+src/service/registration.rs
+  s_229b1f979a836b::t_a4fd8d57365b31 9,29-33,38-80
+src/service/registration/recovery.rs
+  s_229b1f979a836b::t_fe2e4241870243 1-152
+tests/desktop_service_recovery.rs
+  s_229b1f979a836b::t_d3db2e281b3a8f 1-755
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "aba495f9a4cbaf21386fc19cdac4ee8c245bfce6",
+  "prompts": {},
+  "sessions": {
+    "s_229b1f979a836b": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d30-4c5d-77ae-90c2-a242611d76ff",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_4d86a810e52613": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d40-4405-7132-ba09-5fcaa7affd7f",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
