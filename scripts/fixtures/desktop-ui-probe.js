@@ -2,10 +2,21 @@
 (async () => {
   const checks = [], reads = [], views = [], mediaEvidence = [], focusEvidence = [];
   let playCalls = 0, sequence = 0;
+  // Optional fixture-only stage records: fixed numeric IDs, no requests or meeting data.
+  const stageTraceStarted = performance.now();
+  let stageTraceSequence = 0;
+  const stageTrace = (stage, state) => {
+    if (window.__ommFixtureStageTraceEnabled !== true || !Number.isInteger(stage) || stage < 0 || stage > 26 || !Number.isInteger(state) || state < 0 || state > 2) return;
+    const queue = window.__ommFixtureStageTrace ??= [];
+    if (queue.length >= 128) queue.shift();
+    queue.push([stage, state, ++stageTraceSequence, Math.round(performance.now() - stageTraceStarted)]);
+  };
   const invoke = window.__TAURI_INTERNALS__.invoke.bind(window.__TAURI_INTERNALS__);
   const check = (name, condition) => { if (!condition) throw Error(name); checks.push(name); };
   const raw = async (command, payload = {}) => {
+    stageTrace(26, 0);
     const result = await invoke(command, { request: { schemaVersion: 1, requestId: `ui-driver-${++sequence}`, payload } });
+    stageTrace(26, 1);
     reads.push({ command, error: result.error?.code ?? null });
     if (result.error) throw Error(command + ': ' + JSON.stringify(result.error));
     return result.data;
@@ -51,9 +62,11 @@
   const modal = () => elements('dialog[open],[role=dialog]')[0];
   let titlebarInset;
   const shot = async request => {
+    stageTrace(25, 0);
     window.__ommFixtureSnapshotResult = null; window.__ommFixtureSnapshotRequest = request;
     const result = await wait('owned WK snapshot ' + request.name, () => window.__ommFixtureSnapshotResult);
     check('owned content snapshot: ' + request.name, result.ok && result.name === request.name && result.bytes > 0);
+    stageTrace(25, 1);
   };
   const snapshot = async (name, width = 1280, height = 820) => {
     if (titlebarInset === undefined) {
@@ -106,6 +119,8 @@
   const tasks = (meetingId = null, statuses = []) => raw('task_list', { meetingId, statuses, cursor: null, pageSize: 100 });
   const titles = () => elements('.meeting-title').map(e => e.textContent);
   try {
+    stageTrace(0, 0);
+    stageTrace(1, 0);
     const forbidPlay = function () { playCalls++; throw Error('Audio playback forbidden'); };
     HTMLMediaElement.prototype.play = forbidPlay;
     check('playback guard installed before media interaction', HTMLMediaElement.prototype.play === forbidPlay);
@@ -113,15 +128,21 @@
     const info = await wait('private service ownership', async () => { const i = await raw('desktop_info'); return i.compatibility.writeAdmission?.mode === 'service' && i; });
     const config = await raw('config_get');
     check('owned fake worker and Pi only; automatic recording off', config.values.workerExecutable.endsWith('/fake-worker') && config.values.piExecutable.endsWith('/fake-pi') && !config.values.autoRecord);
+    stageTrace(1, 1);
+    stageTrace(2, 0);
     await wait('production React real library', () => titles().length);
     check('React has no mount or validator error', elements('[role=alert]').length === 0);
     check('real app version rendered', text().includes('v' + info.appVersion));
     check('default seven local days', label('日期').value === '7');
     check('real server first page has 25 meetings', elements('tbody tr').length === 25);
+    stageTrace(2, 1);
+    stageTrace(3, 0);
     await click('下一页');
     await wait('server second page', () => text().includes('第 2 页') && elements('tbody tr').length > 0);
     check('real second page populated', elements('tbody tr').length > 0);
     await click('上一页');
+    stageTrace(3, 1);
+    stageTrace(4, 0);
     check('advanced filters initially collapsed', elements('button[aria-expanded]').find(e => e.textContent.trim().startsWith('高级筛选与数据说明'))?.getAttribute('aria-expanded') === 'false');
     await openAdvanced();
     for (const preset of ['today', 'week', '3', '7', 'all']) {
@@ -132,6 +153,8 @@
       await wait('React local-date/sort matches independent server results: ' + preset, () => JSON.stringify(titles()) === JSON.stringify(expected.items.map(m => m.metadata.title)));
       check('selected local-day preset and server ordering: ' + preset, label('日期').value === preset && label('排序').value === sort);
     }
+    stageTrace(4, 1);
+    stageTrace(5, 0);
     await change(label('搜索范围'), 'content');
     await change(label('搜索会议'), 'Private synthetic transcript token');
     const contentResults = await raw('meeting_list', { filter: { query: 'Private synthetic transcript token', scope: 'content', date: localRange(label('日期').value), sources: [], statuses: [], sort: label('排序').value, visibility: 'active' }, cursor: null, pageSize: 25, expectedRevision: null });
@@ -140,39 +163,59 @@
     await change(label('搜索范围'), 'title');
     await change(label('搜索会议'), 'Private bridge fixture');
     await wait('debounced server title search', () => titles().length === 1 && titles()[0] === 'Private bridge fixture');
+    stageTrace(5, 1);
+    stageTrace(6, 0);
     label('选择 Private bridge fixture').click(); await tick();
     await click('批量导出纪要');
     await wait('restricted native batch export acknowledged', () => text().includes('纪要已导出'));
+    stageTrace(6, 1);
     await click('取消选择');
+    stageTrace(7, 0);
     await click('Private bridge fixture');
     await wait('actual summary content', () => elements('.markdown').some(e => e.textContent.includes('Synthetic summary')));
     const player = document.querySelector('.audio-player'), artifacts = document.querySelector('.artifact-panel');
     check('recording above transcript and minutes', !!(player.compareDocumentPosition(artifacts) & Node.DOCUMENT_POSITION_FOLLOWING));
     check('real synthetic actions visible and read only', document.querySelector('.action-items')?.textContent.includes('Read-only synthetic action') && elements('.action-items li').length > 0 && !document.querySelector('.action-items input[type=checkbox]'));
     check('summary checkbox source has no interactive checkbox', !document.querySelector('.artifact-panel input[type=checkbox]'));
+    stageTrace(7, 1);
+    stageTrace(8, 0);
     const mediaMeeting = (await list('Private bridge fixture')).items[0];
     const manifest = await raw('media_manifest', { meetingId: mediaMeeting.meetingId, cursor: null, pageSize: 100 });
     const grant = await raw('media_open', { meetingId: mediaMeeting.meetingId, segmentId: manifest.segments[0].segmentId, expectedRevision: manifest.revision });
     mediaEvidence.push({ manifestRevision: manifest.revision, grant });
     await raw('media_close', { grantId: grant.grantId });
     check('native media grant revision matches requested manifest revision', grant.revision === manifest.revision);
+    stageTrace(8, 1);
+    stageTrace(9, 0);
     let audio = await wait('player metadata', () => { const a = document.querySelector('audio'); return a?.readyState >= 1 && a; });
     check('player paused metadata no playback', audio.paused && Number.isFinite(audio.duration));
+    stageTrace(9, 1);
+    stageTrace(10, 0);
     await change(label('会议时间定位'), '1200');
     await wait('real paused intra-segment seek', () => audio.paused && Math.abs(audio.currentTime - 1.2) < 0.1);
     mediaEvidence.push({ kind: 'intra-segment', paused: audio.paused, currentTime: audio.currentTime });
     const segments = label('录音分段');
     check('real two-segment media manifest', segments.options.length === 2);
+    stageTrace(10, 1);
+    stageTrace(11, 0);
     const firstSource = audio.currentSrc;
     await change(segments, segments.options[1].value);
     audio = await wait('paused cross-segment seek', () => { const a = document.querySelector('audio'); return a?.readyState >= 1 && a.currentSrc !== firstSource && a; });
     check('cross segment remains paused', audio.paused);
+    stageTrace(11, 1);
+    stageTrace(12, 0);
     await change(label('会议时间定位'), '4500');
     await wait('real paused second-segment offset seek', () => audio.paused && Math.abs(audio.currentTime - 1.5) < 0.1);
     mediaEvidence.push({ kind: 'cross-segment', paused: audio.paused, currentTime: audio.currentTime, selectedSegment: segments.value });
+    stageTrace(12, 1);
+    stageTrace(13, 0);
     await change(label('速度'), '1.25');
     check('paused speed control changes actual media element', audio.paused && audio.playbackRate === 1.25);
+    stageTrace(13, 1);
+    stageTrace(14, 0);
     await snapshot('detail-audio-top');
+    stageTrace(14, 1);
+    stageTrace(15, 0);
     await click('复制完整内容'); await wait('native clipboard acknowledged in UI', () => text().includes('已复制完整产物'));
     await click('导出'); await wait('restricted export acknowledged in UI', () => text().includes('内容已导出'));
     await click('逐字稿');
@@ -183,6 +226,8 @@
     timestamp.click(); await tick();
     await wait('timestamp locates first segment paused', () => label('录音分段').selectedIndex === 0 && document.querySelector('audio')?.readyState >= 1 && document.querySelector('audio').paused);
     await click('处理版本'); await wait('real versions', () => elements('.version-row').length >= 2);
+    stageTrace(15, 1);
+    stageTrace(16, 0);
     await click('编辑'); await modalCheckpoint('metadata-edit'); await change(label('会议标题'), 'UI edited synthetic title'); await click('保存', modal());
     await wait('metadata CAS updates DOM', () => !modal() && text().includes('UI edited synthetic title'));
     check('metadata persisted by real use case', (await list('UI edited synthetic title')).items.length === 1);
@@ -191,6 +236,8 @@
     await click('恢复会议'); await modalCheckpoint('retained-restore'); await click('确认恢复', modal());
     await wait('restored detail', () => !modal() && !text().includes('此会议位于回收站'));
     const editedMeeting = (await list('UI edited synthetic title')).items[0];
+    stageTrace(16, 1);
+    stageTrace(17, 0);
     for (const stage of ['summary', 'transcribe']) {
       const priorTasks = (await tasks(editedMeeting.meetingId)).items.map(t => t.taskId);
       await click('重新处理'); await modalCheckpoint('reprocess-' + stage); await change(label('处理范围'), stage); await click('开始处理 1 场', modal());
@@ -210,6 +257,8 @@
       await click('UI edited synthetic title');
       await wait('reopened detail has real settled cancellation', () => elements('.task-row').some(row => row.textContent.includes('已取消')));
     }
+    stageTrace(17, 1);
+    stageTrace(18, 0);
     await click('会议库'); await wait('library after restore', () => label('日期'));
     await click('＋ 新建会议'); await modalCheckpoint('new-import'); await change(label('会议标题'), 'UI synthetic imported meeting'); await click('选择音频文件', modal());
     await wait('restricted native file selection', () => label('原会议开始时间（本地）'));
@@ -218,12 +267,16 @@
     await change(label('原会议开始时间（本地）'), `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}T${two(now.getHours())}:${two(now.getMinutes())}`);
     await click('导入', modal());
     await wait('real import persisted', async () => !modal() && (await list('UI synthetic imported meeting')).items.length === 1);
+    stageTrace(18, 1);
+    stageTrace(19, 0);
     await click('＋ 新建会议'); await modalCheckpoint('new-fake-recording'); await change(label('会议标题'), 'UI fake-helper recording');
     check('recording requires independent explicit consent', elements('button', modal()).find(e => e.textContent.trim() === '开始录音').disabled);
     elements('input[type=checkbox]', modal())[0].click(); await click('开始录音', modal());
     await wait('fake-helper recording', () => !modal() && text().includes('正在录音'));
     await click('停止并封存');
     await wait('fake-helper recording sealed', async () => text().includes('当前未录音') && (await raw('record_status')).state === 'idle');
+    stageTrace(19, 1);
+    stageTrace(20, 0);
     await click('设置'); await wait('config loaded', () => label('Pi 模型'));
     const base = await raw('config_get');
     await change(label('Pi 模型'), 'ui-private-draft'); await click('使用帮助');
@@ -244,6 +297,8 @@
     await wait('successful UI config CAS save', () => text().includes('当前没有未保存的修改'));
     const saved = await raw('config_get');
     check('atomic UI save persisted value and revision', saved.values.startDelayMs === base.values.startDelayMs + 2 && saved.revision !== base.revision);
+    stageTrace(20, 1);
+    stageTrace(21, 0);
     await click('状态与诊断'); await wait('real diagnostics rendered', () => text().includes('源码版本'));
     await snapshot('diagnostics');
     await click('处理队列'); await wait('queue loaded', () => label('任务状态'));
@@ -256,6 +311,8 @@
     const before = (await tasks(cancelled.meetingId)).items.map(t => t.taskId);
     await click('重新入队');
     await wait('explicit cancelled recovery creates new task', async () => (await tasks(cancelled.meetingId)).items.some(t => !before.includes(t.taskId)));
+    stageTrace(21, 1);
+    stageTrace(22, 0);
     await click('会议库'); await wait('library for appearance', () => label('日期'));
     for (const theme of ['light', 'dark']) {
       await change(label('外观主题'), theme); await wait(theme + ' theme', () => document.documentElement.dataset.theme === theme);
@@ -273,6 +330,8 @@
     check('only appearance in private web storage', keys.every(k => ['omm.theme', 'omm.sidebar'].includes(k)));
     check('no audio playback', playCalls === 0);
     await click('设置');
+    stageTrace(22, 1);
+    stageTrace(23, 0);
     const closeField = await wait('editable config before native close', () => { const field = label('自动录音开始延迟（毫秒）'); return field && !field.disabled && field; });
     const closeBaseline = await raw('config_get');
     const closeDraft = String(closeBaseline.values.startDelayMs + 123);
@@ -305,12 +364,17 @@
     const readCounts = reads.reduce((counts, read) => { const key = read.command + ':' + (read.error ?? 'ok'); counts[key] = (counts[key] ?? 0) + 1; return counts; }, {});
     const closeGuard = { cancelledWindowAndDraftRetained: true, cancelledDiskUnchanged: true, baselineRevision: closeBaseline.revision, draft: closeDraft };
     check('fourteen actual modal focus checkpoints completed', focusEvidence.length === 14);
+    stageTrace(23, 1);
+    stageTrace(24, 0);
     const armed = await requestClose({ id: 'ui-close-finish', action: 'arm-destroy', result: { ok: true, checks, playCalls, views: views.map(({ body: _body, ...view }) => view), focusEvidence, mediaEvidence, independentNativeReadCounts: readCounts, closeGuard, storage: 'nonpersistent isolated fixture; no cross-process persistence claim', userAgent: navigator.userAgent } });
     check('native evidence armed before actual React discard', armed.armed === true && armed.mainAlive === true);
     check('real discard still connected after native arming', discard.isConnected && !discard.disabled);
     // No IPC or generic completion after this click: native destruction and owned cleanup decide success.
+    stageTrace(24, 1);
+    stageTrace(0, 1);
     discard.click();
   } catch (error) {
+    stageTrace(0, 2);
     window.__ommFixtureResult = { ok: false, checks, playCalls, error: String(error), views, focusEvidence, mediaEvidence, visibility: document.visibilityState, focused: document.hasFocus(), body: text().slice(0, 16000), independentNativeReads: reads };
   }
 })();

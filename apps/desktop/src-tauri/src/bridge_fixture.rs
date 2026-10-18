@@ -24,6 +24,7 @@ mod lifecycle;
 pub mod recovery;
 mod review;
 mod snapshot;
+mod stage_trace;
 pub mod store;
 mod window_acl;
 pub fn review_cleanup() {
