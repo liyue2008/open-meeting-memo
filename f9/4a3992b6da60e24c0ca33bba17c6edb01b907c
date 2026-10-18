@@ -1,0 +1,37 @@
+docs/desktop-service-recovery.md
+  s_7ec2c61f29d7b5::t_d118c548b53855 27,36
+src/application/recovery-schema.json
+  s_e6fcf3cda4e1bb::t_53817b85a572fb 12-13
+src/application/recovery.rs
+  s_e6fcf3cda4e1bb::t_0c8bc5364b6c88 152-156
+tests/desktop_service_recovery.rs
+  s_7ec2c61f29d7b5::t_c86f610336e1cc 61-69,525-581,583-585,587,590-618,622-640,801-1007
+tests/fixtures/desktop-service-recovery-asr-51319b7.sql
+  s_7ec2c61f29d7b5::t_b2b1cc218b2f5b 1-8
+tests/fixtures/desktop-service-recovery-legacy-51319b7.sql
+  s_e6fcf3cda4e1bb::t_f16c36fe9ec081 1-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f94a3992b6da60e24c0ca33bba17c6edb01b907c",
+  "prompts": {},
+  "sessions": {
+    "s_7ec2c61f29d7b5": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14028-f8a3-7513-b88e-a2424c210bbb",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_e6fcf3cda4e1bb": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d6f-1e4a-745b-9d2c-638258fd0d45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
