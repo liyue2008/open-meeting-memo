@@ -1,0 +1,43 @@
+apps/desktop/src/features/player.tsx
+  s_4d86a810e52613::t_58c83768d91bed 15,18-27,31,39,51-52,88-90,103,114-115,130-133,135-147,172
+apps/desktop/src/features/queue.tsx
+  s_4d86a810e52613::t_10cd6dcf373bc4 41-47,50,56
+apps/desktop/tests/detail-media.test.tsx
+  s_4d86a810e52613::t_b9c2d62f2297f0 209-212,214-219,223
+apps/desktop/tests/queue-dialog-layout.test.tsx
+  s_4d86a810e52613::t_a092b6a9984ed1 1-34
+apps/desktop/tests/ui-layout-wkwebview/driver.js
+  s_4d86a810e52613::t_b671afb2eb3133 1-510
+apps/desktop/tests/ui-layout-wkwebview/fixture.jsx
+  s_4d86a810e52613::t_543e56dcf12431 1-295
+apps/desktop/tests/ui-layout-wkwebview/host.swift
+  s_229b1f979a836b::t_dc72ebf9a86579 1-67
+apps/desktop/tests/ui-layout-wkwebview/run.mjs
+  s_4d86a810e52613::t_4cad29bf3127b4 1-159
+apps/desktop/tests/ui-layout.test.tsx
+  s_4d86a810e52613::t_7eb55e3b07b8f0 1-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7ecd146262058eba90d6a3213b07dcb7689fdf84",
+  "prompts": {},
+  "sessions": {
+    "s_229b1f979a836b": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d30-4c5d-77ae-90c2-a242611d76ff",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_4d86a810e52613": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d40-4405-7132-ba09-5fcaa7affd7f",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}

@@ -1,0 +1,35 @@
+apps/desktop/src/app/context.tsx
+  s_4d86a810e52613::t_97469f406d9b4e 4,19-26,43
+apps/desktop/src/features/diagnostics.tsx
+  s_4d86a810e52613::t_13c56454015c32 2,92
+apps/desktop/src/features/meeting-actions.tsx
+  s_4d86a810e52613::t_2198489296dac1 339-345,347-348,359-361,381,391,397-401,404-414,417-419,428,437
+apps/desktop/src/features/settings.tsx
+  s_4d86a810e52613::t_9bd852ba496f79 131,192,220-222,224-228,230-237,254
+apps/desktop/tests/frozen-service-contract.test.ts
+  s_4d86a810e52613::t_60838b87800047 1-55
+apps/desktop/tests/service-recovery-ui.test.tsx
+  s_4d86a810e52613::t_9b2832ad5002a4 1-221
+apps/desktop/tests/ui-layout-wkwebview/driver.js
+  s_4d86a810e52613::t_0e532c71a32255 63,77-79,98-99,110-116,173-278
+apps/desktop/tests/ui-layout-wkwebview/fixture.jsx
+  s_4d86a810e52613::t_3670d15df62f18 12-20,283-302
+apps/desktop/tests/ui-layout-wkwebview/run.mjs
+  s_4d86a810e52613::t_bb3d2cf57b4b9b 59,157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2b8e2e61d2a01d9d6f43fe53859e252c508f7808",
+  "prompts": {},
+  "sessions": {
+    "s_4d86a810e52613": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d40-4405-7132-ba09-5fcaa7affd7f",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
