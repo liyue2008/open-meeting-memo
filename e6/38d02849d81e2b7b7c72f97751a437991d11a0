@@ -1,0 +1,14 @@
+docs/desktop-acceptance.md
+  h_b4d40596eab523 3,9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e638d02849d81e2b7b7c72f97751a437991d11a0",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
