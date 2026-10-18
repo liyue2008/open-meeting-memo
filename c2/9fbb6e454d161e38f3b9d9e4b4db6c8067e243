@@ -1,0 +1,24 @@
+docs/desktop.md
+  h_b4d40596eab523 64
+packaging/desktop/fixture_artifacts.py
+  h_b4d40596eab523 1-34
+packaging/desktop/test_fixture_runner.py
+  h_b4d40596eab523 85-185
+scripts/test-desktop-preferences-wkwebview.sh
+  h_b4d40596eab523 9-10,12-13,59,61-63
+scripts/test-desktop-ui-wkwebview.sh
+  h_b4d40596eab523 10-11,13-14,44,46-48
+scripts/test-desktop.sh
+  h_b4d40596eab523 51,53-57,61-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c29fbb6e454d161e38f3b9d9e4b4db6c8067e243",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
