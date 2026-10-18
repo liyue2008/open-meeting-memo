@@ -1,0 +1,21 @@
+apps/desktop/src-tauri/src/bridge_fixture/children.rs
+  s_e6fcf3cda4e1bb::t_8bfa1856639827 11-12,114
+apps/desktop/src-tauri/src/bridge_fixture/recovery.rs
+  s_e6fcf3cda4e1bb::t_adb7c898094a3d 246-266,355,400,404,412-477
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "87642a9ca518cccb0168cfc99cb91dd7681d8920",
+  "prompts": {},
+  "sessions": {
+    "s_e6fcf3cda4e1bb": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d6f-1e4a-745b-9d2c-638258fd0d45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
