@@ -159,6 +159,7 @@ const failures = results.filter(
     r.invalidMedia ||
     r.invalidUnknown ||
     r.invalidTheme ||
+    r.invalidLibraryFold ||
     r.invalidNotice ||
     r.invalidResponses?.length ||
     r.cspViolations?.length ||

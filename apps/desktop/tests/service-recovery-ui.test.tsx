@@ -63,7 +63,8 @@ describe('features/lifecycle frozen service recovery UI', () => {
       }),
     });
     render(<App bridge={fake.bridge} />);
-    expect(await screen.findByText(/录音状态未知.*已保存的自动录音偏好：已启用/)).toBeVisible();
+    expect(await screen.findByText('录音状态未知')).toBeVisible();
+    expect(screen.getByText(/已保存的自动录音偏好：已启用/)).toBeVisible();
     expect(screen.getByRole('button', { name: '关闭自动录音' })).toBeDisabled();
     expect(screen.getByText(/当前服务未授权写入，保留既有偏好/)).toBeVisible();
   });

@@ -70,8 +70,23 @@ describe('features/player explicit accessible playback entry (mock media only)',
     await waitFor(() => expect(screen.getByLabelText('录音播放控件')).toHaveAttribute('src'));
     expect(screen.getByRole('button', { name: '播放录音' })).toBeDisabled();
     const audio = metadata();
-    expect(audio.controls).toBe(true);
+    expect(audio.controls).toBe(false);
+    expect(audio).toHaveAttribute('hidden');
+    expect(screen.getAllByRole('slider', { name: '会议时间定位' })).toHaveLength(1);
+    expect(screen.getByRole('slider', { name: '会议时间定位' })).toHaveAttribute(
+      'aria-valuetext',
+      '00:00',
+    );
     expect(audio).not.toHaveAttribute('autoplay');
+    const timeline = screen.getByRole('slider', { name: '会议时间定位' });
+    timeline.focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(audio.currentTime).toBe(0.1);
+    expect(timeline).toHaveAttribute('aria-valuetext', '00:00');
+    await userEvent.keyboard('{End}');
+    expect(audio.currentTime).toBe(10);
+    await userEvent.keyboard('{Home}');
+    expect(audio.currentTime).toBe(0);
     await seekSlider(1200);
     expect(audio.currentTime).toBe(1.2);
     expect(play).not.toHaveBeenCalled();

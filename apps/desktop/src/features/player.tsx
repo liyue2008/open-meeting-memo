@@ -1,4 +1,4 @@
-import { Slider, Button, NativeSelect, Paper, Text, Title } from '@mantine/core';
+import { Group, Slider, Button, NativeSelect, Paper, Text, Title } from '@mantine/core';
 import { useEffect, useRef, useState } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useBridge } from '../app/context';
@@ -164,7 +164,7 @@ function MeetingPlayer({ meetingId, seek }: PlayerProps) {
       <div className="player-header">
         <Title order={2}>会议录音</Title>
         <Text component="span" size="sm" c="dimmed">
-          已验证的公开混音 · 点击播放键才会发声
+          公开混音 · 仅手动播放
         </Text>
       </div>
       {manifest.error && (
@@ -181,7 +181,7 @@ function MeetingPlayer({ meetingId, seek }: PlayerProps) {
             key={sourceKey}
             ref={audio}
             id="meeting-recording-audio"
-            controls
+            hidden
             preload="metadata"
             src={url || undefined}
             aria-label="录音播放控件"
@@ -213,21 +213,26 @@ function MeetingPlayer({ meetingId, seek }: PlayerProps) {
               if (url) setError(new Error('录音解码失败或媒体授权已失效，请重新打开。'));
             }}
           />
-          <Button
-            type="button"
-            className="player-playback"
-            disabled={opening || !url || !ready}
-            onClick={togglePlayback}
-            aria-controls="meeting-recording-audio"
-            variant="default"
-          >
-            {playing ? '暂停录音' : '播放录音'}
-          </Button>
-          <label className="timeline-label">
-            会议时间 {clock(position)} / {clock(duration)}
+          <Group gap="sm">
+            <Button
+              type="button"
+              className="player-playback"
+              disabled={opening || !url || !ready}
+              onClick={togglePlayback}
+              aria-controls="meeting-recording-audio"
+              variant="default"
+            >
+              {playing ? '暂停录音' : '播放录音'}
+            </Button>
+            <Text size="sm">
+              会议全局时间 {clock(position)} / {clock(duration)}
+            </Text>
+          </Group>
+          <div className="timeline-label">
             <Slider
               thumbLabel="会议时间定位"
               thumbValueText={clock}
+              thumbProps={{ 'aria-describedby': 'meeting-recording-timeline-help' }}
               label={clock}
               min={0}
               max={duration}
@@ -235,7 +240,7 @@ function MeetingPlayer({ meetingId, seek }: PlayerProps) {
               value={position}
               onChange={locate}
             />
-          </label>
+          </div>
           <div className="button-row">
             <Button
               disabled={opening}
@@ -264,7 +269,7 @@ function MeetingPlayer({ meetingId, seek }: PlayerProps) {
               </NativeSelect>
             </label>
             <label>
-              分段
+              当前分段
               <NativeSelect
                 aria-label="录音分段"
                 value={segment?.segmentId ?? ''}
@@ -275,7 +280,7 @@ function MeetingPlayer({ meetingId, seek }: PlayerProps) {
               >
                 {segments.map((s) => (
                   <option key={s.segmentId} value={s.segmentId} disabled={!s.available}>
-                    第 {s.sequence + 1} 段 · {clock(s.offsetMs)}
+                    第 {s.sequence + 1} 段 · {clock(s.offsetMs)}–{clock(s.offsetMs + s.durationMs)}
                     {!s.available ? ' · 不可用' : ''}
                   </option>
                 ))}
@@ -292,8 +297,14 @@ function MeetingPlayer({ meetingId, seek }: PlayerProps) {
               重新打开录音
             </Button>
           </div>
-          <Text className="muted" component="p" c="dimmed">
-            跨段定位保持暂停，不自动播放。录音空隙保留；时间轴不是测量波形。
+          <Text
+            id="meeting-recording-timeline-help"
+            className="muted"
+            component="p"
+            size="xs"
+            c="dimmed"
+          >
+            左右方向键微调，Home / End 跳至首尾。跨段定位保持暂停，录音间隙保留。
           </Text>
           {opening && (
             <Text role="status" component="p">

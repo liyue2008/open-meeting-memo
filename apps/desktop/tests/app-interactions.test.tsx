@@ -51,6 +51,7 @@ describe('App real typed bridge interactions with synthetic transport', () => {
       }),
     );
     await user().selectOptions(screen.getByLabelText('日期'), 'week');
+    await user().click(screen.getByRole('button', { name: /高级筛选与数据说明/ }));
     await user().selectOptions(screen.getByLabelText('来源', { exact: true }), 'imported');
     await user().selectOptions(screen.getByLabelText('排序'), 'duration_desc');
     await waitFor(() =>

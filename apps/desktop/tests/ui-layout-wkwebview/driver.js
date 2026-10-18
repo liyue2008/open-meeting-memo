@@ -145,11 +145,19 @@
     window.scrollTo(scroll.x, scroll.y);
     if (modal) modal.scrollTop = scroll.modal;
     if (sidebar) sidebar.scrollTop = scroll.sidebar;
+    const checkLibraryFold =
+      /^\d+-(light|dark)-(expanded|collapsed)-0$/.test(name) || name.startsWith('smoke-');
+    const firstTitle = document.querySelector('.meeting-title');
+    const firstTitleRect = firstTitle?.getBoundingClientRect();
+    const firstRowTitleBottom = firstTitleRect ? firstTitleRect.bottom + window.scrollY : null;
     const toast = document.getElementById('toast');
     const toastRect = toast?.getBoundingClientRect(),
       saveRect = document.querySelector('.settings-save')?.getBoundingClientRect();
     const result = {
       name,
+      firstRowTitleBottom: checkLibraryFold ? firstRowTitleBottom : undefined,
+      invalidLibraryFold:
+        checkLibraryFold && (firstRowTitleBottom === null || firstRowTitleBottom > innerHeight),
       toastOpacity: toast ? getComputedStyle(toast).opacity : undefined,
       toastSaveOverlapPx:
         toastRect &&
@@ -232,6 +240,11 @@
               for (const label of labels) {
                 await navigate(label);
                 await measure(`${key}-${labels.indexOf(label)}`, !collapsed);
+                if (label === '会议库') {
+                  await click('高级筛选与数据说明');
+                  await measure(`${key}-library-filters`, !collapsed);
+                  await click('高级筛选与数据说明');
+                }
               }
               await detail();
               for (const tab of ['会议纪要', '逐字稿', '处理版本']) {
@@ -546,6 +559,10 @@
         await measure(`${theme}-player-metadata`, true, {
           invalidMedia:
             document.querySelectorAll('audio').length !== 1 ||
+            audio.controls ||
+            !audio.hidden ||
+            visible(audio) ||
+            document.querySelectorAll('.audio-player [role="slider"]').length !== 1 ||
             !audio.paused ||
             audio.duration !== 20,
           mediaDuration: audio.duration,
@@ -558,6 +575,22 @@
           invalidMedia: !audio.paused || audio.currentTime < 14.8,
           mediaSeekSeconds: audio.currentTime,
           mediaPaused: audio.paused,
+        });
+        const timeline = document.querySelector('.audio-player [role="slider"]');
+        timeline.focus();
+        timeline.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+        await sleep();
+        const keyboardSeconds = audio.currentTime;
+        timeline.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+        await sleep();
+        await measure(`${theme}-player-keyboard`, false, {
+          invalidMedia:
+            !audio.paused ||
+            keyboardSeconds < 15.09 ||
+            audio.currentTime > 0.01 ||
+            document.activeElement !== timeline,
+          keyboardSeconds,
+          homeSeconds: audio.currentTime,
         });
         await navigate('会议库');
         await measure(`${theme}-player-leave`, false, {

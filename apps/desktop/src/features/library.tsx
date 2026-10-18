@@ -1,4 +1,5 @@
 import {
+  Accordion,
   Alert,
   Badge,
   Button,
@@ -98,6 +99,13 @@ export function Library({ open }: { open: (id: string) => void }) {
       setPageNotice('会议列表已变化，已返回第一页。请重新核对选择后继续。');
     }
   }, [list.error, pages.length]);
+  const advancedCount = [
+    scope !== 'title',
+    !!source,
+    !!status,
+    visibility !== 'active',
+    sort !== 'started_desc',
+  ].filter(Boolean).length;
   const rows = list.data?.items ?? [];
   const select = (row: MeetingRow, checked: boolean) =>
     setSelected((s) =>
@@ -111,7 +119,7 @@ export function Library({ open }: { open: (id: string) => void }) {
   };
   return (
     <>
-      <Heading title="会议库" text="保留讨论原声，让结论和下一步随时可找。">
+      <Heading title="会议库">
         <Button
           className="primary"
           onClick={() => setDialog('create')}
@@ -121,41 +129,21 @@ export function Library({ open }: { open: (id: string) => void }) {
           ＋ 新建会议
         </Button>
       </Heading>
-      <Paper withBorder p="sm" mb="md">
-        <Text size="sm" c="dimmed">
-          录音与逐字稿留在本机；纪要使用配置的 Pi 模型，云端模型会收到逐字稿文本。
-        </Text>
-        <Text size="sm" c="dimmed">
-          重新处理保留旧产物；回收站不永久删除录音。
-          {list.data
-            ? `检索：${list.data.search.indexed} 场已建立检索投影，${list.data.search.pending} 场待处理。`
-            : '正在读取检索状态。'}
-        </Text>
-      </Paper>
       {pageNotice && (
         <Alert role="status" className="notice" variant="light">
           {pageNotice}
         </Alert>
       )}
-      <Paper className="panel" aria-label="会议列表" withBorder p="md" component="section">
+      <Paper className="panel" aria-label="会议列表" withBorder p="sm" component="section">
         <div className="filter-top">
-          <label className="searchbox">
-            <span aria-hidden="true">⌕</span>
-            <TextInput
-              aria-label="搜索会议"
-              placeholder="搜索会议标题或内容…"
-              maxLength={1024}
-              value={query}
-              onChange={(e) => setQuery(Array.from(e.target.value).slice(0, 512).join(''))}
-            />
-          </label>
-          <label>
-            搜索范围
-            <NativeSelect value={scope} onChange={(e) => setScope(e.target.value as typeof scope)}>
-              <option value="title">标题</option>
-              <option value="content">标题、逐字稿和纪要</option>
-            </NativeSelect>
-          </label>
+          <TextInput
+            className="searchbox"
+            label="搜索会议"
+            placeholder="搜索会议标题或内容…"
+            maxLength={1024}
+            value={query}
+            onChange={(e) => setQuery(Array.from(e.target.value).slice(0, 512).join(''))}
+          />
           <label>
             日期
             <NativeSelect value={preset} onChange={(e) => setPreset(e.target.value as DatePreset)}>
@@ -184,56 +172,90 @@ export function Library({ open }: { open: (id: string) => void }) {
             </>
           )}
         </div>
-        <div className="filter-bottom">
-          <label>
-            来源
-            <NativeSelect
-              value={source}
-              onChange={(e) => setSource(e.target.value as typeof source)}
-            >
-              <option value="">全部来源</option>
-              {Object.entries(SOURCES).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v}
-                </option>
-              ))}
-            </NativeSelect>
-          </label>
-          <label>
-            状态
-            <NativeSelect
-              value={status}
-              onChange={(e) => setStatus(e.target.value as typeof status)}
-            >
-              <option value="">全部状态</option>
-              {Object.entries(STATUS).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v}
-                </option>
-              ))}
-            </NativeSelect>
-          </label>
-          <label>
-            位置
-            <NativeSelect
-              value={visibility}
-              onChange={(e) => setVisibility(e.target.value as Visibility)}
-            >
-              <option value="active">会议库</option>
-              <option value="trash">回收站</option>
-              <option value="all">全部（含回收站）</option>
-            </NativeSelect>
-          </label>
-          <label className="sort">
-            排序
-            <NativeSelect value={sort} onChange={(e) => setSort(e.target.value as MeetingSort)}>
-              <option value="started_desc">开始时间 ↓</option>
-              <option value="started_asc">开始时间 ↑</option>
-              <option value="duration_desc">时长 ↓</option>
-              <option value="duration_asc">时长 ↑</option>
-            </NativeSelect>
-          </label>
-        </div>
+        <Accordion mb="sm">
+          <Accordion.Item value="advanced">
+            <Accordion.Control py="xs">
+              高级筛选与数据说明{advancedCount > 0 ? ` · 已应用 ${advancedCount} 项` : ''}
+            </Accordion.Control>
+            <Accordion.Panel>
+              <div className="filter-bottom">
+                <label>
+                  搜索范围
+                  <NativeSelect
+                    value={scope}
+                    onChange={(e) => setScope(e.target.value as typeof scope)}
+                  >
+                    <option value="title">标题</option>
+                    <option value="content">标题、逐字稿和纪要</option>
+                  </NativeSelect>
+                </label>
+
+                <label>
+                  来源
+                  <NativeSelect
+                    value={source}
+                    onChange={(e) => setSource(e.target.value as typeof source)}
+                  >
+                    <option value="">全部来源</option>
+                    {Object.entries(SOURCES).map(([k, v]) => (
+                      <option key={k} value={k}>
+                        {v}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </label>
+                <label>
+                  状态
+                  <NativeSelect
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value as typeof status)}
+                  >
+                    <option value="">全部状态</option>
+                    {Object.entries(STATUS).map(([k, v]) => (
+                      <option key={k} value={k}>
+                        {v}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </label>
+                <label>
+                  位置
+                  <NativeSelect
+                    value={visibility}
+                    onChange={(e) => setVisibility(e.target.value as Visibility)}
+                  >
+                    <option value="active">会议库</option>
+                    <option value="trash">回收站</option>
+                    <option value="all">全部（含回收站）</option>
+                  </NativeSelect>
+                </label>
+                <label className="sort">
+                  排序
+                  <NativeSelect
+                    value={sort}
+                    onChange={(e) => setSort(e.target.value as MeetingSort)}
+                  >
+                    <option value="started_desc">开始时间 ↓</option>
+                    <option value="started_asc">开始时间 ↑</option>
+                    <option value="duration_desc">时长 ↓</option>
+                    <option value="duration_asc">时长 ↑</option>
+                  </NativeSelect>
+                </label>
+              </div>
+              <div>
+                <Text size="sm" c="dimmed">
+                  录音与逐字稿留在本机；纪要使用配置的 Pi 模型，云端模型会收到逐字稿文本。
+                </Text>
+                <Text size="sm" c="dimmed">
+                  重新处理保留旧产物；回收站不永久删除录音。
+                  {list.data
+                    ? `检索：${list.data.search.indexed} 场已建立检索投影，${list.data.search.pending} 场待处理。`
+                    : '正在读取检索状态。'}
+                </Text>
+              </div>
+            </Accordion.Panel>
+          </Accordion.Item>
+        </Accordion>
         {selected.length > 0 && (
           <div className="bulk-bar">
             <span>已选 {selected.length} 场</span>
@@ -290,9 +312,9 @@ export function Library({ open }: { open: (id: string) => void }) {
         ) : (
           <>
             {!list.data.search.complete && (
-              <Alert className="notice" variant="light" role="status">
+              <Text role="status" size="sm" c="dimmed" my="xs">
                 内容索引尚未完成，当前结果可能不完整。
-              </Alert>
+              </Text>
             )}
             {rows.length === 0 ? (
               <div className="empty-state">
@@ -301,7 +323,7 @@ export function Library({ open }: { open: (id: string) => void }) {
               </div>
             ) : (
               <Table.ScrollContainer className="table-scroll" minWidth={760} type="native">
-                <Table highlightOnHover verticalSpacing="md">
+                <Table highlightOnHover verticalSpacing="sm">
                   <Table.Thead>
                     <Table.Tr>
                       <Table.Th>

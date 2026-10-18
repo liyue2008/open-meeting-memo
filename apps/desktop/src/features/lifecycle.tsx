@@ -118,19 +118,22 @@ export function ServiceBanner({ open }: { open: () => void }) {
       aria-label="本机首次设置与服务状态"
       color="orange"
       role="status"
+      p="sm"
     >
-      <span>
-        {startup.error
-          ? '无法核实本机资料库与服务状态。请打开设置查看真实诊断。'
-          : !plan
-            ? '正在读取本机资料库与服务状态…'
-            : plan.state === 'uninitialized'
-              ? '首次使用：尚未初始化本机资料库。打开设置不会自动创建资料或启动录音。'
-              : `后台服务：${stateLabel[plan.state]}。请查看可执行的服务操作和逐项就绪诊断。`}
-      </span>
-      <Button className="service-entry" onClick={open} type="button" variant="default">
-        {plan?.state === 'uninitialized' ? '打开首次设置' : '打开服务设置'}
-      </Button>
+      <div className="button-row">
+        <Text size="sm" component="span">
+          {startup.error
+            ? '无法核实本机资料库与服务状态。请打开设置查看真实诊断。'
+            : !plan
+              ? '正在读取本机资料库与服务状态…'
+              : plan.state === 'uninitialized'
+                ? '首次使用：尚未初始化本机资料库。打开设置不会自动创建资料或启动录音。'
+                : `后台服务：${stateLabel[plan.state]}。`}
+        </Text>
+        <Button className="service-entry" onClick={open} type="button" variant="default">
+          {plan?.state === 'uninitialized' ? '打开首次设置' : '打开服务设置'}
+        </Button>
+      </div>
     </Alert>
   );
 }

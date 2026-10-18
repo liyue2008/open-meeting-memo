@@ -92,11 +92,20 @@ export function Heading({
   children?: ReactNode;
 }) {
   return (
-    <Group justify="space-between" align="flex-start" wrap="wrap" mb="lg" className="page-heading">
+    <Group
+      justify="space-between"
+      align="flex-start"
+      wrap="wrap"
+      gap="sm"
+      mb="md"
+      className="page-heading"
+    >
       <div className="heading-copy">
-        <Title order={1}>{title}</Title>
+        <Title order={1} size="h2">
+          {title}
+        </Title>
         {text && (
-          <Text c="dimmed" mt="xs">
+          <Text c="dimmed" size="sm" mt={4}>
             {text}
           </Text>
         )}

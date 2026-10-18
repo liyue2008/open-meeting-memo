@@ -379,18 +379,22 @@ export function RecordingBar() {
     data.autoRecord === null || data.recordingConsent === null || !data.compatibility.writesAllowed;
   return (
     <div className="recording-bar">
-      <span>
-        {data.state === 'recording'
-          ? `正在录音 · ${dateTime(data.startedAtMs)}`
-          : data.state === 'sealing'
-            ? '正在封存，请等待'
-            : data.state === 'unknown'
-              ? '录音状态未知'
-              : '当前未录音'}{' '}
-        · 已保存的自动录音偏好：
-        {data.autoRecord === null ? '未知' : data.autoRecord ? '已启用' : '已关闭'} · 录音同意：
-        {data.recordingConsent === null ? '未知' : data.recordingConsent ? '已确认' : '未确认'}
-      </span>
+      <Stack gap={2}>
+        <Text size="sm">
+          {data.state === 'recording'
+            ? `正在录音 · ${dateTime(data.startedAtMs)}`
+            : data.state === 'sealing'
+              ? '正在封存，请等待'
+              : data.state === 'unknown'
+                ? '录音状态未知'
+                : '当前未录音'}
+        </Text>
+        <Text size="xs" c="dimmed">
+          已保存的自动录音偏好：
+          {data.autoRecord === null ? '未知' : data.autoRecord ? '已启用' : '已关闭'} · 录音同意：
+          {data.recordingConsent === null ? '未知' : data.recordingConsent ? '已确认' : '未确认'}
+        </Text>
+      </Stack>
       <div className="button-row">
         {data.state === 'recording' && (
           <Button

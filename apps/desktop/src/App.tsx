@@ -249,7 +249,7 @@ function Shell() {
         </div>
       </Paper>
       <div className="shell">
-        <Paper component="header" withBorder p="md" className="topbar">
+        <Paper component="header" withBorder p="sm" className="topbar">
           <span id="breadcrumb">工作空间 / {label}</span>
           <label className="theme-picker">
             外观
