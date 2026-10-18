@@ -1,0 +1,21 @@
+apps/desktop/src-tauri/src/bridge_fixture/close.rs
+  s_229b1f979a836b::t_1b1405c395d9f2 175-188
+apps/desktop/src-tauri/src/bridge_fixture/review.rs
+  s_229b1f979a836b::t_fc5c6becea32c3 476-489
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7212b1bf6422eb41d4612e2f1ffe2a0510bcb7b9",
+  "prompts": {},
+  "sessions": {
+    "s_229b1f979a836b": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d30-4c5d-77ae-90c2-a242611d76ff",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
