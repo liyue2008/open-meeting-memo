@@ -207,6 +207,14 @@ impl Host {
             }
             "service_plan" => {
                 let bundle = app::bundle::Bundle::locate().ok();
+                #[cfg(feature = "native-bridge-fixture")]
+                let (value, plan) = crate::bridge_fixture::recovery::plan(
+                    &self.paths,
+                    bundle.as_ref(),
+                    payload["action"].as_str().unwrap(),
+                )
+                .await?;
+                #[cfg(not(feature = "native-bridge-fixture"))]
                 let (value, plan) = app::lifecycle::plan(
                     &self.paths,
                     bundle.as_ref(),
@@ -237,6 +245,10 @@ impl Host {
                         )
                     })?;
                 let bundle = app::bundle::Bundle::locate()?;
+                #[cfg(feature = "native-bridge-fixture")]
+                let mut value =
+                    crate::bridge_fixture::recovery::apply(&self.paths, &bundle, plan).await?;
+                #[cfg(not(feature = "native-bridge-fixture"))]
                 let mut value = app::lifecycle::apply(&self.paths, &bundle, plan).await?;
                 *self.admission.lock().unwrap() = None;
                 value["compatibility"] = self.compatibility().await;

@@ -20,6 +20,7 @@ use uuid::Uuid;
 pub mod capture;
 mod close;
 mod lifecycle;
+pub mod recovery;
 mod review;
 mod snapshot;
 pub mod store;
@@ -35,7 +36,7 @@ pub fn scenario() -> String {
     assert!(
         matches!(
             scenario.as_str(),
-            "native" | "window-acl" | "ui" | "lifecycle" | "store"
+            "native" | "window-acl" | "ui" | "lifecycle" | "recovery" | "store"
         ),
         "unknown private fixture scenario"
     );
@@ -69,7 +70,7 @@ pub fn prepare() -> Paths {
     if scenario() == "store" {
         return paths;
     }
-    if scenario() == "lifecycle" {
+    if matches!(scenario().as_str(), "lifecycle" | "recovery") {
         let home = PathBuf::from(std::env::var_os("HOME").unwrap())
             .canonicalize()
             .unwrap();
@@ -228,6 +229,9 @@ fn complete_seed(store: &mut Store, duration_ms: u64) {
 }
 
 pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Builder<tauri::Wry> {
+    if scenario() == "recovery" {
+        return recovery::builder(builder, paths);
+    }
     if scenario() == "lifecycle" {
         return lifecycle::builder(builder, paths);
     }
