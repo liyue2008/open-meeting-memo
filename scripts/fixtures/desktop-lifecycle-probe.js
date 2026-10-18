@@ -40,7 +40,7 @@
     controls.push(value); return value;
   };
   const rejectedPlan = async name => {
-    await wait('real Core conflict visible: ' + name, () => modal()?.querySelector('[role=alert]')?.textContent.trim() === 'State changed or work is active; reload and retry（stale_revision）');
+    await wait('real Core conflict visible: ' + name, () => modal()?.querySelector('[role=alert] .notice-copy')?.textContent.trim() === 'State changed or work is active; reload and retry（stale_revision）');
     check('rejected plan consumed in real UI: ' + name, find(name, modal()).disabled);
     views.push({ name: 'rejected-' + name, body: modal().innerText });
   };
