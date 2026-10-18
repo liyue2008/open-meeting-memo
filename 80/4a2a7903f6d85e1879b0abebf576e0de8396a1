@@ -1,0 +1,31 @@
+Cargo.lock
+  s_e6fcf3cda4e1bb::t_fe7f9548e7d310 2393,2398-2399
+apps/desktop/src-tauri/Cargo.toml
+  s_e6fcf3cda4e1bb::t_1a2929d5346d2c 41-46
+apps/desktop/src-tauri/src/host.rs
+  s_e6fcf3cda4e1bb::t_e6959afe3067fe 5-7,23-24,37-38,62-104,113,248-251,446-452
+apps/desktop/src-tauri/src/host/recovery_coordination.rs
+  s_e6fcf3cda4e1bb::t_e078042a98a4aa 1-697
+docs/desktop-service-recovery.md
+  s_e6fcf3cda4e1bb::t_b846facc1f1db6 34-39,44-45
+src/application/local_coordination.rs
+  s_e6fcf3cda4e1bb::t_73d43b352fc870 1-41
+src/application/mod.rs
+  s_e6fcf3cda4e1bb::t_fdee819a72bfb3 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "804a2a7903f6d85e1879b0abebf576e0de8396a1",
+  "prompts": {},
+  "sessions": {
+    "s_e6fcf3cda4e1bb": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d6f-1e4a-745b-9d2c-638258fd0d45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
