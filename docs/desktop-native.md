@@ -478,3 +478,56 @@ original resume/replay tests and checks committed-after-DB-before-cache-cleanup,
 foreign path/replay references, unknown-object preservation, SQLite writer fencing,
 and legacy/read-only non-migration. These are private synthetic Store/filesystem
 fixtures, not hardware, playback, real-model or packaged-WKWebView evidence.
+
+### Explicit production ephemeral WK startup
+
+The normal App still uses its original persistent webview configuration and keeps
+cross-process UI preferences. For an explicitly nonpersistent **webview** session,
+launch the production executable directly:
+
+```sh
+"/absolute/path/Open Meeting Memo.app/Contents/MacOS/omm-desktop" \
+  --ephemeral-webview --webview-store-diagnostics
+```
+
+`--ephemeral-webview` sets the sole automatically-created `main` window's Tauri
+`incognito=true` before building/running any webview. On macOS this selects
+`WKWebsiteDataStore.nonPersistentDataStore`, not the default store. It does not
+isolate or initialize meeting/profile data: controlled startup must still supply
+explicit private HOME, all four XDG roots and XDG_RUNTIME_DIR, using existing
+canonical-path/ownership validation. Do not infer WK isolation from HOME/XDG.
+Opening the App retains the existing read-only/no-auto-service behavior; existing
+service identity checks may create the empty private STATE `service.lock`, but do
+not initialize a profile, config, database or service.
+
+The optional `--webview-store-diagnostics` requires `--ephemeral-webview`. After
+Tauri Ready it reads only the actual main WK object's configuration/store and
+checks `isPersistent=false`; stdout emits exactly one bounded JSON line with
+`schemaVersion`, `kind=webview-store`, `mode=ephemeral`, `label=main`,
+`persistent=false` and the current `pid`. No paths, meeting content, arbitrary
+output file, eval, IPC, automatic exit or extra business permissions are added.
+The actual store is checked even when diagnostic output is not requested.
+
+Unknown/repeated/non-UTF-8 arguments or diagnostics without isolation exit 2
+before runtime creation. An owned fixture-store manifest in a production binary,
+or combined with ephemeral mode in any build, also exits 2. Unsupported macOS
+API or a missing/extra/manual/identifier-bound main window refuses startup
+(exit 3), never falling back to default storage. Actual-object verification
+failure requests normal runtime exit 3. Fixture-only UUID store/default scene
+behavior is otherwise unchanged. Without the new flags there is no new native
+store inspection and the original configuration is unchanged.
+
+Mechanism verified against locked upstream source (not environment guesses):
+[Tauri 2.12.4 WebviewBuilder::incognito](https://docs.rs/tauri/2.12.4/tauri/webview/struct.WebviewBuilder.html#method.incognito),
+`tauri-runtime-wry-2.12.2/src/lib.rs` forwards `with_incognito`, and
+[`wry-0.57.0/src/wkwebview/mod.rs`](https://docs.rs/crate/wry/0.57.0/source/src/wkwebview/mod.rs)
+selects `nonPersistentDataStore` and assigns it to the new configuration before
+initializing WKWebView. No existing custom native configuration is supplied.
+The production read-only check reuses already-locked `objc2=0.6.5`; no new crate,
+lockfile, WebKit data-store enumeration or default-store getter is required.
+
+`startup::tests` checks production wiring, unchanged default config, opt-in,
+strict rejection and window/store conflicts in both default and fixture builds.
+A production release run must be proven separately with these flags and an
+explicit private synthetic profile; fixture-default nonpersistence alone is not
+release evidence. Never launch the default personal store just for comparison.

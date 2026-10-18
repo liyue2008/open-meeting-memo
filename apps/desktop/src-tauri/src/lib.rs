@@ -2,6 +2,7 @@
 #[cfg(feature = "native-bridge-fixture")]
 mod bridge_fixture;
 mod host;
+mod startup;
 #[cfg(test)]
 mod window_acl;
 #[tauri::command]
@@ -296,6 +297,14 @@ fn context() -> tauri::Context<tauri::Wry> {
     tauri::generate_context!()
 }
 pub fn run() {
+    let startup = startup::Options::from_process().unwrap_or_else(|error| {
+        eprintln!("{error}");
+        std::process::exit(2);
+    });
+    startup.check_support().unwrap_or_else(|error| {
+        eprintln!("{error}");
+        std::process::exit(3);
+    });
     #[cfg(feature = "native-bridge-fixture")]
     if std::env::var_os("OMM_NATIVE_REVIEW_CLEANUP").is_some() {
         bridge_fixture::review_cleanup();
@@ -330,7 +339,11 @@ pub fn run() {
         }
         context.config_mut().app.security.csp = Some(tauri::utils::config::Csp::Policy("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost omm-media: omm-fixture-result:; media-src omm-media:; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'".into()));
     }
-    builder
+    startup.configure(&mut context).unwrap_or_else(|error| {
+        eprintln!("{error}");
+        std::process::exit(3);
+    });
+    let app = builder
         .manage(host::Host::new(paths))
         .register_uri_scheme_protocol("omm-media", host::media_response)
         .invoke_handler(tauri::generate_handler![
@@ -371,6 +384,11 @@ pub fn run() {
             media_open,
             media_close
         ])
-        .run(context)
+        .build(context)
         .expect("desktop runtime failed");
+    app.run(move |handle, event| {
+        if matches!(event, tauri::RunEvent::Ready) {
+            startup.ready(handle);
+        }
+    });
 }

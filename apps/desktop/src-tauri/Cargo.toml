@@ -8,7 +8,7 @@ build = "build.rs"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
-native-bridge-fixture = ["dep:objc2", "dep:block2", "dep:libc", "dep:serde"]
+native-bridge-fixture = ["dep:block2", "dep:libc", "dep:serde"]
 
 [lib]
 name = "omm_desktop"
@@ -32,7 +32,8 @@ uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# Read-only actual WK store verification also runs for explicit production ephemeral startup.
+objc2 = { version = "=0.6.5" }
 # Used only by explicit owned WK fixture callbacks and verified child cleanup.
 libc = { version = "=0.2.190", optional = true }
-objc2 = { version = "=0.6.5", optional = true }
 block2 = { version = "=0.6.2", optional = true }
