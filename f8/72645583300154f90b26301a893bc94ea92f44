@@ -1,0 +1,53 @@
+apps/desktop/tests/player-playback.test.tsx
+  s_4d86a810e52613::t_79e7061cc73833 73-79,81-89
+apps/desktop/src/components/ui.tsx
+  s_4d86a810e52613::t_071b537432d14d 95-102,104-106,108
+apps/desktop/src/styles.css
+  s_7ec2c61f29d7b5::t_a824ab4d0c855d 107,148
+apps/desktop/tests/ui-layout-wkwebview/run.mjs
+  s_7ec2c61f29d7b5::t_b0f91ae350a329 162
+apps/desktop/src/features/library.tsx
+  s_7ec2c61f29d7b5::t_e88f5ce3c2c444 2,102-108,122,137,139-146,175-258,315,317,326
+apps/desktop/src/features/meeting-actions.tsx
+  s_4d86a810e52613::t_48415847f75e60 382-397
+apps/desktop/tests/service-recovery-ui.test.tsx
+  s_4d86a810e52613::t_5682d74924fd70 66-67
+apps/desktop/tests/library-compact.test.tsx
+  s_7ec2c61f29d7b5::t_641c5275c6a745 1-31
+apps/desktop/tests/app-interactions.test.tsx
+  s_4d86a810e52613::t_a57698d26ee559 54
+apps/desktop/src/App.tsx
+  s_4d86a810e52613::t_6921de99fe2fa1 252
+apps/desktop/tests/ui-layout-wkwebview/driver.js
+  s_4d86a810e52613::t_8050f61b4b8620 148-152,158-160,243-247,562-565,579-594
+apps/desktop/src/features/lifecycle.tsx
+  s_4d86a810e52613::t_a8d043bac896fe 121,123-136
+apps/desktop/src/features/player.tsx
+  s_4d86a810e52613::t_6641aa1270d142 1,167,184,216-231,235,243,272,283,300-307
+docs/desktop-ui-feedback-fixes.md
+  s_4d86a810e52613::t_50c38691a09ae0 57-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f872645583300154f90b26301a893bc94ea92f44",
+  "prompts": {},
+  "sessions": {
+    "s_4d86a810e52613": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d40-4405-7132-ba09-5fcaa7affd7f",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_7ec2c61f29d7b5": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14028-f8a3-7513-b88e-a2424c210bbb",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
