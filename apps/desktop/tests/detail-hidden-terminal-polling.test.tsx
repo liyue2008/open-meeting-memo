@@ -38,21 +38,32 @@ function fixture(
     currentSummaryTaskId: null,
   };
   const artifact = { meetingId: base.meetingId, taskId, stage: 'transcribe' as const };
+  const awaitingTranscript = () => taskStatus === 'queued' && taskStage === 'transcribe';
   const version = (historical = false): ArtifactVersion => ({
     artifact: historical ? { ...artifact, taskId: oldId } : artifact,
     attempt: historical ? 1 : 2,
-    status: historical ? 'historical' : phase === 2 ? 'committed' : 'partial',
+    status: historical
+      ? 'historical'
+      : awaitingTranscript()
+        ? 'missing'
+        : phase === 2
+          ? 'committed'
+          : 'partial',
     taskStatus: historical
       ? 'completed'
       : (taskStatus ?? (phase === 2 ? 'completed' : 'transcribing')),
-    sha256: historical ? 'f'.repeat(64) : String(phase + 1).repeat(64),
-    byteLength: 100,
-    createdAtMs: 1,
+    sha256: historical
+      ? 'f'.repeat(64)
+      : awaitingTranscript()
+        ? null
+        : String(phase + 1).repeat(64),
+    byteLength: awaitingTranscript() && !historical ? null : 100,
+    createdAtMs: awaitingTranscript() && !historical ? null : 1,
     sourceTranscriptTaskId: null,
     sourceTranscriptHash: null,
     modelVersion: 'synthetic',
     configHash: 'a'.repeat(64),
-    current: !historical && phase === 2,
+    current: !historical && phase === 2 && !awaitingTranscript(),
   });
   const fake = fixtureBridge({
     meeting_get: () => ({
@@ -83,7 +94,7 @@ function fixture(
             ? 'busy'
             : null,
         },
-        currentTranscriptTaskId: phase === 2 ? taskId : null,
+        currentTranscriptTaskId: phase === 2 && !awaitingTranscript() ? taskId : null,
       },
       hasPartialTranscript: phase === 1,
     }),
@@ -255,12 +266,12 @@ describe('Detail and Artifacts authoritative hidden terminal polling', () => {
     },
   );
   it.each([
-    ['queued', 'transcribe'],
-    ['summarizing', 'summary'],
+    ['queued', 'transcribe', 'queued'],
+    ['summarizing', 'summary', 'transcript_committed'],
   ] as const)(
-    'keeps real transcript_committed task work active under the %s meeting projection',
-    async (status, stage) => {
-      const f = fixture(status, false, { taskStatus: 'transcript_committed', stage });
+    'keeps production-compatible active task work under the %s meeting projection',
+    async (status, stage, taskStatus) => {
+      const f = fixture(status, false, { taskStatus, stage });
       await tick();
       fireEvent.click(screen.getByRole('tab', { name: '处理版本' }));
       await tick();
@@ -269,7 +280,15 @@ describe('Detail and Artifacts authoritative hidden terminal polling', () => {
       await tick(6500);
       expect(f.requests().meeting_get).toBeGreaterThan(active.meeting_get);
       expect(f.requests().artifact_versions).toBeGreaterThan(active.artifact_versions);
-      expect(screen.getAllByText('逐字稿已提交').length).toBeGreaterThan(0);
+      if (taskStatus === 'queued') {
+        const rows = screen.getByRole('tabpanel').querySelectorAll('.version-row');
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toHaveTextContent('排队中');
+        expect(rows[0]).toHaveTextContent('尚无产物');
+        expect(f.requests().artifact_read).toBe(0);
+      } else {
+        expect(screen.getAllByText('逐字稿已提交').length).toBeGreaterThan(0);
+      }
       f.status('summarizing');
       f.task('summarizing', 'summary');
       await tick(4500);

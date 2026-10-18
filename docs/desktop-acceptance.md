@@ -1,10 +1,14 @@
 # 桌面版本验收记录
 
-**此前同页快照/游标/历史、导入清理、隐藏权威状态与快速恢复可见均已在对应复审关闭；后续影响复审发现的会议/任务状态同名混用已完成本轮组件修复，尚未形成新完整候选。** 33457旧完整门禁/资源包与81fc旧定向结果只保留其历史来源，不追认为这次代码的全量通过。新的独立复审、最终同源全量/包、用户安装与PR仍由Main后续编排。
+**最新独立影响复审已ready，会议/任务状态分域P2及此前同页/安全问题已关闭；最后一条测试投影备注已校准。** 当前冻结来源的完整门禁、包和安装结果只以各阶段实际证据交接为准，不在测试后改写本页制造同源通过。旧33457整包、81fc/b902定向记录保留为其历史来源；最终用户安装须Main内部验收放行，SSH推送/PR及最终审计仍后续。
 
-## 后续P2：会议与任务活动状态分域（组件阶段）
+## 最后备注校准：真实queued任务与缺失产物
 
-已封存且没有活动任务、有逐字稿而无纪要的会议会投影为`transcript_committed`；过期任务恢复为`interrupted`时即可能出现。任务域同名`transcript_committed`仍属于管线活动，已封存会议此时投影为`queued`或`summarizing`，不能将两个域共用一个字符串判定。
+测试中的queued分支现在为单一`stage=transcribe,status=queued`任务：transcribe版本missing、sha256/byteLength/createdAtMs均null、current=false，会议currentTranscriptTaskId=null，未提交前不读取正文。随后真实语义的逐字稿提交切到summary阶段，版本面板原地显示生成纪要。另一个`stage=summary,status=transcript_committed`用例原样保留其活动要求，两个用例及完整128项覆盖没有删除业务断言。本轮只校准测试/文档，没有新的产品红例或生产修复；最终绿与来源由私有证据矩阵记录。
+
+## 后续P2：会议与任务活动状态分域（历史组件阶段）
+
+已封存且没有活动任务、有逐字稿而无纪要的会议会投影为`transcript_committed`；过期任务恢复为`interrupted`时即可能出现。任务域同名`transcript_committed`仍属于管线活动；当前Core只在summary阶段设置该状态，单任务的已封存会议因此投影为`summarizing`。`queued`会议则可来自transcribe阶段的queued任务，不能将两个域共用一个字符串判定。
 
 最小修复用`Record<MeetingStatus, boolean>`与`Record<TaskStatus, boolean>`分别穷举冻结有限域；详情只查会议域，产物版本只查任务域，无版本发现与准备提示查会议域。保留recording/unsealed即使无版本或只有终态历史仍继续首片段发现，保留focus订阅、前台10秒刷新与原快照/分页/游标算法。
 
@@ -15,7 +19,7 @@
 
 表覆盖当前契约全部13/9状态；Core当前并不直接输出会议unsealed/transcribing/interrupted，本轮未虚构这些投影的新场景。已保留的unsealed兼容回归继续执行。
 
-真实Detail+Artifacts/typed SDK/validator/QueryClient组合新增8例（原4例保留）：sealed transcript_committed＋interrupted任务、blocked/failed/cancelled任务对应终态、empty/unknown无任务，以及任务transcript_committed在真实queued/summarizing会议投影下继续版本轮询并原地显示生成纪要。旧81fc生产真实红1/12，隐藏30秒meeting_get从7增至22而版本/正文不增；修复后12项全部通过，完整Node128×UTC/洛杉矶、格式/合同与validator漂移/strict TS/生产build通过。document/focusManager隐藏模拟不冒作OS最小化；保留同panel/搜索、可见10秒刷新与卸载停止断言。最早探针还有两个精确文本选择错误，原红3/12保留，改为按实际version-row严格核状态后才取得1/12产品红；未修改生产解析器或降低业务断言。
+真实Detail+Artifacts/typed SDK/validator/QueryClient组合新增8例（原4例保留）：sealed transcript_committed＋interrupted任务、blocked/failed/cancelled任务对应终态、empty/unknown无任务，以及summary阶段transcript_committed任务在summarizing会议投影下继续版本轮询并原地显示生成纪要。原queued分支把transcribe阶段与transcript_committed配对，只满足结构校验，不能作为Core可生成投影；现已按上节校准为初始queued任务及匹配的缺失产物。旧81fc生产真实红1/12，隐藏30秒meeting_get从7增至22而版本/正文不增；修复后12项全部通过，完整Node128×UTC/洛杉矶、格式/合同与validator漂移/strict TS/生产build通过。document/focusManager隐藏模拟不冒作OS最小化；保留同panel/搜索、可见10秒刷新与卸载停止断言。最早探针还有两个精确文本选择错误，原红3/12保留，改为按实际version-row严格核状态后才取得1/12产品红；未修改生产解析器或降低业务断言。
 
 原样partial WK若执行，将以clean源码、独立前后清单及实际宿主/dist/driver/结果/owned回执记录于组件交接，不追认旧12项或旧包。全Rust/Swift/全WK/新release包本轮不重复运行。
 
