@@ -26,6 +26,7 @@ mod review;
 mod snapshot;
 mod stage_trace;
 pub mod store;
+mod ui_startup;
 mod window_acl;
 pub fn review_cleanup() {
     review::cleanup_without_window();
@@ -499,6 +500,204 @@ fn complete_seed(store: &mut Store, duration_ms: u64) {
         .unwrap();
 }
 
+fn schedule_driver(view: &tauri::Webview<tauri::Wry>, driver: &str) -> tauri::Result<()> {
+    view.eval_with_callback(
+        format!(
+            "(function(){{try {{{driver};return 'scheduled'}}catch(e){{return String(e)}}}})()"
+        ),
+        |result| eprintln!("private driver scheduled: {result}"),
+    )
+}
+
+fn finish_result(
+    app: tauri::AppHandle,
+    paths: Paths,
+    root: PathBuf,
+    mut result: serde_json::Value,
+) {
+    tauri::async_runtime::spawn(async move {
+        let exited = if archive_requested() {
+            true
+        } else {
+            let acknowledged = omm::service::daemon::request(&paths, "shutdown", None)
+                .await
+                .is_ok();
+            wait_fixture_service(&app, &paths) && acknowledged
+        };
+        if !exited {
+            result["ok"] = serde_json::json!(false);
+        }
+        write_private_new(
+            &root.join("bridge-result.json"),
+            &serde_json::to_vec_pretty(
+                &serde_json::json!({"result":result,"profile":"private synthetic fixture"}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        if exited {
+            app.exit(if result["ok"] == true { 0 } else { 1 });
+        }
+    });
+}
+
+fn completion_worker(
+    view: tauri::Webview<tauri::Wry>,
+    root: PathBuf,
+    stop: Paths,
+    close: Arc<close::Controller>,
+    gate: Option<Arc<ui_startup::Controller>>,
+    driver: String,
+) {
+    if gate.as_ref().is_some_and(|g| !g.claim_worker()) {
+        return;
+    }
+    std::thread::spawn(move || {
+        let done = Arc::new(AtomicBool::new(false));
+        for _ in 0..if scenario() == "ui" { 360 } else { 70 } {
+            if done.load(Ordering::SeqCst) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if let Some(gate) = &gate {
+                use ui_startup::Action;
+                match gate.next(std::time::Instant::now()) {
+                    Action::Window => {
+                        ui_startup::observe(gate, &view, true);
+                        continue;
+                    }
+                    Action::Probe => {
+                        ui_startup::observe(gate, &view, false);
+                        continue;
+                    }
+                    Action::Start => {
+                        if schedule_driver(&view, &driver).is_err() {
+                            finish_result(
+                                view.app_handle().clone(),
+                                stop.clone(),
+                                root.clone(),
+                                serde_json::json!({"ok":false,"checks":[],"playCalls":0,"error":"ui-startup-not-ready","uiStartup":{"schemaVersion":1,"reason":"driver-dispatch","cleanup":"not-needed"}}),
+                            );
+                            break;
+                        }
+                        eprintln!(
+                            "{}",
+                            serde_json::json!({"kind":"fixture-ui-startup","state":"admitted","uiStartup":gate.evidence()})
+                        );
+                        continue;
+                    }
+                    Action::Cancel => {
+                        ui_startup::cancel(gate, &view);
+                        continue;
+                    }
+                    Action::Fail => {
+                        finish_result(
+                            view.app_handle().clone(),
+                            stop.clone(),
+                            root.clone(),
+                            gate.failure(),
+                        );
+                        break;
+                    }
+                    Action::Wait => continue,
+                    Action::Running => {}
+                }
+            }
+            if review::mode().is_some() {
+                if view
+                    .app_handle()
+                    .state::<std::sync::Mutex<review::Controller>>()
+                    .lock()
+                    .unwrap()
+                    .expired()
+                {
+                    done.store(true, Ordering::SeqCst);
+                    review::finish(
+                        view.app_handle().clone(),
+                        stop.clone(),
+                        serde_json::json!({"ok":false,"playCalls":0,"error":"review fixture exceeded 150 seconds"}),
+                    );
+                    break;
+                }
+                review::poll(&view, stop.clone());
+            }
+            if scenario() == "ui" {
+                if let Some(result) = close.completion(view.app_handle()) {
+                    done.store(true, Ordering::SeqCst);
+                    if review::mode().is_some() {
+                        review::finish(view.app_handle().clone(), stop.clone(), result);
+                    } else {
+                        close::finish(view.app_handle().clone(), stop.clone(), result);
+                    }
+                    break;
+                }
+                close.poll(&view);
+                if close.armed() {
+                    continue;
+                }
+            }
+            snapshot::poll(&view);
+            let root = root.clone();
+            let paths = stop.clone();
+            let done = done.clone();
+            let app = view.app_handle().clone();
+            let close = close.clone();
+            view.eval_with_callback(
+                "JSON.stringify(window.__ommFixtureResult||null)",
+                move |text| {
+                    let Ok(serde_json::Value::String(text)) = serde_json::from_str(&text) else {
+                        return;
+                    };
+                    let Ok(result) = serde_json::from_str::<serde_json::Value>(&text) else {
+                        return;
+                    };
+                    if !result.is_object() || done.swap(true, Ordering::SeqCst) {
+                        return;
+                    }
+                    let mut result = result;
+                    if archive_requested() {
+                        let readers_released = Store::open_read_only(&paths)
+                            .and_then(|s| s.active_audio_readers())
+                            .is_ok_and(|active| !active);
+                        result["archiveReadersReleasedBeforeTeardown"] =
+                            serde_json::json!(readers_released);
+                        if !readers_released {
+                            result["ok"] = serde_json::json!(false);
+                        }
+                    }
+                    if review::mode().is_some() {
+                        review::finish(app.clone(), paths.clone(), result);
+                        return;
+                    }
+                    if close.used() {
+                        let mut result = result;
+                        result["ok"] = serde_json::json!(false);
+                        result["error"] =
+                            serde_json::json!("driver completed before native close observation");
+                        close::finish(app.clone(), paths.clone(), result);
+                        return;
+                    }
+                    finish_result(app.clone(), paths.clone(), root.clone(), result);
+                },
+            )
+            .unwrap();
+        }
+        if !done.load(Ordering::SeqCst) && review::mode().is_some() {
+            review::finish(
+                view.app_handle().clone(),
+                stop.clone(),
+                serde_json::json!({"ok":false,"playCalls":0,"error":"review fixture exceeded 180 second completion budget"}),
+            );
+        } else if !done.load(Ordering::SeqCst) && close.used() {
+            close::finish(
+                view.app_handle().clone(),
+                stop,
+                serde_json::json!({"ok":false,"playCalls":0,"error":"native close fixture exceeded 180 second budget"}),
+            );
+        }
+    });
+}
+
 pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Builder<tauri::Wry> {
     if scenario() == "recovery" {
         return recovery::builder(builder, paths);
@@ -514,6 +713,18 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
         .unwrap();
     let driver = std::fs::read_to_string(root.join("driver.js")).unwrap();
     assert!(driver.len() < 128 * 1024);
+    let gate = ui_startup::selected(
+        &scenario(),
+        &driver,
+        store::requested(),
+        review::mode().is_some(),
+        archive_requested(),
+    )
+    .then(|| Arc::new(ui_startup::Controller::default()));
+    let setup_gate = gate.clone();
+    let setup_root = root.clone();
+    let setup_driver = driver.clone();
+    let setup_stop = paths.clone();
     let owned = paths.clone();
     let stop = paths.clone();
     let started = Arc::new(AtomicBool::new(false));
@@ -524,20 +735,48 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
     };
     let close = Arc::new(close::Controller::new());
     let close_events = close.clone();
+    let setup_close = close.clone();
     builder
         .manage(std::sync::Mutex::<Option<FixtureService>>::new(None))
         .manage(std::sync::Mutex::new(helper))
         .manage(std::sync::Mutex::new(review::Controller::new()))
         .setup(move |app| {
+            if let Some(gate) = &setup_gate {
+                gate.setup_started(std::time::Instant::now());
+            }
             store::ui_setup(app.handle());
             if scenario() == "window-acl" {
                 // Same local origin and capability, but no React listener competes with this API-level probe.
                 tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
-                    .on_web_resource_request(|_, response| { *response.body_mut() = std::borrow::Cow::Borrowed(b"<!doctype html><title>Private window ACL fixture</title>"); })
+                    .on_web_resource_request(|_, response| {
+                        *response.body_mut() = std::borrow::Cow::Borrowed(
+                            b"<!doctype html><title>Private window ACL fixture</title>",
+                        );
+                    })
                     .build()?;
             }
             if !archive_requested() {
                 start_fixture_service(app.handle(), &owned)?;
+            }
+            if let Some(gate) = &setup_gate {
+                gate.setup_complete();
+                if let Some(window) = app.get_webview_window("main") {
+                    completion_worker(
+                        window.as_ref().clone(),
+                        setup_root.clone(),
+                        setup_stop.clone(),
+                        setup_close.clone(),
+                        Some(gate.clone()),
+                        setup_driver.clone(),
+                    );
+                } else if gate.missing_window() {
+                    finish_result(
+                        app.handle().clone(),
+                        setup_stop.clone(),
+                        setup_root.clone(),
+                        gate.failure(),
+                    );
+                }
             }
             Ok(())
         })
@@ -549,7 +788,10 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
         .on_page_load(move |view, event| {
             if event.event() != tauri::webview::PageLoadEvent::Finished
                 || view.label() != "main"
-                || !view.app_handle().get_webview_window("main").is_some_and(|w| crate::host::trusted(&w))
+                || !view
+                    .app_handle()
+                    .get_webview_window("main")
+                    .is_some_and(|w| crate::host::trusted(&w))
                 || started.swap(true, Ordering::SeqCst)
             {
                 return;
@@ -558,87 +800,18 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
                 window_acl::start(view.clone(), stop.clone());
                 return;
             }
-            view.eval_with_callback(
-                format!("(function(){{try {{{driver};return 'scheduled'}}catch(e){{return String(e)}}}})()"),
-                |result| eprintln!("private driver scheduled: {result}"),
-            ).unwrap();
-            let view = view.clone();
-            let root = root.clone();
-            let stop = stop.clone();
-            let close = close.clone();
-            std::thread::spawn(move || {
-                let done = Arc::new(AtomicBool::new(false));
-                for _ in 0..if scenario() == "ui" { 360 } else { 70 } {
-                    if done.load(Ordering::SeqCst) {
-                        break;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                    if review::mode().is_some() {
-                        if view.app_handle().state::<std::sync::Mutex<review::Controller>>().lock().unwrap().expired() {
-                            done.store(true,Ordering::SeqCst);
-                            review::finish(view.app_handle().clone(), stop.clone(), serde_json::json!({"ok":false,"playCalls":0,"error":"review fixture exceeded 150 seconds"}));
-                            break;
-                        }
-                        review::poll(&view,stop.clone());
-                    }
-                    if scenario() == "ui" {
-                        if let Some(result) = close.completion(view.app_handle()) {
-                            done.store(true, Ordering::SeqCst);
-                            if review::mode().is_some() {review::finish(view.app_handle().clone(),stop.clone(),result);} else {close::finish(view.app_handle().clone(), stop.clone(), result);}
-                            break;
-                        }
-                        close.poll(&view);
-                        if close.armed() {
-                            continue;
-                        }
-                    }
-                    snapshot::poll(&view);
-                    let root = root.clone();
-                    let paths = stop.clone();
-                    let done = done.clone();
-                    let app = view.app_handle().clone();
-                    let close = close.clone();
-                    view.eval_with_callback("JSON.stringify(window.__ommFixtureResult||null)", move |text| {
-                        let Ok(serde_json::Value::String(text)) = serde_json::from_str(&text) else { return; };
-                        let Ok(result) = serde_json::from_str::<serde_json::Value>(&text) else { return; };
-                        if !result.is_object() || done.swap(true, Ordering::SeqCst) { return; }
-                        let mut result = result;
-                        if archive_requested() {
-                            let readers_released = Store::open_read_only(&paths).and_then(|s| s.active_audio_readers()).is_ok_and(|active| !active);
-                            result["archiveReadersReleasedBeforeTeardown"] = serde_json::json!(readers_released);
-                            if !readers_released { result["ok"] = serde_json::json!(false); }
-                        }
-                        if review::mode().is_some() {
-                            review::finish(app.clone(),paths.clone(),result);
-                            return;
-                        }
-                        if close.used() {
-                            let mut result = result;
-                            result["ok"] = serde_json::json!(false);
-                            result["error"] = serde_json::json!("driver completed before native close observation");
-                            close::finish(app.clone(), paths.clone(), result);
-                            return;
-                        }
-                        let paths = paths.clone();
-                        let app = app.clone();
-                        let root = root.clone();
-                        tauri::async_runtime::spawn(async move {
-                            let mut result = result;
-                            let exited = if archive_requested() { true } else {
-                                let acknowledged = omm::service::daemon::request(&paths, "shutdown", None).await.is_ok();
-                                wait_fixture_service(&app, &paths) && acknowledged
-                            };
-                            if !exited { result["ok"] = serde_json::json!(false); }
-                            write_private_new(&root.join("bridge-result.json"), &serde_json::to_vec_pretty(&serde_json::json!({"result":result,"profile":"private synthetic fixture"})).unwrap()).unwrap();
-                            if exited { app.exit(if result["ok"] == true { 0 } else { 1 }); }
-                        });
-                    }).unwrap();
-                }
-                if !done.load(Ordering::SeqCst) && review::mode().is_some() {
-                    review::finish(view.app_handle().clone(),stop.clone(),serde_json::json!({"ok":false,"playCalls":0,"error":"review fixture exceeded 180 second completion budget"}));
-                } else if !done.load(Ordering::SeqCst) && close.used() {
-                    close::finish(view.app_handle().clone(), stop, serde_json::json!({"ok":false,"playCalls":0,"error":"native close fixture exceeded 180 second budget"}));
-                }
-            });
+            if let Some(gate) = &gate {
+                gate.finished();
+            } else {
+                schedule_driver(view, &driver).unwrap();
+            }
+            completion_worker(
+                view.clone(),
+                root.clone(),
+                stop.clone(),
+                close.clone(),
+                gate.clone(),
+                driver.clone(),
+            );
         })
 }
