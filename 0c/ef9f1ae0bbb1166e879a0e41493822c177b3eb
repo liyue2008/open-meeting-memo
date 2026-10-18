@@ -1,0 +1,25 @@
+apps/desktop/src/contracts.generated.ts
+  s_229b1f979a836b::t_8f52ccb1f925b2 11,186-187,505,519-520
+contracts/desktop/v1/examples/service_plan.json
+  s_229b1f979a836b::t_2c4bf087c6713e 51-55
+contracts/desktop/v1/schema.json
+  s_229b1f979a836b::t_2380dd30b5b8aa 820-821,1880-1887,1890-1897,5952-5956,6026-6044,6056-6058
+src/application/desktop_contracts.rs
+  s_229b1f979a836b::t_3ab0545957498d 38-39,435-438,986-993,1014-1016
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0cef9f1ae0bbb1166e879a0e41493822c177b3eb",
+  "prompts": {},
+  "sessions": {
+    "s_229b1f979a836b": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d30-4c5d-77ae-90c2-a242611d76ff",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+apps/desktop/src/contracts.generated.ts
+  s_229b1f979a836b::t_bfe1d9686d2670 396-397
+contracts/desktop/v1/schema.json
+  s_229b1f979a836b::t_668d916cc5aaa2 3102-3109,3112-3119
+src/application/desktop_contracts.rs
+  s_229b1f979a836b::t_e5ef0771d4589f 776-779
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "941264c91d6da0624e17d7138ccda870f1027c0c",
+  "prompts": {},
+  "sessions": {
+    "s_229b1f979a836b": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d30-4c5d-77ae-90c2-a242611d76ff",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
