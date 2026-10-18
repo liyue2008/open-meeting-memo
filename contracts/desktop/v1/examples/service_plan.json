@@ -48,7 +48,11 @@
           "expiresAtMs": 1893456000000,
           "mode": "service"
         }
-      }
+      },
+      "effects": [
+        "Start the verified bundled service"
+      ],
+      "guidance": null
     }
   }
 }
