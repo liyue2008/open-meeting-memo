@@ -1,12 +1,12 @@
 # 桌面版本验收记录
 
-**第三轮复审已关闭此前P1同页快照/游标/历史与P2导入清理；新发现的隐藏页终态轮询问题正在定向修复，尚未形成新完整候选。** 33457的旧完整门禁/资源包保留为其历史来源，不追认为这次UI代码的全量通过。新fresh复审、最终同源全量/包、用户安装与PR仍由Main后续编排。
+**第三轮复审已关闭此前P1同页快照/游标/历史与P2导入清理；新发现的隐藏页终态轮询问题已完成组件定向修复，尚未形成新完整候选。** 33457的旧完整门禁/资源包保留为其历史来源，不追认为这次UI代码的全量通过。新fresh复审、最终同源全量/包、用户安装与PR仍由Main后续编排。
 
 ## 第三轮P2：隐藏详情的权威终态与停止轮询（组件阶段）
 
 根因是活动产物每2秒在后台更新，但详情原10秒刷新不在后台执行；进入隐藏页时旧recording/unsealed状态会一直要求产物轮询。最小修复复用既有活动状态判定，使详情在活动期间每2秒也更新权威状态；终态隐藏后停止该活动详情刷新，产物据此停止。正常前台详情仍保留10秒刷新，回到可见页不重挂载、不清搜索或历史选择；未改正文快照/分页/游标算法、原生控制器或生产契约。
 
-新增 `tests/detail-hidden-terminal-polling.test.tsx` 把真实Detail和Artifacts一起挂载，通过真实SDK、QueryClient及visibilitychange/focusManager调度复现：旧实现3项全红，隐藏终态后30秒artifact_versions从12增至27；修复后覆盖隐藏无片段到首片段、原地终稿、终态请求不再增长、可见恢复搜索/历史及正常前台刷新、卸载停止、无版本失败终态。这里是document/query层隐藏模拟，不是实际OS最小化/隐藏证明。当前119项双时区、strict TS、合同/validator、格式与production build均通过；真实partial当前源定向仍待运行，结果随本组件报告单列。全Rust/Swift/全WK与新包本轮未跑，不沿用旧源通过。
+新增 `tests/detail-hidden-terminal-polling.test.tsx` 把真实Detail和Artifacts一起挂载，通过真实SDK、QueryClient及visibilitychange/focusManager调度复现：旧实现3项全红，隐藏终态后30秒artifact_versions从12增至27；修复后覆盖隐藏无片段到首片段、原地终稿、终态请求不再增长、可见恢复搜索/历史及正常前台刷新、卸载停止、无版本失败终态。这里是document/query层隐藏模拟，不是实际OS最小化/隐藏证明。当前119项双时区、strict TS、合同/validator、格式与production build均通过。clean `b612c5c`实际原样partial定向12项通过（`/private/tmp/omm-htp-XgYEm8`，0play，owned19434 exit0/waited无超时）：同页新增/终稿、旧cursor冲突、事前reader释放保留；291条完整源码前后相等，实际host/dist/driver/结果/回执均绑定。该真实WK没有操纵OS隐藏状态，不能代替上述document/query层隐藏回归，也不声称实际OS最小化。文档在运行后仅据实更新，完整当前源门禁仍留到新fresh后统一执行。全Rust/Swift/全WK与新包本轮未跑，不沿用旧源通过。
 
 ## 第二轮组合验收前的历史记录
 
