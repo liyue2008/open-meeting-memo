@@ -133,9 +133,9 @@ fn start_fixture_service(app: &tauri::AppHandle<tauri::Wry>, paths: &Paths) -> R
         );
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    Err(OmmError::unavailable(
-        "owned fixture CLI did not become ready; retain its control handle",
-    ))
+    write_private_new(&output("fixture-cli-start-failed.json"), b"{\"ok\":false,\"reason\":\"owned CLI did not become ready; app retains its control handle\"}\n")?;
+    // Keep the host and Child handle alive so a failed fixture cannot orphan its daemon.
+    Ok(())
 }
 
 // The caller first requests normal Core shutdown. Never kill or discard a live handle.
