@@ -5966,6 +5966,7 @@
         "incompatible_service",
         "profile_requires_takeover",
         "external_stop_required",
+        "external_unload_required",
         "registration_review_required",
         "incompatible_schema"
       ]

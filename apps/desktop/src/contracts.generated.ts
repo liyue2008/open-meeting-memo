@@ -502,7 +502,7 @@ export interface ServiceCapabilityResponse {
 }
 export type ServiceAction = "start" | "stop" | "switch";
 export type ServiceLifecycleState = "uninitialized" | "stopped" | "running" | "incompatible" | "busy" | "unknown";
-export type ServicePlanReason = "ready" | "profile_not_initialized" | "profile_not_empty" | "service_busy" | "unowned_service" | "bundle_unavailable" | "service_unreachable" | "already_running" | "already_stopped" | "incompatible_service" | "profile_requires_takeover" | "external_stop_required" | "registration_review_required" | "incompatible_schema";
+export type ServicePlanReason = "ready" | "profile_not_initialized" | "profile_not_empty" | "service_busy" | "unowned_service" | "bundle_unavailable" | "service_unreachable" | "already_running" | "already_stopped" | "incompatible_service" | "profile_requires_takeover" | "external_stop_required" | "external_unload_required" | "registration_review_required" | "incompatible_schema";
 export interface ServicePlanRequest {
   action: ServiceAction;
 }

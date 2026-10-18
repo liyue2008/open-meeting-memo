@@ -989,6 +989,8 @@ pub enum ServicePlanReason {
     ProfileRequiresTakeover,
     #[serde(rename = "external_stop_required")]
     ExternalStopRequired,
+    #[serde(rename = "external_unload_required")]
+    ExternalUnloadRequired,
     #[serde(rename = "registration_review_required")]
     RegistrationReviewRequired,
     #[serde(rename = "incompatible_schema")]
