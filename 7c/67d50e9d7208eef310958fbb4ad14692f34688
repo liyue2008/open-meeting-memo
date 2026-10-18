@@ -1,0 +1,19 @@
+apps/desktop/src-tauri/src/bridge_fixture/ui_startup.rs
+  s_229b1f979a836b::t_facf293b780ee0 1-518
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7c67d50e9d7208eef310958fbb4ad14692f34688",
+  "prompts": {},
+  "sessions": {
+    "s_229b1f979a836b": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d30-4c5d-77ae-90c2-a242611d76ff",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
