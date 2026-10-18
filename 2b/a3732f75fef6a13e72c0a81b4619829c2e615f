@@ -1,0 +1,67 @@
+src/adapters/asr/codec.rs
+  s_e6fcf3cda4e1bb::t_a6a913e16b541b 369
+src/adapters/asr/mod.rs
+  s_e6fcf3cda4e1bb::t_8223ced8ed06cc 73
+src/adapters/pi/mod.rs
+  s_9c0a9ef28c1600::t_53948c7da6a2da 43,72-80,82-90,241,307,494,500,504
+src/core/execution.rs
+  s_9c0a9ef28c1600::t_79fcde5a9d7a18 26,57,93-102,105-106,110,114-115,117-123,210-222
+src/core/execution_format.rs
+  s_9c0a9ef28c1600::t_a7cf5e23a9ac60 499,506,523-549
+src/core/execution_receipts.rs
+  s_9c0a9ef28c1600::t_45daa521480630 271-273,312,330,335-339,343-349,363-368,380-386
+src/core/process.rs
+  s_9c0a9ef28c1600::t_6d47c214d24986 20-32,34-41
+src/core/store.rs
+  s_9c0a9ef28c1600::t_87c0e9fe5cf1f9 151-153,1091-1126
+src/core/store/attempt_errors.rs
+  s_9c0a9ef28c1600::t_84dc78bc649d14 81-83
+src/core/store/executions.rs
+  s_9c0a9ef28c1600::t_a87d6461849d46 345-346,447-503
+src/lib.rs
+  s_e6fcf3cda4e1bb::t_ce91b9080453ba 16-19
+src/service/daemon.rs
+  s_9c0a9ef28c1600::t_62279e77ed4ede 1078-1081,1095
+tests/core_integration.rs
+  s_e6fcf3cda4e1bb::t_1cd9afe2e334dd 1-2,4-6,8-10
+tests/core_integration/cases.rs
+  s_9c0a9ef28c1600::t_cd3c5f4bddb4bf 1-2036
+tests/core_integration/faults.rs
+  s_9c0a9ef28c1600::t_97636e358055b3 1-163
+tests/core_integration/support.rs
+  s_9c0a9ef28c1600::t_76169c3c49fa03 1-979
+tests/core_pipeline_pi.rs
+  s_9c0a9ef28c1600::t_3aff1f78bbf96a 281,318,377,740,748-752,776,791-793,801-809,822,919-974
+tests/execution/failures.rs
+  s_e6fcf3cda4e1bb::t_718a6e05919755 11-73,98,125-130,159-164,192-197,296-561
+tests/execution_format/format.rs
+  s_9c0a9ef28c1600::t_986be68760c1a6 393-452
+tests/execution_receipts/receipts.rs
+  s_9c0a9ef28c1600::t_0c9dcdc6799ef8 342-371
+tests/process_ownership.rs
+  s_9c0a9ef28c1600::t_c8e5ff4e824abf 54-234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2ba3732f75fef6a13e72c0a81b4619829c2e615f",
+  "prompts": {},
+  "sessions": {
+    "s_9c0a9ef28c1600": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a15013-429e-713d-be8b-4c94c9c85870",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_e6fcf3cda4e1bb": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d6f-1e4a-745b-9d2c-638258fd0d45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
