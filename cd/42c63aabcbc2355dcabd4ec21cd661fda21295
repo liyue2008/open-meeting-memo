@@ -1,0 +1,19 @@
+scripts/fixtures/desktop-archive-media-probe.js
+  s_4d86a810e52613::t_e44a5fce2a409e 48-50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cd42c63aabcbc2355dcabd4ec21cd661fda21295",
+  "prompts": {},
+  "sessions": {
+    "s_4d86a810e52613": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d40-4405-7132-ba09-5fcaa7affd7f",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
