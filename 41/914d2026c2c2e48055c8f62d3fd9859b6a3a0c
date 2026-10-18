@@ -1,0 +1,16 @@
+apps/desktop/src-tauri/src/bridge_fixture.rs
+  h_b4d40596eab523 138-145
+scripts/fixtures/desktop-service-recovery-probe.js
+  h_b4d40596eab523 43-44,99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "41914d2026c2c2e48055c8f62d3fd9859b6a3a0c",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
