@@ -1,0 +1,18 @@
+apps/desktop/src/features/detail.tsx
+  h_b4d40596eab523 1,10,21,32
+apps/desktop/tests/detail-hidden-terminal-polling.test.tsx
+  h_b4d40596eab523 168-181
+docs/desktop-acceptance.md
+  h_b4d40596eab523 9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "81fc3c15f67ba7c16a3702db26a230524b47e950",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
