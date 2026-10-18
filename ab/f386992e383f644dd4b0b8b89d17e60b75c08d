@@ -1,0 +1,23 @@
+apps/desktop/src/bridge/validators.generated.js
+  s_e6fcf3cda4e1bb::t_6fcfaf93ae88df 13
+apps/desktop/src/contracts.generated.ts
+  s_e6fcf3cda4e1bb::t_38791e49d05c0d 505
+src/application/desktop_contracts.rs
+  s_e6fcf3cda4e1bb::t_2d334292c4bd80 992-993
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "abf386992e383f644dd4b0b8b89d17e60b75c08d",
+  "prompts": {},
+  "sessions": {
+    "s_e6fcf3cda4e1bb": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d6f-1e4a-745b-9d2c-638258fd0d45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
