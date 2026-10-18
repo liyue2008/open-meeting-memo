@@ -9,6 +9,8 @@
   "segment_activity": "CREATE TABLE segment_activity(lease TEXT PRIMARY KEY,document TEXT NOT NULL)",
   "asr_inputs": "CREATE TABLE asr_inputs(task TEXT NOT NULL REFERENCES tasks(id),lease TEXT NOT NULL,document TEXT NOT NULL,hash TEXT NOT NULL,PRIMARY KEY(task,lease))",
   "segment_archives": "CREATE TABLE segment_archives(session TEXT NOT NULL,sequence INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'queued',lease TEXT,expires INTEGER,receipt TEXT,retries INTEGER NOT NULL DEFAULT 0,next_at INTEGER NOT NULL DEFAULT 0,error TEXT,cleaned INTEGER NOT NULL DEFAULT 0, bitrate INTEGER NOT NULL DEFAULT 48000,PRIMARY KEY(session,sequence),FOREIGN KEY(session,sequence) REFERENCES segment_jobs(session,sequence))",
+  "asr_measurement_totals": "CREATE TABLE asr_measurement_totals(task TEXT PRIMARY KEY,document TEXT NOT NULL)",
+  "asr_measurements": "CREATE TABLE asr_measurements(task TEXT NOT NULL,slot INTEGER NOT NULL,ordinal INTEGER NOT NULL,document TEXT NOT NULL CHECK(length(CAST(document AS BLOB))<=1024),PRIMARY KEY(task,slot))",
   "desktop_metadata": "CREATE TABLE desktop_metadata(meeting TEXT PRIMARY KEY REFERENCES meetings(id),revision INTEGER NOT NULL,document TEXT NOT NULL,trashed INTEGER NOT NULL DEFAULT 0,started_at INTEGER,time_source TEXT NOT NULL DEFAULT 'estimated',source TEXT NOT NULL DEFAULT 'legacy')",
   "desktop_requests": "CREATE TABLE desktop_requests(request TEXT PRIMARY KEY,body_hash TEXT NOT NULL,result TEXT NOT NULL)",
   "desktop_cancellations": "CREATE TABLE desktop_cancellations(task TEXT PRIMARY KEY REFERENCES tasks(id),requested_at INTEGER NOT NULL,settled INTEGER NOT NULL DEFAULT 0)",

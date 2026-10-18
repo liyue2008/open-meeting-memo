@@ -149,6 +149,11 @@ pub(crate) fn database(paths: &Paths) -> Result<Value> {
             tables.insert(name, sql);
         }
     }
+    // Historical measurement setup runs two ordered CREATEs before its transaction.
+    // First-only is a possible interrupted setup; second-only is not a known schema.
+    if tables.contains_key("asr_measurement_totals") && !tables.contains_key("asr_measurements") {
+        return Err(schema_refused());
+    }
     for required in [
         "settings",
         "meetings",

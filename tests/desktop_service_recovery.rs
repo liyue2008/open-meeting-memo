@@ -58,9 +58,15 @@ impl Fixture {
         let mut cfg = AppConfig::default();
         cfg.notifications.enabled = false;
         cfg.save(&paths).unwrap();
-        drop(Store::open(&paths).unwrap());
-        // Exact pre-desktop schema: Store startup, not adoption or planning, may add these tables.
-        rusqlite::Connection::open(paths.state.join("state.sqlite")).unwrap().execute_batch("DROP TABLE desktop_metadata; DROP TABLE desktop_requests; DROP TABLE desktop_cancellations; DROP TABLE desktop_imports; DROP TABLE desktop_search;").unwrap();
+        // Source-bound historical Store startup DDL, not current Store minus desktop tables.
+        let db = paths.state.join("state.sqlite");
+        write_private_new(&db, b"").unwrap();
+        rusqlite::Connection::open(db)
+            .unwrap()
+            .execute_batch(include_str!(
+                "fixtures/desktop-service-recovery-legacy-51319b7.sql"
+            ))
+            .unwrap();
         let rt = root.join("runtime");
         private_dir(&rt).unwrap();
         let runtime = RuntimeLocation::resolve(
@@ -516,84 +522,123 @@ async fn desktop_service_recovery_adopt_then_explicit_start_is_usable_and_second
     value["files"]["bin/omm"] = serde_json::json!(hash_file(&cli).unwrap());
     fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
     f.bundle = Bundle::open(&f.bundle.resources).unwrap();
-    let (_, start) = lifecycle::plan_at(
-        &f.paths,
-        Some(&f.bundle),
-        "start",
-        &f.home,
-        &f.runtime,
-        &f.runner,
-    )
-    .await
-    .unwrap();
-    let started = lifecycle::apply_at(
-        &f.paths,
-        &f.bundle,
-        start.unwrap(),
-        &f.home,
-        &f.runtime,
-        &f.runner,
-    )
-    .await;
-    let owner = omm::core::runtime::verify_active(&f.runtime.path, &f.paths.state).ok();
-    let duplicate = lifecycle::plan_at(
-        &f.paths,
-        Some(&f.bundle),
-        "start",
-        &f.home,
-        &f.runtime,
-        &f.runner,
-    )
-    .await;
-    let mut stopped = None;
-    if let Some(owner) = &owner {
-        if lifecycle::owned_service(owner, &f.bundle).unwrap_or(false) {
-            let plan = lifecycle::plan_at(
-                &f.paths,
-                Some(&f.bundle),
-                "stop",
-                &f.home,
-                &f.runtime,
-                &f.runner,
-            )
-            .await;
-            if let Ok((_, Some(plan))) = plan {
-                stopped = Some(
-                    lifecycle::apply_at(&f.paths, &f.bundle, plan, &f.home, &f.runtime, &f.runner)
-                        .await,
-                );
-            }
-            if omm::core::runtime::owner_is_live(owner) {
-                let _ = omm::service::daemon::request_message_at(
+    for round in 0..2 {
+        let task = if round == 1 {
+            Some(record_modern_asr_measurement(&f))
+        } else {
+            None
+        };
+        let measurements_before = task.map(|id| {
+            Store::open_read_only(&f.paths)
+                .unwrap()
+                .asr_measurements(id)
+                .unwrap()
+        });
+        let before = recovery_bytes(&f);
+        let (_, start) = lifecycle::plan_at(
+            &f.paths,
+            Some(&f.bundle),
+            "start",
+            &f.home,
+            &f.runtime,
+            &f.runner,
+        )
+        .await
+        .unwrap();
+        assert!(
+            start.is_some(),
+            "normal ASR tables must pass shared stopped_start_snapshot"
+        );
+        assert_eq!(before, recovery_bytes(&f));
+        if task.is_some() {
+            println!(
+                "modern ASR restart plan: preserved config/database/sidecars {}",
+                serde_json::to_string(&before).unwrap()
+            );
+        }
+        let started = lifecycle::apply_at(
+            &f.paths,
+            &f.bundle,
+            start.unwrap(),
+            &f.home,
+            &f.runtime,
+            &f.runner,
+        )
+        .await;
+        let owner = omm::core::runtime::verify_active(&f.runtime.path, &f.paths.state).ok();
+        let duplicate = lifecycle::plan_at(
+            &f.paths,
+            Some(&f.bundle),
+            "start",
+            &f.home,
+            &f.runtime,
+            &f.runner,
+        )
+        .await;
+        let mut stopped = None;
+        if let Some(owner) = &owner {
+            if lifecycle::owned_service(owner, &f.bundle).unwrap_or(false) {
+                let plan = lifecycle::plan_at(
                     &f.paths,
+                    Some(&f.bundle),
+                    "stop",
+                    &f.home,
                     &f.runtime,
-                    omm::service::daemon::Request {
-                        schema_version: 1,
-                        command: "shutdown".into(),
-                        instance_id: Some(owner.instance_id),
-                        title: None,
-                        session_id: None,
-                        desktop_request: None,
-                        desktop_capability: None,
-                    },
+                    &f.runner,
                 )
                 .await;
-            }
-            for _ in 0..100 {
-                if !omm::core::runtime::owner_is_live(owner) {
-                    break;
+                if let Ok((_, Some(plan))) = plan {
+                    stopped = Some(
+                        lifecycle::apply_at(
+                            &f.paths, &f.bundle, plan, &f.home, &f.runtime, &f.runner,
+                        )
+                        .await,
+                    );
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                if omm::core::runtime::owner_is_live(owner) {
+                    let _ = omm::service::daemon::request_message_at(
+                        &f.paths,
+                        &f.runtime,
+                        omm::service::daemon::Request {
+                            schema_version: 1,
+                            command: "shutdown".into(),
+                            instance_id: Some(owner.instance_id),
+                            title: None,
+                            session_id: None,
+                            desktop_request: None,
+                            desktop_capability: None,
+                        },
+                    )
+                    .await;
+                }
+                for _ in 0..100 {
+                    if !omm::core::runtime::owner_is_live(owner) {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
             }
         }
+        assert_eq!(started.unwrap()["state"], "running");
+        let (duplicate, duplicate_plan) = duplicate.unwrap();
+        assert_eq!(duplicate["canApply"], false);
+        assert!(duplicate_plan.is_none());
+        assert_eq!(stopped.unwrap().unwrap()["state"], "stopped");
+        assert!(!omm::core::runtime::owner_is_live(&owner.unwrap()));
+        assert!(f.runner.calls.lock().unwrap().is_empty());
+        if let Some(task) = task {
+            assert_eq!(
+                Some(
+                    Store::open_read_only(&f.paths)
+                        .unwrap()
+                        .asr_measurements(task)
+                        .unwrap()
+                ),
+                measurements_before
+            );
+            assert_eq!(before["config"], recovery_bytes(&f)["config"]);
+        }
     }
-    assert_eq!(started.unwrap()["state"], "running");
-    let (duplicate, duplicate_plan) = duplicate.unwrap();
-    assert_eq!(duplicate["canApply"], false);
-    assert!(duplicate_plan.is_none());
-    assert_eq!(stopped.unwrap().unwrap()["state"], "stopped");
-    assert!(!omm::core::runtime::owner_is_live(&owner.unwrap()));
-    assert!(f.runner.calls.lock().unwrap().is_empty());
 }
 #[tokio::test]
 async fn desktop_service_recovery_durable_status_read_does_not_initialize_or_migrate_store() {
@@ -752,4 +797,211 @@ async fn desktop_service_recovery_failed_start_does_not_publish_owner_generation
         assert!(result.is_err());
         assert_eq!(previous, fs::read(&owner).ok());
     }
+}
+
+const LEGACY_ASR_DDL: &str = include_str!("fixtures/desktop-service-recovery-asr-51319b7.sql");
+
+fn recovery_bytes(f: &Fixture) -> BTreeMap<String, Option<String>> {
+    let mut hashes = BTreeMap::new();
+    for (name, path) in [
+        ("config", f.paths.config.join("config.json")),
+        ("database", f.paths.state.join("state.sqlite")),
+        ("wal", f.paths.state.join("state.sqlite-wal")),
+        ("shm", f.paths.state.join("state.sqlite-shm")),
+        ("journal", f.paths.state.join("state.sqlite-journal")),
+    ] {
+        hashes.insert(
+            name.to_owned(),
+            path.exists().then(|| hash_file(&path).unwrap()),
+        );
+    }
+    hashes
+}
+
+#[tokio::test]
+async fn desktop_service_recovery_historical_asr_optional_prefixes_adopt_without_writes_or_start() {
+    use omm::application::lifecycle;
+    // The historical execute_batch has no transaction around the two CREATEs:
+    // absent, first-only (interrupted), and both are the reachable schema prefixes.
+    for count in 0..=2 {
+        let f = Fixture::new().await;
+        let c = rusqlite::Connection::open(f.paths.state.join("state.sqlite")).unwrap();
+        let ddl = LEGACY_ASR_DDL
+            .split_inclusive(';')
+            .take(count)
+            .collect::<String>();
+        c.execute_batch(&ddl).unwrap();
+        if count >= 1 {
+            c.execute(
+                "INSERT INTO asr_measurements VALUES('synthetic-task',1,1,'{}')",
+                [],
+            )
+            .unwrap();
+        }
+        if count == 2 {
+            c.execute("INSERT INTO asr_measurement_totals VALUES('synthetic-task','{\"observations\":1}')", []).unwrap();
+        }
+        // No historical explicit indexes/triggers: only SQLite primary-key autoindexes.
+        let objects: Vec<(String, String, bool)> = c.prepare("SELECT type,name,sql IS NULL FROM sqlite_master WHERE tbl_name IN ('asr_measurements','asr_measurement_totals') ORDER BY name")
+            .unwrap().query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap().map(|r| r.unwrap()).collect();
+        let mut expected = vec![];
+        if count == 2 {
+            expected.push(("table".into(), "asr_measurement_totals".into(), false));
+        }
+        if count >= 1 {
+            expected.push(("table".into(), "asr_measurements".into(), false));
+        }
+        if count == 2 {
+            expected.push((
+                "index".into(),
+                "sqlite_autoindex_asr_measurement_totals_1".into(),
+                true,
+            ));
+        }
+        if count >= 1 {
+            expected.push((
+                "index".into(),
+                "sqlite_autoindex_asr_measurements_1".into(),
+                true,
+            ));
+        }
+        assert_eq!(objects, expected);
+        drop(c);
+        let before = recovery_bytes(&f);
+        f.plan().expect("historical ASR schema must be supported");
+        assert_eq!(before, recovery_bytes(&f));
+        let (value, plan) = lifecycle::plan_at(
+            &f.paths,
+            Some(&f.bundle),
+            "switch",
+            &f.home,
+            &f.runtime,
+            &f.runner,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            value["state"], "stopped",
+            "optional prefix {count}: {value}"
+        );
+        assert_eq!(value["canApply"], true, "optional prefix {count}: {value}");
+        assert_eq!(before, recovery_bytes(&f));
+        let adopted = lifecycle::apply_at(
+            &f.paths,
+            &f.bundle,
+            plan.unwrap(),
+            &f.home,
+            &f.runtime,
+            &f.runner,
+        )
+        .await
+        .unwrap();
+        assert_eq!(adopted["state"], "stopped");
+        assert!(profile::read(&f.paths).unwrap().is_some());
+        assert!(f.runner.calls.lock().unwrap().is_empty());
+        assert!(omm::core::runtime::verify_active(&f.runtime.path, &f.paths.state).is_err());
+        assert_eq!(before, recovery_bytes(&f));
+        println!(
+            "historical optional prefix {count}: preserved config/database/sidecars {}",
+            serde_json::to_string(&before).unwrap()
+        );
+    }
+}
+
+#[tokio::test]
+async fn desktop_service_recovery_historical_asr_rejects_deformation_and_unreachable_suffix() {
+    for sql in [
+        "ALTER TABLE asr_measurements ADD COLUMN unexpected TEXT",
+        "DROP TABLE asr_measurement_totals; CREATE TABLE asr_measurement_totals(task TEXT,document TEXT NOT NULL)",
+        "CREATE INDEX extra_measurement_index ON asr_measurements(ordinal)",
+        "CREATE INDEX extra_totals_index ON asr_measurement_totals(document)",
+        "CREATE TRIGGER extra_measurement_trigger AFTER INSERT ON asr_measurements BEGIN SELECT 1; END",
+        "DROP TABLE asr_measurements; CREATE VIEW asr_measurements AS SELECT 1 AS task",
+        // Second-only is not produced by the historical ordered CREATEs.
+        "DROP TABLE asr_measurements",
+        "CREATE TABLE unknown_observer(value TEXT)",
+        "PRAGMA user_version=100",
+        "DROP TABLE settings",
+    ] {
+        let f = Fixture::new().await;
+        let c = rusqlite::Connection::open(f.paths.state.join("state.sqlite")).unwrap();
+        c.execute_batch(LEGACY_ASR_DDL).unwrap();
+        c.execute_batch(sql).unwrap();
+        drop(c);
+        let before = tree(&f.home);
+        let error = match f.plan() {
+            Err(error) => error,
+            Ok(_) => panic!("must reject {sql}"),
+        };
+        assert!(error.message.contains("schema is unsupported"), "{sql}: {error}");
+        assert_eq!(before, tree(&f.home));
+        assert!(f.runner.calls.lock().unwrap().is_empty());
+    }
+}
+
+// Exercise the normal Store measurement writer with a live synthetic task lease,
+// then settle it through Store::fail. No worker/model, audio file or helper is used.
+fn record_modern_asr_measurement(f: &Fixture) -> uuid::Uuid {
+    let now = chrono::Utc::now().timestamp_millis();
+    let task = Task {
+        id: uuid::Uuid::new_v4(),
+        session_id: uuid::Uuid::new_v4(),
+        attempt: 1,
+        stage: Stage::Transcribe,
+        status: TaskStatus::Transcribing,
+        input_hash: "synthetic".into(),
+        config_hash: "synthetic".into(),
+        summary_metadata: None,
+        transcript_source: None,
+        error: None,
+    };
+    let lease = Lease {
+        token: uuid::Uuid::new_v4(),
+        expires_at_ms: now + 60000,
+    };
+    let context = TaskContext {
+        session_id: task.session_id,
+        task_id: task.id,
+        attempt: 1,
+        lease: lease.clone(),
+        meeting_dir: f.paths.data.clone(),
+        work_dir: f.paths.cache.clone(),
+        config: ConfigSnapshot::default(),
+    };
+    let mut store = Store::open(&f.paths).unwrap();
+    let c = rusqlite::Connection::open(f.paths.state.join("state.sqlite")).unwrap();
+    c.execute(
+        "INSERT INTO meetings VALUES(?1,'{}')",
+        [task.session_id.to_string()],
+    )
+    .unwrap();
+    c.execute("INSERT INTO tasks(id,session,attempt,input_hash,config_hash,document,stage,status,lease,expires,directory,config,segments) VALUES(?1,?2,1,'synthetic','synthetic',?3,'transcribe','transcribing',?4,?5,?6,?7,'[]')", rusqlite::params![task.id.to_string(), task.session_id.to_string(), serde_json::to_string(&task).unwrap(), lease.token.to_string(), lease.expires_at_ms, context.meeting_dir.to_str(), serde_json::to_string(&context.config).unwrap()]).unwrap();
+    drop(c);
+    let event: AsrWorkerEvent = serde_json::from_value(serde_json::json!({
+        "type":"chunk_progress", "schema_version":1, "task_id":task.id, "attempt":1,
+        "source":"mic", "completed_chunks":1, "vad_spans":1, "speech_samples":3200, "processing_ms":40,
+        "chunk_timing":{"phase":"native_decode_total", "input_index":0, "window_index":0,
+            "core_start_sample":1600, "decode_start_sample":0, "core_samples":3200, "decode_samples":8000,
+            "cache_hit":false, "cache_lookup_us":3, "native_decode_wall_us":20000,
+            "process_cpu_us":35000, "checkpoint_write_us":4, "token_count":2, "output_chars":7}
+    })).unwrap();
+    store.record_asr_measurement_best_effort(&context, &event);
+    let measurements = store.asr_measurements(task.id).unwrap();
+    assert_eq!(measurements["totals"]["observations"], 1);
+    assert_eq!(measurements["samples"].as_array().unwrap().len(), 1);
+    let claim = ClaimedTask {
+        stage: Stage::Transcribe,
+        task,
+        lease,
+        context,
+        segments: vec![],
+    };
+    store
+        .fail(
+            &claim,
+            &OmmError::unavailable("synthetic task settled without worker"),
+            now,
+        )
+        .unwrap();
+    claim.task.id
 }
