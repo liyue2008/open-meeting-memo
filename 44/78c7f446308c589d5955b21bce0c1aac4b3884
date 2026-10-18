@@ -1,0 +1,19 @@
+src/service/daemon.rs
+  s_e6fcf3cda4e1bb::t_b97b24b51db0aa 53-69,1017,1364-1542
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4478c7f446308c589d5955b21bce0c1aac4b3884",
+  "prompts": {},
+  "sessions": {
+    "s_e6fcf3cda4e1bb": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d6f-1e4a-745b-9d2c-638258fd0d45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
