@@ -84,10 +84,53 @@
     views.push({ name, width: innerWidth, height: innerHeight, titlebarInset, overflow, theme: document.documentElement.dataset.mantineColorScheme, sidebar: document.documentElement.dataset.sidebar, body: text().slice(0, 12000) });
   };
   let advancedFilterObservation = null;
-  const advancedFilterSnapshot = (phase, clickCalls, original, query) => {
+  // Independent two-frame witness, never a wait condition or a component callback.
+  const advancedFrameHeartbeat = () => {
+    const state = { callbacks: 0, status: 'not-called', cleanup: 'not-needed' };
+    let active = true, pending = null, request, cancel;
+    const schedule = callback => {
+      try { pending = request(callback); state.status = 'scheduled'; }
+      catch { state.status = 'schedule-failed'; }
+    };
+    const second = () => {
+      pending = null;
+      if (!active) return;
+      state.callbacks = 2;
+      state.status = 'complete';
+    };
+    const first = () => {
+      pending = null;
+      if (!active) return;
+      state.callbacks = 1;
+      schedule(second);
+    };
+    return {
+      state,
+      snapshot: () => ({ callbacks: state.callbacks, status: state.status }),
+      start: () => {
+        try {
+          const requestFrame = window.requestAnimationFrame, cancelFrame = window.cancelAnimationFrame;
+          if (typeof requestFrame !== 'function' || typeof cancelFrame !== 'function') { state.status = 'unavailable'; return; }
+          request = callback => requestFrame.call(window, callback);
+          cancel = id => cancelFrame.call(window, id);
+          schedule(first);
+        } catch { state.status = 'schedule-failed'; }
+      },
+      stop: () => {
+        // Even if cancelling our handle fails, its late callback cannot schedule more work.
+        active = false;
+        if (pending === null) return;
+        const id = pending;
+        pending = null;
+        try { cancel(id); state.cleanup = 'cancelled'; }
+        catch { state.cleanup = 'failed'; }
+      },
+    };
+  };
+  const advancedFilterSnapshot = (phase, clickCalls, original, query, frames) => {
     const emptyControl = () => ({ exists: false, connected: false, visible: false, disabled: false, expanded: 'missing' });
     const emptyNode = () => ({ exists: false, connected: false, visible: false, rect: { x: 0, y: 0, width: 0, height: 0 }, display: 'unavailable', visibility: 'unavailable' });
-    const unavailable = { phase, clickCalls, read: 'unavailable', sameControl: false, original: emptyControl(), current: emptyControl(), controls: 'missing', labelledBy: 'missing', region: 'missing', panel: emptyNode(), sort: { ...emptyNode(), inPanel: false, disabled: false } };
+    const unavailable = { phase, clickCalls, frames, read: 'unavailable', sameControl: false, original: emptyControl(), current: emptyControl(), controls: 'missing', labelledBy: 'missing', region: 'missing', panel: { ...emptyNode(), inlineDisplay: 'unavailable' }, sort: { ...emptyNode(), inPanel: false, disabled: false } };
     try {
       const { current, panel, sort } = query() ?? {};
       const bounded = (value, minimum = -16384) => Number.isFinite(value) ? Math.round(Math.min(16384, Math.max(minimum, value)) * 100) / 100 : 0;
@@ -104,7 +147,9 @@
         return { exists: true, connected: node.isConnected === true, visible: visible(node), rect: { x: bounded(rect.x), y: bounded(rect.y), width: bounded(rect.width, 0), height: bounded(rect.height, 0) }, display, visibility };
       };
       const relation = (left, right) => !left || !right ? 'missing' : left === right ? 'match' : 'mismatch';
-      return { phase, clickCalls, read: 'ok', sameControl: !!original && original === current, original: controlState(original), current: controlState(current), controls: relation(current?.getAttribute('aria-controls'), panel?.id), labelledBy: relation(panel?.getAttribute('aria-labelledby'), current?.id), region: !panel ? 'missing' : panel.getAttribute('role') === 'region' ? 'valid' : 'invalid', panel: nodeState(panel), sort: { ...nodeState(sort), inPanel: !!panel && !!sort && panel.contains(sort), disabled: !!sort && sort.matches(':disabled') } };
+      const inline = panel?.style?.display;
+      const inlineDisplay = typeof inline !== 'string' ? 'unavailable' : inline === '' ? 'empty' : ['none', 'block'].includes(inline) ? inline : 'other';
+      return { phase, clickCalls, frames, read: 'ok', sameControl: !!original && original === current, original: controlState(original), current: controlState(current), controls: relation(current?.getAttribute('aria-controls'), panel?.id), labelledBy: relation(panel?.getAttribute('aria-labelledby'), current?.id), region: !panel ? 'missing' : panel.getAttribute('role') === 'region' ? 'valid' : 'invalid', panel: { ...nodeState(panel), inlineDisplay }, sort: { ...nodeState(sort), inPanel: !!panel && !!sort && panel.contains(sort), disabled: !!sort && sort.matches(':disabled') } };
     } catch {
       return unavailable;
     }
@@ -112,11 +157,12 @@
   const openAdvanced = async () => {
     const findControl = () => elements('button[aria-expanded]').find(e => e.isConnected && !e.disabled && e.textContent.trim().startsWith('高级筛选与数据说明'));
     let original = null, lastQuery = null, clickCalls = 0;
-    advancedFilterObservation = { schemaVersion: 1, snapshots: [] };
+    const frames = advancedFrameHeartbeat();
+    advancedFilterObservation = { schemaVersion: 2, frames: frames.state, snapshots: [] };
     const record = (phase, query) => {
       // Diagnostics cannot change the original operation, timeout or thrown error.
       try {
-        if (advancedFilterObservation.snapshots.length < 3) advancedFilterObservation.snapshots.push(advancedFilterSnapshot(phase, clickCalls, original, query));
+        if (advancedFilterObservation.snapshots.length < 3) advancedFilterObservation.snapshots.push(advancedFilterSnapshot(phase, clickCalls, original, query, frames.snapshot()));
       } catch {}
     };
     const observationQuery = () => {
@@ -131,6 +177,7 @@
       original = control;
       record('before-activation', observationQuery);
       if (control.getAttribute('aria-expanded') !== 'true') { control.scrollIntoView({block:'nearest'}); clickCalls = 1; control.click(); }
+      frames.start();
       record('after-activation', observationQuery);
       await wait('actual advanced Accordion expanded', () => {
         // React can replace a control after activation; never assert on its detached predecessor.
@@ -146,6 +193,8 @@
     } catch (error) {
       record('last-query', () => lastQuery);
       throw error;
+    } finally {
+      frames.stop();
     }
   };
   const modalCheckpoint = async name => {

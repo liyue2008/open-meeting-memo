@@ -13,7 +13,7 @@ const observationStart = source.indexOf('  let advancedFilterObservation =');
 const advanced = source.slice(observationStart < 0 ? source.indexOf('  const openAdvanced =') : observationStart, source.indexOf('  const modalCheckpoint ='));
 const failureAssignment = source.slice(source.lastIndexOf('    window.__ommFixtureResult ='), source.lastIndexOf('\n  }\n})();'));
 
-function fixture({ expanded = false, activate, onTick, missingControl = false, rect, style, throwGeometry = false } = {}) {
+function fixture({ expanded = false, activate, onTick, missingControl = false, rect, style, throwGeometry = false, frames = 'missing' } = {}) {
   const dom = new JSDOM(`<button id="advanced-control" aria-controls="advanced-panel" aria-expanded="${expanded}">高级筛选与数据说明</button><section id="advanced-panel" role="region" aria-labelledby="advanced-control"><label>排序<select><option>开始时间 ↓</option></select></label></section>`);
   const { document, HTMLElement } = dom.window;
   // Pure DOM tests supply only visible/hidden geometry, not WK layout evidence.
@@ -44,6 +44,33 @@ function fixture({ expanded = false, activate, onTick, missingControl = false, r
       return next;
     },
   };
+  const pendingFrames = new Map(), registeredFrames = new Map();
+  let frameId = 0;
+  Object.assign(state, {
+    pendingFrames, registeredFrames, frameRequests: 0, frameCancels: [],
+    pulse() {
+      const next = pendingFrames.entries().next().value;
+      if (!next) return false;
+      pendingFrames.delete(next[0]);
+      next[1]();
+      return true;
+    },
+  });
+  if (frames !== 'missing') {
+    dom.window.requestAnimationFrame = callback => {
+      state.frameRequests++;
+      if (frames === 'request-throws' || (frames === 'second-request-throws' && state.frameRequests === 2)) throw Error('private registration detail');
+      const id = ++frameId;
+      pendingFrames.set(id, callback);
+      registeredFrames.set(id, callback);
+      return id;
+    };
+    if (frames !== 'no-cancel') dom.window.cancelAnimationFrame = id => {
+      state.frameCancels.push(id);
+      if (frames === 'cancel-throws') throw Error('private cancellation detail');
+      pendingFrames.delete(id);
+    };
+  }
   state.control.addEventListener('click', () => {
     state.clicks++;
     state.operations.push('click');
@@ -134,6 +161,118 @@ test('advanced filter rejects a panel that does not belong to the live control',
 
 const lastSnapshot = f => f.observation().snapshots.at(-1);
 
+test('advanced frames distinguish zero, one and two real helper callbacks without recurring', async () => {
+  for (const count of [0, 1, 2]) {
+    let pulsed = false;
+    await run({ frames: 'available', activate: () => {}, onTick: s => {
+      if (!pulsed) { for (let i = 0; i < count; i++) assert.equal(s.pulse(), true); pulsed = true; }
+    } }, async f => {
+      await timeout(f);
+      assert.deepEqual(f.observation().snapshots.map(s => s.frames), [
+        { callbacks: 0, status: 'not-called' },
+        { callbacks: 0, status: 'scheduled' },
+        { callbacks: count, status: count === 2 ? 'complete' : 'scheduled' },
+      ]);
+      assert.equal(f.observation().frames.cleanup, count === 2 ? 'not-needed' : 'cancelled');
+      assert.equal(f.state.frameRequests, count === 0 ? 1 : 2);
+      assert.equal(f.state.pendingFrames.size, 0);
+      assert.equal(f.state.pulse(), false);
+      assert.deepEqual(f.state.operations, ['scroll', 'click', 'tick', 'tick']);
+    });
+  }
+});
+
+test('advanced frames distinguish no invocation, unavailable APIs and first or second registration failures', async () => {
+  await run({ frames: 'available', missingControl: true }, async f => {
+    await timeout(f);
+    assert.deepEqual(f.observation().frames, { callbacks: 0, status: 'not-called', cleanup: 'not-needed' });
+    assert.equal(f.state.frameRequests, 0);
+  });
+  for (const frames of ['missing', 'no-cancel', 'request-throws', 'second-request-throws']) {
+    await run({ frames, activate: () => {}, onTick: s => { s.pulse(); } }, async f => {
+      await timeout(f);
+      const observed = f.observation().frames;
+      assert.equal(observed.status, frames.endsWith('throws') ? 'schedule-failed' : 'unavailable');
+      assert.equal(observed.callbacks, frames === 'second-request-throws' ? 1 : 0);
+      assert.equal(observed.cleanup, 'not-needed');
+      assert.equal(JSON.stringify(f.observation()).includes('private'), false);
+      assert.equal(f.state.pendingFrames.size, 0);
+      if (frames === 'no-cancel') assert.equal(f.state.frameRequests, 0);
+    });
+  }
+});
+
+test('advanced frames clean only owned work after success and reset on the next helper invocation', async () => {
+  await run({ frames: 'available', expanded: true }, async f => {
+    let unrelated = 0;
+    const other = f.state.document.defaultView.requestAnimationFrame(() => { unrelated++; });
+    await f.open();
+    const first = f.observation();
+    assert.equal(first.frames.cleanup, 'cancelled');
+    assert.deepEqual(f.state.frameCancels, [2]);
+    assert.equal(f.state.pendingFrames.has(other), true);
+    f.state.registeredFrames.get(2)(); // A cancelled callback cannot mutate its stopped invocation.
+    assert.deepEqual(f.observation(), first);
+    assert.equal(f.state.pulse(), true);
+    assert.equal(unrelated, 1);
+    f.state.control.setAttribute('aria-expanded', 'false');
+    await f.open();
+    assert.equal(f.state.clicks, 1);
+    assert.equal(f.observation().snapshots.length, 2);
+    assert.deepEqual(f.observation().snapshots[0].frames, { callbacks: 0, status: 'not-called' });
+    assert.deepEqual(f.observation().frames, { callbacks: 0, status: 'scheduled', cleanup: 'cancelled' });
+    assert.deepEqual(f.state.frameCancels, [2, 3]);
+    const second = f.observation();
+    f.state.registeredFrames.get(2)();
+    assert.deepEqual(f.observation(), second);
+    assert.equal(f.state.pendingFrames.size, 0);
+  });
+});
+
+test('advanced frame cleanup and inline collection exceptions never replace the original failure', async () => {
+  const original = Error('original frame test failure');
+  await run({ frames: 'cancel-throws', activate: () => {}, throwGeometry: true, onTick: () => { throw original; } }, async f => {
+    await assert.rejects(f.open(), error => error === original);
+    assert.equal(f.failureResult(original).error, String(original));
+    assert.equal(lastSnapshot(f).read, 'unavailable');
+    assert.equal(lastSnapshot(f).panel.inlineDisplay, 'unavailable');
+    assert.equal(f.observation().frames.cleanup, 'failed');
+    const before = f.observation();
+    assert.equal(f.state.pulse(), true);
+    assert.deepEqual(f.observation(), before);
+    assert.equal(f.state.frameRequests, 1);
+    assert.deepEqual(f.state.operations, ['scroll', 'click', 'tick']);
+  });
+  for (const [value, expected] of [['', 'empty'], ['none', 'none'], ['block', 'block'], ['flex', 'other'], ['https://private.invalid/path', 'other']]) {
+    await run({ activate: () => {} }, async f => {
+      Object.defineProperty(f.state.panel.style, 'display', { get: () => value });
+      await timeout(f);
+      assert.equal(lastSnapshot(f).panel.inlineDisplay, expected);
+      assert.equal(JSON.stringify(f.observation()).includes('private.invalid'), false);
+    });
+  }
+  const inlineWaitError = Error('original wait before diagnostic inline failure');
+  await run({ activate: () => {}, onTick: s => {
+    // Install after the original predicate saved its references, so only the final diagnostic reads it.
+    Object.defineProperty(s.panel.style, 'display', { get: () => { throw Error('private style detail'); } });
+    throw inlineWaitError;
+  } }, async f => {
+    await assert.rejects(f.open(), error => error === inlineWaitError);
+    assert.equal(f.failureResult(inlineWaitError).error, String(inlineWaitError));
+    assert.equal(lastSnapshot(f).read, 'unavailable');
+    assert.equal(lastSnapshot(f).panel.inlineDisplay, 'unavailable');
+  });
+  await run({ frames: 'cancel-throws', expanded: true }, async f => {
+    await f.open();
+    assert.equal(f.observation().frames.cleanup, 'failed');
+    const before = f.observation();
+    assert.equal(f.state.pulse(), true);
+    assert.deepEqual(f.observation(), before);
+    assert.equal(f.state.frameRequests, 1);
+    assert.equal(f.state.clicks, 0);
+  });
+});
+
 async function timeout(f) {
   let original;
   try { await f.open(); } catch (error) { original = error; }
@@ -213,19 +352,21 @@ test('advanced observation is capped and contains only fixed enums, booleans and
     await timeout(f);
     await timeout(f);
     const observation = f.observation();
-    assert.deepEqual(Object.keys(observation).sort(), ['schemaVersion', 'snapshots']);
-    assert.equal(observation.schemaVersion, 1);
+    assert.deepEqual(Object.keys(observation).sort(), ['frames', 'schemaVersion', 'snapshots']);
+    assert.equal(observation.schemaVersion, 2);
+    assert.deepEqual(Object.keys(observation.frames).sort(), ['callbacks', 'cleanup', 'status']);
     assert.equal(observation.snapshots.length, 3);
     for (const snapshot of observation.snapshots) {
-      assert.deepEqual(Object.keys(snapshot).sort(), ['clickCalls', 'controls', 'current', 'labelledBy', 'original', 'panel', 'phase', 'read', 'region', 'sameControl', 'sort']);
+      assert.deepEqual(Object.keys(snapshot).sort(), ['clickCalls', 'controls', 'current', 'frames', 'labelledBy', 'original', 'panel', 'phase', 'read', 'region', 'sameControl', 'sort']);
       for (const control of [snapshot.original, snapshot.current]) assert.deepEqual(Object.keys(control).sort(), ['connected', 'disabled', 'exists', 'expanded', 'visible']);
-      assert.deepEqual(Object.keys(snapshot.panel).sort(), ['connected', 'display', 'exists', 'rect', 'visibility', 'visible']);
+      assert.deepEqual(Object.keys(snapshot.panel).sort(), ['connected', 'display', 'exists', 'inlineDisplay', 'rect', 'visibility', 'visible']);
+      assert.deepEqual(Object.keys(snapshot.frames).sort(), ['callbacks', 'status']);
       assert.deepEqual(Object.keys(snapshot.sort).sort(), ['connected', 'disabled', 'display', 'exists', 'inPanel', 'rect', 'visibility', 'visible']);
       for (const node of [snapshot.panel, snapshot.sort]) assert.deepEqual(Object.keys(node.rect).sort(), ['height', 'width', 'x', 'y']);
     }
     assert.equal(f.state.clicks, 2); // One original click per invocation, not per diagnostic.
     assert.equal(JSON.stringify(observation).includes(secret), false);
-    const allowed = new Set(['before-activation', 'after-activation', 'last-query', 'ok', 'unavailable', 'true', 'false', 'missing', 'other', 'match', 'mismatch', 'valid', 'invalid', 'none', 'block', 'inline', 'inline-block', 'flex', 'inline-flex', 'grid', 'inline-grid', 'contents', 'table', 'list-item', 'visible', 'hidden', 'collapse']);
+    const allowed = new Set(['before-activation', 'after-activation', 'last-query', 'ok', 'unavailable', 'true', 'false', 'missing', 'other', 'match', 'mismatch', 'valid', 'invalid', 'none', 'block', 'inline', 'inline-block', 'flex', 'inline-flex', 'grid', 'inline-grid', 'contents', 'table', 'list-item', 'visible', 'hidden', 'collapse', 'empty', 'not-called', 'scheduled', 'complete', 'schedule-failed', 'not-needed', 'cancelled', 'failed']);
     const inspect = value => {
       if (typeof value === 'string') assert.ok(allowed.has(value), value);
       else if (typeof value === 'number') assert.ok(Number.isFinite(value) && Math.abs(value) <= 16384);
