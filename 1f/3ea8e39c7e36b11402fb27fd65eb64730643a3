@@ -1,0 +1,16 @@
+apps/desktop/src-tauri/src/bridge_fixture/recovery.rs
+  h_b4d40596eab523 125
+scripts/fixtures/desktop-lifecycle-probe.js
+  h_b4d40596eab523 43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1f3ea8e39c7e36b11402fb27fd65eb64730643a3",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
