@@ -442,6 +442,12 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
                         let Ok(serde_json::Value::String(text)) = serde_json::from_str(&text) else { return; };
                         let Ok(result) = serde_json::from_str::<serde_json::Value>(&text) else { return; };
                         if !result.is_object() || done.swap(true, Ordering::SeqCst) { return; }
+                        let mut result = result;
+                        if archive_requested() {
+                            let readers_released = Store::open_read_only(&paths).and_then(|s| s.active_audio_readers()).is_ok_and(|active| !active);
+                            result["archiveReadersReleasedBeforeTeardown"] = serde_json::json!(readers_released);
+                            if !readers_released { result["ok"] = serde_json::json!(false); }
+                        }
                         if review::mode().is_some() {
                             review::finish(app.clone(),paths.clone(),result);
                             return;

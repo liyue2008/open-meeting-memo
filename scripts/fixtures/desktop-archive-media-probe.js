@@ -45,7 +45,9 @@
     }
     [...document.querySelectorAll('.meeting-title')].find(e => e.textContent === 'Private bridge fixture').click();
     const audio = await wait('real archived metadata', () => { const a = document.querySelector('audio'); return a?.readyState >= 1 && Number.isFinite(a.duration) && a.duration > 0 && a; });
-    check('native metadata remains paused without autoplay', audio.paused && !audio.autoplay && audio.duration > 2.9 && audio.duration < 3.1);
+    // WK reports 100 ms Opus container pre-roll; the archive codec separately verifies exact decoded frames.
+    media.push({metadataDuration:audio.duration, timelineDurationMs:manifest.durationMs, paused:audio.paused, autoplay:audio.autoplay});
+    check('native metadata remains paused without autoplay', audio.paused && !audio.autoplay && audio.duration > 2.9 && audio.duration <= 3.11);
     audio.currentTime = 1.2;
     await wait('paused native seek', () => audio.paused && Math.abs(audio.currentTime - 1.2) < .1);
     media.push({ metadataDuration: audio.duration, pausedSeek: audio.currentTime, paused: audio.paused });
