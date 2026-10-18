@@ -51,6 +51,155 @@ pub fn output(name: &str) -> PathBuf {
     validate_private_dir(&root).unwrap();
     root.join(name)
 }
+struct FixtureService {
+    child: std::process::Child,
+    identity: serde_json::Value,
+}
+
+fn start_fixture_service(app: &tauri::AppHandle<tauri::Wry>, paths: &Paths) -> Result<()> {
+    use std::process::{Command, Stdio};
+    let bundle = omm::application::bundle::Bundle::locate()?;
+    let executable = bundle.cli()?;
+    let cfg = AppConfig::load(paths)?;
+    assert!(!cfg.auto_record && !cfg.recording_consent && !cfg.notifications.enabled);
+    assert!(cfg
+        .worker_executable
+        .starts_with(output("driver.js").parent().unwrap()));
+    assert!(cfg
+        .pi
+        .executable
+        .starts_with(output("driver.js").parent().unwrap()));
+    let mut command = Command::new(&executable);
+    command
+        .args(["service", "run"])
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+        .env("LANG", "en_US.UTF-8")
+        .env("TMPDIR", "/private/tmp")
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+    for key in [
+        "HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_STATE_HOME",
+        "XDG_CACHE_HOME",
+        "XDG_RUNTIME_DIR",
+    ] {
+        let value = std::env::var_os(key).expect("explicit private fixture root");
+        assert!(PathBuf::from(&value).starts_with(output("driver.js").parent().unwrap()));
+        command.env(key, value);
+    }
+    let child = command.spawn()?;
+    let pid = child.id();
+    let identity = serde_json::json!({"pid":pid,"executable":executable,"sha256":omm::core::store::hash_file(&executable)?,"sourceRevision":bundle.manifest.source_revision,"arguments":["service","run"],"startIdentity":String::from_utf8_lossy(&Command::new("/bin/ps").args(["-p", &pid.to_string(), "-o", "pid=,ppid=,uid=,lstart=,comm="]).output()?.stdout),"autoRecord":false,"initialRecordingConsent":false,"notificationsEnabled":false,"meetingObserver":"disabled by autoRecord=false; no Lark observation job","workerAndPi":"private fake executables only"});
+    *app.state::<std::sync::Mutex<Option<FixtureService>>>()
+        .lock()
+        .unwrap() = Some(FixtureService {
+        child,
+        identity: identity.clone(),
+    });
+    write_private_new(
+        &output("fixture-cli-start.json"),
+        &serde_json::to_vec_pretty(&identity)?,
+    )?;
+    let location = paths.runtime_location(&std::env::vars().collect())?;
+    for _ in 0..200 {
+        if let Ok(owner) = omm::core::runtime::verify_active(&location.path, &paths.state) {
+            if owner.pid == pid as i32
+                && omm::application::lifecycle::owned_service(&owner, &bundle)?
+            {
+                write_private_new(
+                    &output("fixture-cli-owner.json"),
+                    &serde_json::to_vec_pretty(
+                        &serde_json::json!({"pid":pid,"instanceId":owner.instance_id,"generation":omm::application::profile::read(paths)?.unwrap().generation,"socket":location.path.join("service.sock"),"cliIdentityVerified":true}),
+                    )?,
+                )?;
+                return Ok(());
+            }
+        }
+        let state = app.state::<std::sync::Mutex<Option<FixtureService>>>();
+        assert!(
+            state
+                .lock()
+                .unwrap()
+                .as_mut()
+                .unwrap()
+                .child
+                .try_wait()?
+                .is_none(),
+            "owned fixture CLI exited before readiness"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    Err(OmmError::unavailable(
+        "owned fixture CLI did not become ready; retain its control handle",
+    ))
+}
+
+// The caller first requests normal Core shutdown. Never kill or discard a live handle.
+fn wait_fixture_service(app: &tauri::AppHandle<tauri::Wry>, paths: &Paths) -> bool {
+    let Some(state) = app.try_state::<std::sync::Mutex<Option<FixtureService>>>() else {
+        return true;
+    };
+    let mut slot = state.lock().unwrap();
+    let Some(service) = slot.as_mut() else {
+        return true;
+    };
+    for _ in 0..500 {
+        if let Ok(Some(status)) = service.child.try_wait() {
+            let readers = Store::open_read_only(paths)
+                .and_then(|s| s.active_audio_readers())
+                .is_ok_and(|busy| !busy);
+            let locks = paths
+                .runtime_location(&std::env::vars().collect())
+                .is_ok_and(|location| {
+                    omm::application::recovery::existing_lock(&paths.state.join("service.lock"))
+                        .is_ok()
+                        && omm::application::recovery::existing_lock(
+                            &location.path.join("service.lock"),
+                        )
+                        .is_ok()
+                        && !location.path.join("service.sock").exists()
+                });
+            let mut helper_exited = true;
+            if let Some(helper_state) =
+                app.try_state::<std::sync::Mutex<Option<capture::ChildGuard>>>()
+            {
+                if let Some(helper) = helper_state.lock().unwrap().as_mut() {
+                    helper_exited = false;
+                    for _ in 0..100 {
+                        if let Ok(Some(status)) = helper.0.try_wait() {
+                            helper_exited = status.success();
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                }
+            }
+            let success = status.success() && readers && locks && helper_exited;
+            let receipt = serde_json::json!({"identity":service.identity,"normalExit":status.success(),"exitCode":status.code(),"waited":true,"forcedSignals":0,"readersReleasedBeforeTeardown":readers,"locksReleased":locks,"fakeCaptureChildExitedNormally":helper_exited});
+            write_private_new(
+                &output("fixture-cli-exit.json"),
+                &serde_json::to_vec_pretty(&receipt).unwrap(),
+            )
+            .unwrap();
+            if success {
+                slot.take();
+            }
+            return success;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    write_private_new(
+        &output("fixture-cli-wait-failed.json"),
+        &serde_json::to_vec_pretty(&service.identity).unwrap(),
+    )
+    .unwrap();
+    false
+}
+
 fn archive_requested() -> bool {
     let Some(flag) = std::env::var_os("OMM_NATIVE_ARCHIVE_MEDIA") else {
         return false;
@@ -119,6 +268,10 @@ pub fn prepare() -> Paths {
     let mut cfg = AppConfig::default();
     cfg.notifications.enabled = false;
     use std::os::unix::fs::PermissionsExt;
+    let disabled_capture = output("disabled-capture");
+    write_private_new(&disabled_capture, b"#!/bin/sh\nexit 77\n").unwrap();
+    std::fs::set_permissions(&disabled_capture, std::fs::Permissions::from_mode(0o700)).unwrap();
+    cfg.capture_executable = disabled_capture;
     let fake_pi = output("fake-pi");
     write_private_new(&fake_pi,b"#!/bin/sh\n/bin/cat >/dev/null\nprintf '# Private synthetic minutes\\n- [ ] Read-only fixture action\\n'\n").unwrap();
     std::fs::set_permissions(&fake_pi, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -363,6 +516,7 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
     let close = Arc::new(close::Controller::new());
     let close_events = close.clone();
     builder
+        .manage(std::sync::Mutex::<Option<FixtureService>>::new(None))
         .manage(std::sync::Mutex::new(helper))
         .manage(std::sync::Mutex::new(review::Controller::new()))
         .setup(move |app| {
@@ -374,12 +528,7 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
                     .build()?;
             }
             if !archive_requested() {
-                let location = owned.runtime_location(&std::env::vars().collect()).unwrap();
-                tauri::async_runtime::spawn(async move {
-                    omm::service::daemon::run_at(owned, location)
-                        .await
-                        .expect("private service fixture");
-                });
+                start_fixture_service(app.handle(), &owned)?;
             }
             Ok(())
         })
@@ -461,17 +610,18 @@ pub fn builder(builder: tauri::Builder<tauri::Wry>, paths: &Paths) -> tauri::Bui
                             close::finish(app.clone(), paths.clone(), result);
                             return;
                         }
-                        write_private_new(
-                            &root.join("bridge-result.json"),
-                            &serde_json::to_vec_pretty(&serde_json::json!({"result":result,"profile":"private synthetic fixture"})).unwrap(),
-                        ).unwrap();
                         let paths = paths.clone();
                         let app = app.clone();
+                        let root = root.clone();
                         tauri::async_runtime::spawn(async move {
-                            if !archive_requested() {
-                                let _ = omm::service::daemon::request(&paths, "shutdown", None).await;
-                            }
-                            app.exit(if result["ok"] == true { 0 } else { 1 });
+                            let mut result = result;
+                            let exited = if archive_requested() { true } else {
+                                let acknowledged = omm::service::daemon::request(&paths, "shutdown", None).await.is_ok();
+                                wait_fixture_service(&app, &paths) && acknowledged
+                            };
+                            if !exited { result["ok"] = serde_json::json!(false); }
+                            write_private_new(&root.join("bridge-result.json"), &serde_json::to_vec_pretty(&serde_json::json!({"result":result,"profile":"private synthetic fixture"})).unwrap()).unwrap();
+                            if exited { app.exit(if result["ok"] == true { 0 } else { 1 }); }
                         });
                     }).unwrap();
                 }
