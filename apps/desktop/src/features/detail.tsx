@@ -5,7 +5,8 @@ import { clock, dateTime } from '../app/dates';
 import { ErrorNotice, Heading, Loading, SOURCES, Status } from '../components/ui';
 import { EditMeeting, Reprocess, RetainMeetings } from './meeting-actions';
 import { Player } from './player';
-import { activeArtifactWork, Artifacts } from './artifacts';
+import { Artifacts } from './artifacts';
+import { isActiveMeetingStatus } from './meeting-task-activity';
 import { TaskControls, TaskDialog } from './queue';
 const subscribeQueryFocus = (notify: () => void) => focusManager.subscribe(notify);
 export function Detail({
@@ -27,7 +28,7 @@ export function Detail({
     queryKey: ['meeting_get', id],
     queryFn: ({ signal }) => bridge.call('meeting_get', { meetingId: id }, signal),
     refetchInterval: (query) => {
-      if (activeArtifactWork(query.state.data?.meeting.status ?? '')) return 2000;
+      if (isActiveMeetingStatus(query.state.data?.meeting.status)) return 2000;
       // Keep authority current while hidden; terminal details retain ordinary foreground refresh.
       return queryFocused ? 10000 : false;
     },

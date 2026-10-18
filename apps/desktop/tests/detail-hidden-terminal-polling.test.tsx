@@ -3,7 +3,7 @@ import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BridgeContext } from '../src/app/context';
 import { Detail } from '../src/features/detail';
-import type { ArtifactVersion, MeetingStatus } from '../src/contracts.generated';
+import type { ArtifactVersion, MeetingStatus, Stage, TaskStatus } from '../src/contracts.generated';
 import { fixtureBridge, meetingFixture, sample } from './fixtures';
 
 const taskId = '00000000-0000-4000-8000-000000000042';
@@ -23,9 +23,15 @@ async function visible(value: DocumentVisibilityState) {
   });
   expect(focusManager.isFocused()).toBe(value === 'visible');
 }
-function fixture(status: 'recording' | 'unsealed' = 'recording', history = false) {
-  let phase = 0;
-  let meetingStatus: MeetingStatus = status;
+function fixture(
+  status: MeetingStatus = 'recording',
+  history = false,
+  projection?: { taskStatus: TaskStatus; stage: Stage },
+) {
+  let phase = projection ? 2 : 0;
+  let meetingStatus = status;
+  let taskStatus = projection?.taskStatus;
+  let taskStage: Stage = projection?.stage ?? 'summary';
   const base = {
     ...meetingFixture(),
     currentTranscriptTaskId: null,
@@ -36,7 +42,9 @@ function fixture(status: 'recording' | 'unsealed' = 'recording', history = false
     artifact: historical ? { ...artifact, taskId: oldId } : artifact,
     attempt: historical ? 1 : 2,
     status: historical ? 'historical' : phase === 2 ? 'committed' : 'partial',
-    taskStatus: historical || phase === 2 ? 'completed' : 'transcribing',
+    taskStatus: historical
+      ? 'completed'
+      : (taskStatus ?? (phase === 2 ? 'completed' : 'transcribing')),
     sha256: historical ? 'f'.repeat(64) : String(phase + 1).repeat(64),
     byteLength: 100,
     createdAtMs: 1,
@@ -52,15 +60,77 @@ function fixture(status: 'recording' | 'unsealed' = 'recording', history = false
       meeting: {
         ...base,
         status: meetingStatus,
+        durationMs: meetingStatus === 'empty' ? 0 : base.durationMs,
+        capabilities: {
+          edit: !['recording', 'unsealed', 'queued', 'transcribing', 'summarizing'].includes(
+            meetingStatus,
+          ),
+          trash: !['recording', 'unsealed', 'queued', 'transcribing', 'summarizing'].includes(
+            meetingStatus,
+          ),
+          restore: false,
+          reprocess: ![
+            'recording',
+            'unsealed',
+            'queued',
+            'transcribing',
+            'summarizing',
+            'empty',
+          ].includes(meetingStatus),
+          reason: ['recording', 'unsealed', 'queued', 'transcribing', 'summarizing'].includes(
+            meetingStatus,
+          )
+            ? 'busy'
+            : null,
+        },
         currentTranscriptTaskId: phase === 2 ? taskId : null,
       },
       hasPartialTranscript: phase === 1,
     }),
-    task_list: () => ({ ...sample('task_list'), items: [], nextCursor: null }),
+    task_list: () => ({
+      ...sample('task_list'),
+      items: taskStatus
+        ? [
+            {
+              ...sample('task_get').task,
+              taskId,
+              generationId: taskId,
+              attempt: 2,
+              meetingId: base.meetingId,
+              stage: taskStage,
+              status: taskStatus,
+              cancelRequested: taskStatus === 'cancelled',
+              canCancel: ['queued', 'transcribing', 'transcript_committed', 'summarizing'].includes(
+                taskStatus,
+              ),
+              canRetry: ['blocked', 'failed', 'interrupted'].includes(taskStatus),
+              canRequeue: taskStatus === 'cancelled',
+            },
+          ]
+        : [],
+      nextCursor: null,
+    }),
     media_manifest: () => ({ ...sample('media_manifest'), segments: [], nextCursor: null }),
     artifact_versions: () => ({
       ...sample('artifact_versions'),
-      items: [...(phase ? [version()] : []), ...(history ? [version(true)] : [])],
+      items: [
+        ...(phase ? [version()] : []),
+        ...(taskStatus && taskStage === 'summary'
+          ? [
+              {
+                ...version(),
+                artifact: { ...artifact, stage: 'summary' as const },
+                status: 'missing' as const,
+                sha256: null,
+                byteLength: null,
+                current: false,
+                sourceTranscriptTaskId: taskId,
+                sourceTranscriptHash: '3'.repeat(64),
+              },
+            ]
+          : []),
+        ...(history ? [version(true)] : []),
+      ],
       revision: String(phase + 1).repeat(64),
       nextCursor: null,
     }),
@@ -98,6 +168,10 @@ function fixture(status: 'recording' | 'unsealed' = 'recording', history = false
     status: (value: MeetingStatus) => {
       meetingStatus = value;
     },
+    task: (value: TaskStatus, stage: Stage) => {
+      taskStatus = value;
+      taskStage = stage;
+    },
     requests: () => {
       const count = (command: string) => fake.calls.filter((c) => c.command === command).length;
       return {
@@ -127,6 +201,90 @@ afterEach(() => {
 });
 
 describe('Detail and Artifacts authoritative hidden terminal polling', () => {
+  it.each([
+    ['transcript_committed', 'interrupted'],
+    ['blocked', 'blocked'],
+    ['failed', 'failed'],
+    ['cancelled', 'cancelled'],
+  ] as const)(
+    'stops sealed %s meeting polling with an actual %s task projection',
+    async (status, taskStatus) => {
+      const f = fixture(status, false, { taskStatus, stage: 'summary' });
+      await tick();
+      fireEvent.click(screen.getByRole('tab', { name: '逐字稿' }));
+      await tick();
+      expect(screen.getByText('原地终稿正文')).toBeVisible();
+      const panel = screen.getByRole('tabpanel');
+      const search = screen.getByLabelText('当前已载入逐字稿内搜索');
+      fireEvent.change(search, { target: { value: '终稿' } });
+      await visible('hidden');
+      await tick(12000);
+      const terminal = f.requests();
+      await tick(30000);
+      expect(f.requests()).toEqual(terminal);
+      await visible('visible');
+      await tick();
+      expect(screen.getByRole('tabpanel')).toBe(panel);
+      expect(screen.getByLabelText('当前已载入逐字稿内搜索')).toBe(search);
+      expect(search).toHaveValue('终稿');
+      const foreground = f.requests().meeting_get;
+      await tick(11000);
+      expect(f.requests().meeting_get).toBeGreaterThan(foreground);
+      f.unmount();
+      const unmounted = f.requests();
+      await tick(20000);
+      expect(f.requests()).toEqual(unmounted);
+    },
+  );
+  it.each(['empty', 'unknown'] as const)(
+    'does not invent activity for a sealed %s meeting with no task or artifact',
+    async (status) => {
+      const f = fixture(status);
+      await tick();
+      fireEvent.click(screen.getByRole('tab', { name: '逐字稿' }));
+      await visible('hidden');
+      await tick(12000);
+      expect(screen.queryByText(/正在准备部分逐字稿/)).not.toBeInTheDocument();
+      const terminal = f.requests();
+      await tick(30000);
+      expect(f.requests()).toEqual(terminal);
+      await visible('visible');
+      const foreground = f.requests().meeting_get;
+      await tick(11000);
+      expect(f.requests().meeting_get).toBeGreaterThan(foreground);
+    },
+  );
+  it.each([
+    ['queued', 'transcribe'],
+    ['summarizing', 'summary'],
+  ] as const)(
+    'keeps real transcript_committed task work active under the %s meeting projection',
+    async (status, stage) => {
+      const f = fixture(status, false, { taskStatus: 'transcript_committed', stage });
+      await tick();
+      fireEvent.click(screen.getByRole('tab', { name: '处理版本' }));
+      await tick();
+      await visible('hidden');
+      const active = f.requests();
+      await tick(6500);
+      expect(f.requests().meeting_get).toBeGreaterThan(active.meeting_get);
+      expect(f.requests().artifact_versions).toBeGreaterThan(active.artifact_versions);
+      expect(screen.getAllByText('逐字稿已提交').length).toBeGreaterThan(0);
+      f.status('summarizing');
+      f.task('summarizing', 'summary');
+      await tick(4500);
+      const rows = screen.getByRole('tabpanel').querySelectorAll('.version-row');
+      expect(rows).toHaveLength(2);
+      for (const row of rows) expect(row).toHaveTextContent('生成纪要');
+      expect(
+        within(screen.getByRole('tabpanel')).queryByText(/逐字稿已提交/),
+      ).not.toBeInTheDocument();
+      f.unmount();
+      const unmounted = f.requests();
+      await tick(20000);
+      expect(f.requests()).toEqual(unmounted);
+    },
+  );
   it('discovers a hidden first segment, stops after sealing, then preserves the mounted search when visible', async () => {
     const f = fixture();
     await tick();

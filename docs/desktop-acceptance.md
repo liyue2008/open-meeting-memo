@@ -1,8 +1,25 @@
 # 桌面版本验收记录
 
-**第三轮复审已关闭此前P1同页快照/游标/历史与P2导入清理；新发现的隐藏页终态轮询问题已完成组件定向修复，尚未形成新完整候选。** 33457的旧完整门禁/资源包保留为其历史来源，不追认为这次UI代码的全量通过。新fresh复审、最终同源全量/包、用户安装与PR仍由Main后续编排。
+**此前同页快照/游标/历史、导入清理、隐藏权威状态与快速恢复可见均已在对应复审关闭；后续影响复审发现的会议/任务状态同名混用已完成本轮组件修复，尚未形成新完整候选。** 33457旧完整门禁/资源包与81fc旧定向结果只保留其历史来源，不追认为这次代码的全量通过。新的独立复审、最终同源全量/包、用户安装与PR仍由Main后续编排。
 
-## 第三轮P2：隐藏详情的权威终态与停止轮询（组件阶段）
+## 后续P2：会议与任务活动状态分域（组件阶段）
+
+已封存且没有活动任务、有逐字稿而无纪要的会议会投影为`transcript_committed`；过期任务恢复为`interrupted`时即可能出现。任务域同名`transcript_committed`仍属于管线活动，已封存会议此时投影为`queued`或`summarizing`，不能将两个域共用一个字符串判定。
+
+最小修复用`Record<MeetingStatus, boolean>`与`Record<TaskStatus, boolean>`分别穷举冻结有限域；详情只查会议域，产物版本只查任务域，无版本发现与准备提示查会议域。保留recording/unsealed即使无版本或只有终态历史仍继续首片段发现，保留focus订阅、前台10秒刷新与原快照/分页/游标算法。
+
+| 域 | 活动 | 非活动 |
+| --- | --- | --- |
+| 会议 | recording、unsealed、queued、transcribing、summarizing | transcript_committed、completed、blocked、failed、interrupted、cancelled、empty、unknown |
+| 任务 | queued、transcribing、transcript_committed、summarizing | completed、blocked、failed、interrupted、cancelled |
+
+表覆盖当前契约全部13/9状态；Core当前并不直接输出会议unsealed/transcribing/interrupted，本轮未虚构这些投影的新场景。已保留的unsealed兼容回归继续执行。
+
+真实Detail+Artifacts/typed SDK/validator/QueryClient组合新增8例（原4例保留）：sealed transcript_committed＋interrupted任务、blocked/failed/cancelled任务对应终态、empty/unknown无任务，以及任务transcript_committed在真实queued/summarizing会议投影下继续版本轮询并原地显示生成纪要。旧81fc生产真实红1/12，隐藏30秒meeting_get从7增至22而版本/正文不增；修复后12项全部通过，完整Node128×UTC/洛杉矶、格式/合同与validator漂移/strict TS/生产build通过。document/focusManager隐藏模拟不冒作OS最小化；保留同panel/搜索、可见10秒刷新与卸载停止断言。最早探针还有两个精确文本选择错误，原红3/12保留，改为按实际version-row严格核状态后才取得1/12产品红；未修改生产解析器或降低业务断言。
+
+原样partial WK若执行，将以clean源码、独立前后清单及实际宿主/dist/driver/结果/owned回执记录于组件交接，不追认旧12项或旧包。全Rust/Swift/全WK/新release包本轮不重复运行。
+
+## 第三轮P2：隐藏详情的权威终态与停止轮询（历史组件记录）
 
 根因是活动产物每2秒在后台更新，但详情原10秒刷新不在后台执行；进入隐藏页时旧recording/unsealed状态会一直要求产物轮询。最小修复复用既有活动状态判定，使详情在活动期间每2秒也更新权威状态；终态隐藏后停止该活动详情刷新，产物据此停止。正常前台详情仍保留10秒刷新，回到可见页不重挂载、不清搜索或历史选择；未改正文快照/分页/游标算法、原生控制器或生产契约。
 

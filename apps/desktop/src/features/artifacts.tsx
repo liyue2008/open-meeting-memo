@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import { useAction, useBridge } from '../app/context';
 import { clock, dateTime } from '../app/dates';
 import { ARTIFACT_STATUS, STATUS, ErrorNotice, Loading } from '../components/ui';
+import { isActiveMeetingStatus, isActiveTaskStatus } from './meeting-task-activity';
 import type { ArtifactRef, ArtifactVersion, MeetingRow, Stage } from '../contracts.generated';
 
 export function timestampMs(value: string): number | null {
@@ -102,16 +103,6 @@ export function SafeMarkdown({
       </Markdown>
     </div>
   );
-}
-export function activeArtifactWork(status: string): boolean {
-  return [
-    'recording',
-    'unsealed',
-    'queued',
-    'transcribing',
-    'transcript_committed',
-    'summarizing',
-  ].includes(status);
 }
 function cursorConflict(error: unknown): boolean {
   return error instanceof BridgeFailure && error.detail.code === 'conflict';
@@ -304,8 +295,8 @@ export function Artifacts({
       const active =
         ['recording', 'unsealed'].includes(meeting.status) ||
         (items?.length
-          ? items.some((v) => activeArtifactWork(v.taskStatus))
-          : activeArtifactWork(meeting.status));
+          ? items.some((v) => isActiveTaskStatus(v.taskStatus))
+          : isActiveMeetingStatus(meeting.status));
       return active ? 2000 : false;
     },
     refetchIntervalInBackground: true,
@@ -470,7 +461,7 @@ export function Artifacts({
               />
             ) : (
               <p className="empty-state">
-                {tab === 'transcribe' && (partial || activeArtifactWork(meeting.status))
+                {tab === 'transcribe' && (partial || isActiveMeetingStatus(meeting.status))
                   ? '正在准备部分逐字稿；可在处理版本中查看已完成片段。'
                   : '尚无对应的有效产物。处理失败时可以到处理版本中查阅旧结果。'}
               </p>
