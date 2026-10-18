@@ -55,33 +55,48 @@ impl Host {
     async fn compatibility(&self) -> Value {
         let owner = match profile::read(&self.paths) {
             Ok(Some(owner)) => owner,
-            Ok(None) => return profile::incompatible("unknown", "incompatible_schema", true),
+            Ok(None) => {
+                return profile::incompatible("requires_switch", "profile_requires_takeover", true)
+            }
+            Err(_) => return profile::incompatible("unknown", "incompatible_schema", true),
+        };
+        let runtime = match self.paths.runtime_location(&std::env::vars().collect()) {
+            Ok(runtime) => runtime,
             Err(_) => return profile::incompatible("unknown", "incompatible_service", true),
         };
-        let mut compatibility = match daemon::request_message_at(
-            &self.paths,
-            &match self.paths.runtime_location(&std::env::vars().collect()) {
-                Ok(v) => v,
-                Err(_) => return profile::incompatible("unknown", "incompatible_service", true),
-            },
-            daemon::Request {
-                schema_version: 1,
-                command: "desktop_capabilities_v1".into(),
-                title: None,
-                session_id: None,
-                instance_id: None,
-                desktop_request: None,
-                desktop_capability: Some(profile::capability_request()),
-            },
-        )
-        .await
-        {
+        let service = omm::core::runtime::verify_active(&runtime.path, &self.paths.state).ok();
+        if service.as_ref().is_some_and(|service| {
+            !app::bundle::Bundle::locate().is_ok_and(|bundle| {
+                app::lifecycle::owned_service(service, &bundle).unwrap_or(false)
+            })
+        }) {
+            return profile::incompatible("requires_switch", "incompatible_service", true);
+        }
+        let response = if let Some(service) = service {
+            daemon::request_message_at(
+                &self.paths,
+                &runtime,
+                daemon::Request {
+                    schema_version: 1,
+                    command: "desktop_capabilities_v1".into(),
+                    title: None,
+                    session_id: None,
+                    instance_id: Some(service.instance_id),
+                    desktop_request: None,
+                    desktop_capability: Some(profile::capability_request()),
+                },
+            )
+            .await
+        } else {
+            Err(OmmError::unavailable("no verified active service"))
+        };
+        let mut compatibility = match response {
             Ok(value)
                 if value["compatibility"]["serviceGeneration"] == owner.generation.to_string() =>
             {
                 value["compatibility"].clone()
             }
-            _ => match profile::offline_lock(&self.paths) {
+            _ => match app::recovery::existing_lock(&self.paths.state.join("service.lock")) {
                 Ok(_lock) => profile::compatible(&owner, "offline"),
                 Err(_) => {
                     return profile::incompatible("requires_switch", "incompatible_service", true)
@@ -148,30 +163,30 @@ impl Host {
         .await
     }
     async fn record_status(&self) -> Result<Value> {
-        let config = omm::core::config::AppConfig::load(&self.paths).unwrap_or_default();
         let compatibility = self.compatibility().await;
-        let status = daemon::request(&self.paths, "status", None).await;
-        let (state, meeting, error) = match status {
-            Ok(value) => (
-                if value["recording"].is_null() {
-                    "idle"
-                } else {
-                    "recording"
-                },
-                value["recording"]["sessionId"].clone(),
-                None,
-            ),
-            Err(error) => ("unknown", Value::Null, Some(app::error(&error))),
+        let status = if compatibility["admissionMode"] == "service" {
+            Some((|| -> Result<Value> {
+                let runtime = self.paths.runtime_location(&std::env::vars().collect())?;
+                let owner = omm::core::runtime::verify_active(&runtime.path, &self.paths.state)?;
+                if compatibility["serviceGeneration"] != owner.instance_id.to_string() {
+                    return Err(denied());
+                }
+                app::observation::service_status(&self.paths, &runtime, &owner)
+            })())
+        } else {
+            None
         };
-        Ok(
-            json!({"state":state,"meetingId":meeting,"startedAtMs":null,"autoRecord":config.auto_record,"recordingConsent":config.recording_consent,"compatibility":compatibility,"error":error}),
-        )
+        Ok(app::observation::record_status(
+            &self.paths,
+            compatibility,
+            status,
+        ))
     }
     async fn diagnostics(&self) -> Result<Value> {
         let compatibility = self.compatibility().await;
         let cfg = omm::core::config::AppConfig::load(&self.paths);
         let mut items = vec![
-            json!({"key":"service","state":if compatibility["admissionMode"]=="service"{"ready"}else{"unknown"},"code":null,"message":if compatibility["admissionMode"]=="service"{"Compatible identity-bound service is running"}else{"Start or explicitly switch to the bundled service; legacy profiles remain read-only"},"action":"omm service start"}),
+            json!({"key":"service","state":if compatibility["admissionMode"]=="service"{"ready"}else{"unknown"},"code":null,"message":if compatibility["admissionMode"]=="service"{"Compatible identity-bound service is running"}else{"Inspect the service plan. A stopped supported legacy profile can be explicitly adopted without starting; an unverifiable live service must first exit normally through its original CLI."},"action":"Inspect Start / Switch in service controls"}),
         ];
         match cfg{Ok(cfg)=>{for(key,exists)in[("capture",cfg.capture_executable.is_file()),("worker",cfg.worker_executable.is_file()),("pi",cfg.pi.executable.is_file()),("models",omm::adapters::asr::models::verify_models(&cfg.asr).is_ok())]{items.push(json!({"key":key,"state":if exists{"unknown"}else{"unavailable"},"code":null,"message":if exists{"Dependency exists; permission, authentication and model quality are not inferred"}else{"Required local dependency is missing"},"action":"See installation help"}));}},Err(_)=>items.push(json!({"key":"configuration","state":"unavailable","code":null,"message":"Initialize a private profile with omm init","action":"omm init"}))};
         Ok(

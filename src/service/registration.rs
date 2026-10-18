@@ -6,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 mod files;
+pub mod recovery;
 use files::{Directory, Snapshot};
 const LABEL: &str = "org.openmeetingmemo.service";
 const PLIST: &str = "org.openmeetingmemo.service.plist";
@@ -25,10 +26,58 @@ fn xml(value: &str) -> String {
 #[async_trait]
 pub trait ServiceRunner: Send + Sync {
     async fn run(&self, args: &[String]) -> Result<()>;
+    async fn require_unloaded(&self) -> Result<()> {
+        Err(OmmError::unavailable(
+            "service registration state cannot be verified",
+        ))
+    }
 }
 pub struct Launchctl;
 #[async_trait]
 impl ServiceRunner for Launchctl {
+    async fn require_unloaded(&self) -> Result<()> {
+        use tokio::io::AsyncReadExt;
+        let uid = unsafe { libc::geteuid() };
+        if uid == 0 {
+            return Err(OmmError::unavailable("user service registration required"));
+        }
+        let mut child = tokio::process::Command::new("/bin/launchctl")
+            .args(["print", &format!("gui/{uid}/{LABEL}")])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| OmmError::unavailable("service registration state unavailable"))?;
+        let result = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            let mut bytes = Vec::new();
+            stderr.take(4097).read_to_end(&mut bytes).await?;
+            if bytes.len() > 4096 {
+                return Err(OmmError::unavailable(
+                    "service registration state exceeds bound",
+                ));
+            }
+            let status = child.wait().await?;
+            recovery::require_unloaded_output(uid, status.code(), &bytes)
+        })
+        .await;
+        match result {
+            Ok(Ok(())) => Ok(()),
+            other => {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                match other {
+                    Ok(Err(error)) => Err(error),
+                    _ => Err(OmmError::unavailable(
+                        "service registration check timed out",
+                    )),
+                }
+            }
+        }
+    }
     async fn run(&self, args: &[String]) -> Result<()> {
         let status = tokio::process::Command::new("/bin/launchctl")
             .args(args)

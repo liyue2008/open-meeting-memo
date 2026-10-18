@@ -826,7 +826,14 @@ pub async fn run_at_with_notifier(
     let cfg = AppConfig::load(&paths)?;
     cfg.validate_policy()?;
     let guard = RuntimeGuard::acquire(&location, &paths.state)?;
-    let desktop_owner = crate::application::profile::takeover(&paths, &guard)?;
+    // Validate ownership first, but publish the new generation only after startup preflight.
+    crate::application::profile::read(&paths)?;
+    let desktop_owner = crate::application::profile::ProfileOwner {
+        schema_version: 1,
+        min_reader_version: 1,
+        generation: guard.owner.instance_id,
+        profile_id: crate::application::profile::profile_id(&paths)?,
+    };
     let runtime = &location.path;
     let socket = runtime.join("service.sock");
     let listener = UnixListener::bind(&socket)?;
@@ -890,6 +897,12 @@ pub async fn run_at_with_notifier(
     } else {
         Arc::new(crate::adapters::UnavailableAsr)
     };
+    let mut helper = HelperProcess::new(&paths)?;
+    helper.observe_endpoint(&native, &paths)?;
+    let mut terminal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    // Store/schema, capture paths, cache reconciliation and worker construction can fail.
+    // Such failures must retain an existing stopped owner (or leave a legacy owner absent).
+    crate::application::profile::takeover(&paths, &guard)?;
     let worker_asr = asr.clone();
     let codec = Arc::new(crate::adapters::asr::codec::AudioCodec::from_paths(&paths));
     let encoder_codec = codec.clone();
@@ -970,13 +983,10 @@ pub async fn run_at_with_notifier(
     let observation_reapers = Reapers::default();
     let mut observation_job: Option<ObservationJob> = None;
     let mut control_epoch = 0u64;
-    let mut helper = HelperProcess::new(&paths)?;
-    helper.observe_endpoint(&native, &paths)?;
     let mut shutdown_reply = None;
     let mut poll = tokio::time::interval(Duration::from_millis(cfg.poll_ms));
     poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut last_poll = chrono::Utc::now().timestamp_millis();
-    let mut terminal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let result: Result<Value> = async { loop {
         tokio::select! {
             _=tokio::signal::ctrl_c()=>{break controller.seal(false).await;},
@@ -988,7 +998,7 @@ pub async fn run_at_with_notifier(
                 let mut reply=match input {
                     Ok(Ok(req)) if req.schema_version==1 => {
                         if matches!(req.command.as_str(), "record_start"|"record_stop"|"capture_auto_stop"|"shutdown") {control_epoch=control_epoch.wrapping_add(1); }
-                        helper.observe_endpoint(&native,&paths)?;
+                        if req.command != "desktop_capabilities_v1" { helper.observe_endpoint(&native,&paths)?; }
                         let action=match req.command.as_str(){
                             "desktop_capabilities_v1"=>{let capability=req.desktop_capability.ok_or_else(||OmmError::invalid("missing capability request"));capability.and_then(|capability|{if capability.protocol_version!=1||capability.desktop_contract_version!=1||capability.required_capabilities.iter().any(|required|!crate::application::profile::CAPABILITIES.contains(&serde_json::to_value(required).ok().and_then(|v|v.as_str().map(str::to_owned)).unwrap_or_default().as_str())){return Err(OmmError::new(ErrorCode::Conflict,false,"unsupported desktop capability"));}Ok(json!({"protocolVersion":1,"compatibility":crate::application::profile::compatible(&desktop_owner,"service")}))})},
                             "desktop_dispatch_v1"=>{let message=req.desktop_request.clone().unwrap_or_default();if matches!(message["command"].as_str(),Some("record_start"|"record_stop")){controller.desktop_control(&desktop_owner,req.instance_id,&message,&native,&mut helper,&socket).await}else{crate::application::service_mutation(&paths,&desktop_owner,req.instance_id,req.desktop_request)}},

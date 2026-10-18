@@ -64,6 +64,13 @@ pub fn read(paths: &Paths) -> Result<Option<ProfileOwner>> {
 /// Called only after an explicit service start owns BOTH existing runtime/state service locks.
 pub fn takeover(paths: &Paths, guard: &RuntimeGuard) -> Result<ProfileOwner> {
     let _lock = writer_lock(paths)?;
+    takeover_with_writer(paths, guard, &_lock)
+}
+pub(crate) fn takeover_with_writer(
+    paths: &Paths,
+    guard: &RuntimeGuard,
+    _writer: &File,
+) -> Result<ProfileOwner> {
     // Explicit startup may claim a legacy profile, never downgrade a newer ownership contract.
     read(paths)?;
     let owner = ProfileOwner {
@@ -76,6 +83,44 @@ pub fn takeover(paths: &Paths, guard: &RuntimeGuard) -> Result<ProfileOwner> {
         &paths.state.join("desktop-owner.json"),
         &serde_json::to_vec(&owner)?,
     )?;
+    Ok(owner)
+}
+/// Stopped legacy adoption publishes only into an absent marker; never overwrite a racing owner.
+pub(crate) fn adopt_absent(
+    paths: &Paths,
+    guard: &RuntimeGuard,
+    _writer: &File,
+) -> Result<ProfileOwner> {
+    let owner = ProfileOwner {
+        schema_version: 1,
+        min_reader_version: 1,
+        generation: guard.owner.instance_id,
+        profile_id: profile_id(paths)?,
+    };
+    use std::{io::Write, os::unix::fs::MetadataExt};
+    let temporary = paths
+        .state
+        .join(format!(".desktop-owner-{}", Uuid::new_v4()));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(&temporary)?;
+    let identity = file.metadata()?;
+    let result = (|| -> Result<()> {
+        file.write_all(&serde_json::to_vec(&owner)?)?;
+        file.sync_all()?;
+        // A complete synced marker appears atomically, only if no owner appeared meanwhile.
+        std::fs::hard_link(&temporary, paths.state.join("desktop-owner.json"))?;
+        Ok(())
+    })();
+    if std::fs::symlink_metadata(&temporary)
+        .is_ok_and(|m| m.dev() == identity.dev() && m.ino() == identity.ino())
+    {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result?;
     Ok(owner)
 }
 pub fn writer_lock(paths: &Paths) -> Result<File> {

@@ -1,0 +1,17 @@
+{
+  "settings": "CREATE TABLE settings(key TEXT PRIMARY KEY, document TEXT NOT NULL)",
+  "retries": "CREATE TABLE retries(task TEXT NOT NULL,stage TEXT NOT NULL,count INTEGER NOT NULL,next_at INTEGER NOT NULL,PRIMARY KEY(task,stage))",
+  "meetings": "CREATE TABLE meetings(id TEXT PRIMARY KEY, document TEXT NOT NULL)",
+  "tasks": "CREATE TABLE tasks(id TEXT PRIMARY KEY, session TEXT NOT NULL REFERENCES meetings(id), attempt INTEGER NOT NULL,\n              input_hash TEXT NOT NULL, config_hash TEXT NOT NULL, document TEXT NOT NULL, stage TEXT NOT NULL, status TEXT NOT NULL,\n              lease TEXT, expires INTEGER, directory TEXT NOT NULL, config TEXT NOT NULL, segments TEXT NOT NULL,\n              UNIQUE(session, attempt))",
+  "commits": "CREATE TABLE commits(task TEXT NOT NULL REFERENCES tasks(id), stage TEXT NOT NULL, lease TEXT NOT NULL,\n              staging TEXT NOT NULL, destination TEXT NOT NULL, hash TEXT NOT NULL, metadata TEXT, done INTEGER NOT NULL DEFAULT 0,\n              PRIMARY KEY(task,stage))",
+  "segmented_sessions": "CREATE TABLE segmented_sessions(session TEXT PRIMARY KEY REFERENCES meetings(id),parent TEXT NOT NULL REFERENCES tasks(id),sealed INTEGER NOT NULL DEFAULT 0)",
+  "segment_jobs": "CREATE TABLE segment_jobs(session TEXT NOT NULL REFERENCES segmented_sessions(session),sequence INTEGER NOT NULL,offset_frames INTEGER NOT NULL,frames INTEGER NOT NULL,audio TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'queued',lease TEXT,expires INTEGER,retries INTEGER NOT NULL DEFAULT 0,next_at INTEGER NOT NULL DEFAULT 0,error TEXT,staging TEXT,destination TEXT,hash TEXT,PRIMARY KEY(session,sequence))",
+  "segment_activity": "CREATE TABLE segment_activity(lease TEXT PRIMARY KEY,document TEXT NOT NULL)",
+  "asr_inputs": "CREATE TABLE asr_inputs(task TEXT NOT NULL REFERENCES tasks(id),lease TEXT NOT NULL,document TEXT NOT NULL,hash TEXT NOT NULL,PRIMARY KEY(task,lease))",
+  "segment_archives": "CREATE TABLE segment_archives(session TEXT NOT NULL,sequence INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'queued',lease TEXT,expires INTEGER,receipt TEXT,retries INTEGER NOT NULL DEFAULT 0,next_at INTEGER NOT NULL DEFAULT 0,error TEXT,cleaned INTEGER NOT NULL DEFAULT 0, bitrate INTEGER NOT NULL DEFAULT 48000,PRIMARY KEY(session,sequence),FOREIGN KEY(session,sequence) REFERENCES segment_jobs(session,sequence))",
+  "desktop_metadata": "CREATE TABLE desktop_metadata(meeting TEXT PRIMARY KEY REFERENCES meetings(id),revision INTEGER NOT NULL,document TEXT NOT NULL,trashed INTEGER NOT NULL DEFAULT 0,started_at INTEGER,time_source TEXT NOT NULL DEFAULT 'estimated',source TEXT NOT NULL DEFAULT 'legacy')",
+  "desktop_requests": "CREATE TABLE desktop_requests(request TEXT PRIMARY KEY,body_hash TEXT NOT NULL,result TEXT NOT NULL)",
+  "desktop_cancellations": "CREATE TABLE desktop_cancellations(task TEXT PRIMARY KEY REFERENCES tasks(id),requested_at INTEGER NOT NULL,settled INTEGER NOT NULL DEFAULT 0)",
+  "desktop_imports": "CREATE TABLE desktop_imports(hash TEXT PRIMARY KEY,meeting TEXT NOT NULL)",
+  "desktop_search": "CREATE TABLE desktop_search(task TEXT NOT NULL,stage TEXT NOT NULL,hash TEXT NOT NULL,content TEXT NOT NULL,PRIMARY KEY(task,stage))"
+}

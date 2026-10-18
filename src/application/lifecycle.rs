@@ -1,5 +1,5 @@
 //! Explicit profile/bootstrap and service lifecycle. Merely observing never opens a writable store.
-use super::{bundle::Bundle, profile};
+use super::{bundle::Bundle, profile, recovery};
 use crate::{
     core::{
         config::AppConfig,
@@ -20,6 +20,8 @@ pub struct Plan {
     pub snapshot: String,
     pub bundle_hash: String,
     pub expires: i64,
+    pub recovery: Option<recovery::RecoverySnapshot>,
+    pub offline_snapshot: Option<String>,
 }
 fn changed() -> OmmError {
     OmmError::new(
@@ -123,7 +125,7 @@ fn process_path(pid: i32) -> Result<PathBuf> {
 fn process_path(_pid: i32) -> Result<PathBuf> {
     Err(OmmError::unavailable("macOS service identity required"))
 }
-fn owned_service(owner: &RuntimeOwner, bundle: &Bundle) -> Result<bool> {
+pub fn owned_service(owner: &RuntimeOwner, bundle: &Bundle) -> Result<bool> {
     let executable = process_path(owner.pid)?;
     if executable == bundle.cli()? {
         return Ok(hash_file(&executable)? == bundle.manifest.files["bin/omm"]);
@@ -135,20 +137,48 @@ fn owned_service(owner: &RuntimeOwner, bundle: &Bundle) -> Result<bool> {
     let old = Bundle::open(resources)?;
     Ok(old.cli()? == executable)
 }
-async fn inspect(paths: &Paths, bundle: Option<&Bundle>, action: &str) -> Result<(Value, String)> {
-    let owner = profile::read(paths)?;
-    let runtime = location(paths)?;
+fn home() -> Result<PathBuf> {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| OmmError::invalid("HOME is required"))
+}
+pub const EXTERNAL_STOP_GUIDANCE: &str = "The original service cannot be verified. Use the original CLI executable from your existing installation with `service stop` (not PATH's `omm service start`), wait for normal seal and child exit, then inspect Switch again. The App has not stopped it.";
+fn external_stop_guidance(owner: &RuntimeOwner) -> String {
+    let mut guidance = EXTERNAL_STOP_GUIDANCE.to_owned();
+    if let Ok(path) = process_path(owner.pid) {
+        if let Some(path) = path.to_str() {
+            let quoted = format!("'{}'", path.replace('\'', "'\"'\"'"));
+            guidance.push_str(&format!(" Observed executable path (not a trust assertion): {}. Only after you verify that this is your original installation, manually run: {} service stop",serde_json::to_string(path).unwrap_or_default(),quoted));
+        }
+    }
+    guidance
+}
+pub const ADOPTION_GUIDANCE: &str = "Switch only adopts the stopped profile and updates its exact service registration. It does not start a service. After adoption, inspect Start and explicitly confirm startup.";
+async fn inspect(
+    paths: &Paths,
+    bundle: Option<&Bundle>,
+    action: &str,
+    home: &std::path::Path,
+    runtime: &runtime::RuntimeLocation,
+    runner: &dyn crate::service::registration::ServiceRunner,
+) -> Result<(Value, String)> {
+    let owner_result = profile::read(paths);
+    let owner = owner_result.as_ref().ok().and_then(|o| o.as_ref());
     let service = runtime::verify_active(&runtime.path, &paths.state).ok();
-    let status = if service.is_some() {
-        daemon::request(paths, "status", None).await.ok()
-    } else {
-        None
-    };
     let initialized = owner.is_some() && paths.config.join("config.json").try_exists()?;
     let mut compatibility = owner
-        .as_ref()
         .map(|o| profile::compatible(o, "offline"))
-        .unwrap_or_else(|| profile::incompatible("unknown", "incompatible_schema", true));
+        .unwrap_or_else(|| {
+            profile::incompatible(
+                "requires_switch",
+                if owner_result.is_err() {
+                    "incompatible_schema"
+                } else {
+                    "profile_requires_takeover"
+                },
+                true,
+            )
+        });
     let mut state = if initialized {
         "stopped"
     } else {
@@ -156,18 +186,21 @@ async fn inspect(paths: &Paths, bundle: Option<&Bundle>, action: &str) -> Result
     };
     let mut reasons = vec![];
     let mut apply = false;
+    let mut status = None;
+    let mut effects = vec![];
+    let mut guidance = None;
+    let mut recovery_snapshot = None;
+    let mut database_snapshot = None;
     if let Some(service) = &service {
         state = "unknown";
-        if status.is_none() {
-            reasons.push("service_unreachable");
-        }
         let owned = bundle.is_some_and(|b| owned_service(service, b).unwrap_or(false));
         if !owned {
-            reasons.push("unowned_service");
-        } else if let Some(status) = &status {
+            reasons.extend(["unowned_service", "external_stop_required"]);
+            guidance = Some(external_stop_guidance(service));
+        } else {
             let capability = daemon::request_message_at(
                 paths,
-                &runtime,
+                runtime,
                 daemon::Request {
                     schema_version: 1,
                     command: "desktop_capabilities_v1".into(),
@@ -180,50 +213,134 @@ async fn inspect(paths: &Paths, bundle: Option<&Bundle>, action: &str) -> Result
             )
             .await
             .ok();
-            if let Some(value) = capability {
+            if let Some(value) = capability.filter(|v| {
+                v["compatibility"]["serviceGeneration"] == service.instance_id.to_string()
+                    && v["compatibility"]["state"] == "compatible"
+            }) {
                 compatibility = value["compatibility"].clone();
-                state = "running";
+                status = super::observation::service_status(paths, runtime, service).ok();
+                if let Some(status) = &status {
+                    if !status
+                        .get("recording")
+                        .is_some_and(|r| r.is_null() || r.is_object())
+                    {
+                        reasons.push("service_unreachable");
+                    } else {
+                        for suffix in ["-wal", "-shm", "-journal"] {
+                            if paths
+                                .state
+                                .join(format!("state.sqlite{suffix}"))
+                                .try_exists()?
+                            {
+                                return Err(changed());
+                            }
+                        }
+                        let store = Store::open_read_only(paths)?;
+                        let busy = status["recording"].is_object()
+                            || store.state::<Value>("recording")?.is_some()
+                            || store.has_unsealed_segmented_sessions()?
+                            || store.desktop_processing_busy()?;
+                        if busy {
+                            state = "busy";
+                            reasons.push("service_busy");
+                        } else {
+                            state = "running";
+                            if action == "start" {
+                                reasons.push("already_running");
+                            } else {
+                                apply = true;
+                            }
+                        }
+                    }
+                } else {
+                    reasons.push("service_unreachable");
+                }
             } else {
                 state = "incompatible";
-                reasons.push("incompatible_service");
-            }
-            let store = Store::open_read_only(paths)?;
-            let busy = status["recording"].is_object()
-                || status["state"] == "recording"
-                || store.state::<Value>("recording")?.is_some()
-                || store.desktop_processing_busy()?;
-            if busy {
-                state = "busy";
-                reasons.push("service_busy");
-            } else if action == "start" {
-                reasons.push("already_running");
-            } else if state == "running" {
-                apply = true;
+                reasons.extend(["incompatible_service", "external_stop_required"]);
+                guidance = Some(external_stop_guidance(service));
             }
         }
-    } else if profile::offline_lock(paths).is_err() {
+    } else if owner_result.is_err() {
+        state = "incompatible";
+        reasons.push("incompatible_schema");
+    } else if !initialized && !empty(paths)? {
+        if let Some(bundle) = bundle {
+            let checked = match runner.require_unloaded().await {
+                Ok(()) => recovery::inspect(paths, home, runtime, bundle),
+                Err(error) => Err(error),
+            };
+            match checked {
+                Ok(snapshot) => {
+                    state = "stopped";
+                    reasons.push("profile_requires_takeover");
+                    apply = action == "switch";
+                    recovery_snapshot = Some(snapshot.fingerprint);
+                    guidance = Some(ADOPTION_GUIDANCE.to_owned());
+                    effects=vec!["Adopt this stopped profile under the current ownership contract","Replace only the exact service registration executable with the verified bundled CLI; retain a non-secret metadata backup","Keep configuration, consent and database bytes unchanged; do not start a service","Next: explicitly inspect and confirm Start; startup may add supported Store tables"] ;
+                }
+                Err(error) => {
+                    state = if error.message.contains("schema is unsupported") {
+                        "incompatible"
+                    } else {
+                        "unknown"
+                    };
+                    reasons.push(if state == "incompatible" {
+                        "incompatible_schema"
+                    } else if error.message
+                        == crate::service::registration::recovery::EXTERNAL_UNLOAD_REQUIRED
+                    {
+                        "external_unload_required"
+                    } else {
+                        "registration_review_required"
+                    });
+                    guidance=Some(format!("Stopped recovery could not be verified; no files changed. For a loaded old registration, only after verifying that the original tool and current-user job are your OMM and all work is safely completed: use the verified original CLI's service stop and wait for success; manually verify the loaded job's identity, then manually run /bin/launchctl bootout 'gui/{}/org.openmeetingmemo.service'. This unloads only the user job and keeps its plist. Do not use service uninstall: it removes the plist needed for this recovery. If ownership is uncertain, seek manual review instead. Return to inspect Switch after the job is unloaded; adoption and Start are separate confirmations.",unsafe{libc::geteuid()}));
+                }
+            }
+        }
+    } else if !initialized {
+        reasons.push("profile_not_initialized");
+    } else if recovery::existing_lock(&paths.state.join("service.lock")).is_err() {
         state = "unknown";
         reasons.push("service_unreachable");
-    } else if !initialized {
-        reasons.push(if empty(paths)? {
-            "profile_not_initialized"
-        } else {
-            "profile_not_empty"
-        });
     } else if action == "stop" {
         reasons.push("already_stopped");
-    } else {
-        apply = true;
+    } else if let Some(bundle) = bundle {
+        match recovery::stopped_start_snapshot(paths, home, runtime, bundle) {
+            Ok(fingerprint) => {
+                database_snapshot = Some(fingerprint);
+                apply = true;
+            }
+            Err(error) => {
+                state = if error.message.contains("schema is unsupported") {
+                    "incompatible"
+                } else {
+                    "unknown"
+                };
+                reasons.push(if state == "incompatible" {
+                    "incompatible_schema"
+                } else {
+                    "registration_review_required"
+                });
+            }
+        }
     }
     if bundle.is_none() {
         reasons.push("bundle_unavailable");
         apply = false;
     }
-    if state == "busy" || state == "unknown" {
+    if state == "busy" || state == "unknown" || state == "incompatible" {
         apply = false;
     }
     if reasons.is_empty() {
         reasons.push("ready");
+    }
+    if effects.is_empty() && apply {
+        effects.push(if action == "stop" {
+            "Drain and stop the verified idle service"
+        } else {
+            "Explicitly start the verified bundled service; startup may add supported Store tables"
+        });
     }
     let config_path = paths.config.join("config.json");
     let config = if config_path.try_exists()? {
@@ -233,10 +350,10 @@ async fn inspect(paths: &Paths, bundle: Option<&Bundle>, action: &str) -> Result
         None
     };
     let snapshot = hash_bytes(&serde_json::to_vec(
-        &json!({"profile":profile::profile_id(paths)?,"owner":owner,"service":service,"status":status,"config":config,"state":state,"reasons":reasons}),
+        &json!({"profile":profile::profile_id(paths)?,"owner":owner,"service":service,"status":status,"config":config,"state":state,"reasons":reasons,"recovery":recovery_snapshot,"database":database_snapshot}),
     )?);
     Ok((
-        json!({"action":action,"state":state,"canInitialize":!initialized&&empty(paths)?&&service.is_none(),"canApply":apply,"planToken":null,"expiresAtMs":null,"targetVersion":env!("CARGO_PKG_VERSION"),"reasons":reasons,"compatibility":compatibility}),
+        json!({"action":action,"state":state,"canInitialize":!initialized&&empty(paths)?&&service.is_none(),"canApply":apply,"planToken":null,"expiresAtMs":null,"targetVersion":env!("CARGO_PKG_VERSION"),"reasons":reasons,"compatibility":compatibility,"effects":effects,"guidance":guidance}),
         snapshot,
     ))
 }
@@ -245,10 +362,28 @@ pub async fn plan(
     bundle: Option<&Bundle>,
     action: &str,
 ) -> Result<(Value, Option<Plan>)> {
+    plan_at(
+        paths,
+        bundle,
+        action,
+        &home()?,
+        &location(paths)?,
+        &crate::service::registration::Launchctl,
+    )
+    .await
+}
+pub async fn plan_at(
+    paths: &Paths,
+    bundle: Option<&Bundle>,
+    action: &str,
+    home: &std::path::Path,
+    runtime: &runtime::RuntimeLocation,
+    runner: &dyn crate::service::registration::ServiceRunner,
+) -> Result<(Value, Option<Plan>)> {
     if !["start", "stop", "switch"].contains(&action) {
         return Err(OmmError::invalid("unsupported service action"));
     }
-    let (mut value, snapshot) = inspect(paths, bundle, action).await?;
+    let (mut value, snapshot) = inspect(paths, bundle, action, home, runtime, runner).await?;
     let plan = if value["canApply"] == true {
         let plan = Plan {
             token: Uuid::new_v4().simple().to_string(),
@@ -256,6 +391,28 @@ pub async fn plan(
             snapshot,
             bundle_hash: bundle.unwrap().manifest_hash.clone(),
             expires: chrono::Utc::now().timestamp_millis() + 60000,
+            offline_snapshot: if value["state"] == "stopped"
+                && !value["reasons"]
+                    .as_array()
+                    .is_some_and(|r| r.iter().any(|r| r == "profile_requires_takeover"))
+            {
+                Some(recovery::stopped_start_snapshot(
+                    paths,
+                    home,
+                    runtime,
+                    bundle.unwrap(),
+                )?)
+            } else {
+                None
+            },
+            recovery: if value["reasons"]
+                .as_array()
+                .is_some_and(|r| r.iter().any(|r| r == "profile_requires_takeover"))
+            {
+                Some(recovery::inspect(paths, home, runtime, bundle.unwrap())?)
+            } else {
+                None
+            },
         };
         value["planToken"] = json!(plan.token);
         value["expiresAtMs"] = json!(plan.expires);
@@ -266,6 +423,24 @@ pub async fn plan(
     Ok((value, plan))
 }
 pub async fn apply(paths: &Paths, bundle: &Bundle, plan: Plan) -> Result<Value> {
+    apply_at(
+        paths,
+        bundle,
+        plan,
+        &home()?,
+        &location(paths)?,
+        &crate::service::registration::Launchctl,
+    )
+    .await
+}
+pub async fn apply_at(
+    paths: &Paths,
+    bundle: &Bundle,
+    plan: Plan,
+    home: &std::path::Path,
+    runtime: &runtime::RuntimeLocation,
+    runner: &dyn crate::service::registration::ServiceRunner,
+) -> Result<Value> {
     let _lifecycle = lifecycle_lock(paths)?;
     if plan.expires < chrono::Utc::now().timestamp_millis()
         || plan.bundle_hash != bundle.manifest_hash
@@ -273,18 +448,25 @@ pub async fn apply(paths: &Paths, bundle: &Bundle, plan: Plan) -> Result<Value> 
         return Err(changed());
     }
     bundle.verify()?;
-    let (value, snapshot) = inspect(paths, Some(bundle), &plan.action).await?;
+    let (value, snapshot) =
+        inspect(paths, Some(bundle), &plan.action, home, runtime, runner).await?;
     if snapshot != plan.snapshot || value["canApply"] != true {
         return Err(changed());
     }
-    let runtime = location(paths)?;
+    if let Some(recovery_plan) = &plan.recovery {
+        recovery::adopt(paths, home, runtime, bundle, recovery_plan, runner).await?;
+        let owner = profile::read(paths)?.ok_or_else(changed)?;
+        return Ok(
+            json!({"action":"switch","state":"stopped","compatibility":profile::compatible(&owner,"offline")}),
+        );
+    }
     if let Ok(owner) = runtime::verify_active(&runtime.path, &paths.state) {
         if !owned_service(&owner, bundle)? {
             return Err(changed());
         }
         daemon::request_message_at(
             paths,
-            &runtime,
+            runtime,
             daemon::Request {
                 schema_version: 1,
                 command: "desktop_idle_shutdown_v1".into(),
@@ -318,11 +500,27 @@ pub async fn apply(paths: &Paths, bundle: &Bundle, plan: Plan) -> Result<Value> 
     }
     // RuntimeGuard is the service's exclusive startup admission. A competing start wins that lock, never gets killed.
     {
-        let _guard = runtime::RuntimeGuard::acquire(&runtime, &paths.state)?;
+        let _guard = runtime::RuntimeGuard::acquire(runtime, &paths.state)?;
+        let _writer = profile::writer_lock(paths)?;
+        let _config_writer = crate::core::config_transaction::ConfigTransaction::acquire(paths)?;
+        bundle.verify()?;
+        let current = recovery::start_snapshot(paths, home, runtime, bundle, true)?;
+        if plan
+            .offline_snapshot
+            .as_ref()
+            .is_some_and(|expected| expected != &current)
+        {
+            return Err(changed());
+        }
     }
     let mut command = std::process::Command::new(bundle.cli()?);
     command
         .args(["--json", "service", "run"])
+        .env("HOME", home)
+        .env(
+            "XDG_RUNTIME_DIR",
+            runtime.path.parent().ok_or_else(changed)?,
+        )
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -345,9 +543,32 @@ pub async fn apply(paths: &Paths, bundle: &Bundle, plan: Plan) -> Result<Value> 
                 return Err(changed());
             }
             if let Some(profile) = profile::read(paths)? {
-                return Ok(
-                    json!({"action":plan.action,"state":"running","compatibility":profile::compatible(&profile,"service")}),
-                );
+                if profile.generation == owner.instance_id {
+                    if let Ok(capabilities) = daemon::request_message_at(
+                        paths,
+                        runtime,
+                        daemon::Request {
+                            schema_version: 1,
+                            command: "desktop_capabilities_v1".into(),
+                            title: None,
+                            session_id: None,
+                            instance_id: Some(owner.instance_id),
+                            desktop_request: None,
+                            desktop_capability: Some(profile::capability_request()),
+                        },
+                    )
+                    .await
+                    {
+                        if capabilities["compatibility"]["state"] == "compatible"
+                            && capabilities["compatibility"]["serviceGeneration"]
+                                == profile.generation.to_string()
+                        {
+                            return Ok(
+                                json!({"action":plan.action,"state":"running","compatibility":profile::compatible(&profile,"service")}),
+                            );
+                        }
+                    }
+                }
             }
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
