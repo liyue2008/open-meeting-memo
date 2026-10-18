@@ -48,6 +48,7 @@
     // WK reports 100 ms Opus container pre-roll; the archive codec separately verifies exact decoded frames.
     media.push({metadataDuration:audio.duration, timelineDurationMs:manifest.durationMs, paused:audio.paused, autoplay:audio.autoplay});
     check('native metadata remains paused without autoplay', audio.paused && !audio.autoplay && audio.duration > 2.9 && audio.duration <= 3.11);
+    check('one hidden audio with no competing native controls', document.querySelectorAll('audio').length === 1 && audio.hidden && !audio.controls);
     const slider = document.querySelector('[role="slider"][aria-label="会议时间定位"]');
     const track = slider?.closest('.mantine-Slider-root')?.querySelector('.mantine-Slider-trackContainer');
     check('visible Mantine timeline mouse target', !!track);
@@ -61,6 +62,14 @@
     document.dispatchEvent(new MouseEvent('mouseup', {...point, buttons:0}));
     await wait('paused native seek through Mantine mouse handlers', () => audio.paused && Math.abs(audio.currentTime - 1.2) < .1);
     media.push({ metadataDuration: audio.duration, pausedSeek: audio.currentTime, paused: audio.paused });
+    slider.focus({preventScroll:true});
+    slider.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',code:'ArrowRight',bubbles:true,cancelable:true}));
+    await wait('real slider keyboard increments paused timeline', () => audio.paused && Math.abs(audio.currentTime - 1.3) < .05);
+    media.push({keyboard:'ArrowRight',pausedSeek:audio.currentTime,paused:audio.paused});
+    slider.dispatchEvent(new KeyboardEvent('keydown',{key:'Home',code:'Home',bubbles:true,cancelable:true}));
+    await wait('real slider Home returns paused timeline to zero', () => audio.paused && audio.currentTime < .05);
+    media.push({keyboard:'Home',pausedSeek:audio.currentTime,paused:audio.paused});
+    check('keyboard seeking never requests hardware playback', realPlayCalls === 0 && mockPlayCalls === 0);
     const oldUrl = audio.src;
     check('exactly one attached audio element', document.querySelectorAll('audio').length === 1);
     mockMode = true;

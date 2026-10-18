@@ -16,15 +16,33 @@
   };
   // requestAnimationFrame may be suspended for an occluded WK window; bound stabilization.
   const stable = async () => { await Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 1500))]); await new Promise(r => setTimeout(r, 300)); };
-  const snapshot = async (name, width, height) => {
+  let titlebarInset;
+  const shot = async request => {
     await stable(); window.__ommFixtureSnapshotResult = null;
-    window.__ommFixtureSnapshotRequest = { name, width, height };
-    const value = await wait(name, () => window.__ommFixtureSnapshotResult);
-    check('stable actual WK snapshot ' + name, value.ok && value.name === name && value.bytes > 0); snapshots.push(value);
+    window.__ommFixtureSnapshotRequest = request;
+    const value = await wait(request.name, () => window.__ommFixtureSnapshotResult);
+    check('stable actual WK snapshot ' + request.name, value.ok && value.name === request.name && value.bytes > 0);
+    return value;
   };
-  const rgb = color => color.match(/[\d.]+/g).slice(0, 3).map(Number);
-  const luminance = color => rgb(color).map(v => v / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i], 0);
-  const contrast = (a, b) => { const x = luminance(a), y = luminance(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05); };
+  const snapshot = async (name, width, height) => {
+    if (titlebarInset === undefined) {
+      await shot({name:'service-viewport-calibration',width,height}); titlebarInset = height - innerHeight;
+      check('measured actual service titlebar inset', titlebarInset >= 0 && titlebarInset <= 100);
+    }
+    await shot({name:name + '-size',width,height:height + titlebarInset});
+    check('actual service content dimensions ' + name, innerWidth === width && innerHeight === height);
+    const value = await shot({name}); snapshots.push({...value,viewport:[innerWidth,innerHeight],titlebarInset});
+    check('no service page horizontal overflow ' + name, document.documentElement.scrollWidth <= innerWidth + 1);
+  };
+  const rgba = color => { const values = color.match(/[\d.]+/g).map(Number); return [...values.slice(0,3),values[3] ?? 1]; };
+  const background = element => {
+    const ancestors = []; for (let node = element; node; node = node.parentElement) ancestors.unshift(node);
+    return ancestors.reduce((base,node) => { const color = rgba(getComputedStyle(node).backgroundColor); return base.map((v,i) => color[i]*color[3] + v*(1-color[3])); },[255,255,255]);
+  };
+  const luminance = rgb => rgb.map(v => v / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i], 0);
+  const contrast = (foreground, background) => { const x = luminance(rgba(foreground).slice(0,3)), y = luminance(background); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05); };
+  const field = name => [...document.querySelectorAll('label')].find(e => e.textContent.trim() === name)?.htmlFor;
+  const searchField = () => document.querySelector('input[aria-label="搜索会议"]') || document.getElementById(field('搜索会议'));
   try {
     const banner = await wait('real unknown service banner', () => document.querySelector('.compatibility-banner'));
     const entry = banner.querySelector('.service-entry');
@@ -33,19 +51,20 @@
       entry.blur();
       change(document.querySelector('select[aria-label="外观主题"]'), theme);
       await wait('actual theme ' + theme, () => document.documentElement.dataset.theme === theme); await stable();
-      const button = getComputedStyle(entry), message = getComputedStyle(banner);
-      const evidence = { theme, foreground: button.color, background: button.backgroundColor, appearance: button.getPropertyValue('-webkit-appearance'), buttonContrast: contrast(button.color, button.backgroundColor), bannerContrast: contrast(message.color, message.backgroundColor), message: banner.innerText };
+      const messageNode = banner.querySelector('.mantine-Alert-message') || banner;
+      const button = getComputedStyle(entry), message = getComputedStyle(messageNode);
+      const evidence = { theme, foreground: button.color, background: button.backgroundColor, resolvedBackground:background(entry), appearance: button.getPropertyValue('-webkit-appearance'), buttonContrast: contrast(button.color, background(entry)), bannerForeground:message.color, bannerBackground:background(messageNode), bannerContrast: contrast(message.color, background(messageNode)), message: banner.innerText };
       styles.push(evidence);
       check('service button normal contrast >=4.5 ' + theme, evidence.buttonContrast >= 4.5);
       check('service message contrast >=4.5 ' + theme, evidence.bannerContrast >= 4.5);
       check('service entry disables native paint ' + theme, evidence.appearance === 'none');
-      await snapshot('service-entry-' + theme, 640, 960);
+      await snapshot('service-entry-' + theme, 800, 600);
       entry.focus({ preventScroll: true });
       const focus = getComputedStyle(entry);
-      evidence.focusContrast = contrast(focus.color, focus.backgroundColor);
+      evidence.focusContrast = contrast(focus.color, background(entry));
       check('actual focus state contrast >=4.5 ' + theme, document.activeElement === entry && evidence.focusContrast >= 4.5);
     }
-    const search = await wait('real library query field', () => document.querySelector('input[aria-label="搜索会议"]'));
+    const search = await wait('real library query field', searchField);
     check('real library query field', search);
     change(search, 'Private bridge fixture');
     await wait('actual query result settles', () => document.querySelectorAll('[aria-label="会议列表"] tbody tr').length === 1);
@@ -54,13 +73,14 @@
     meeting.click();
     const audio = await wait('actual ready paused audio', () => { const a = document.querySelector('audio'); return a?.readyState >= 1 && a; });
     const playback = await wait('enabled visible user playback entry', () => [...document.querySelectorAll('button')].find(e => e.textContent.trim() === '播放录音' && !e.disabled && e.getClientRects().length));
-    check('single media element with metadata preload and no autoplay', document.querySelectorAll('audio').length === 1 && !audio.autoplay && audio.preload === 'metadata');
+    check('single hidden audio without native controls, metadata preload and no autoplay', document.querySelectorAll('audio').length === 1 && audio.hidden && !audio.controls && !audio.autoplay && audio.preload === 'metadata');
     check('visible named playback button controls actual audio', playback.getAttribute('aria-controls') === audio.id && playback.tabIndex === 0);
     check('metadata is finite and remains paused', Number.isFinite(audio.duration) && audio.paused);
     const playbackStyle = getComputedStyle(playback);
-    check('visible playback entry contrast >=4.5', contrast(playbackStyle.color, playbackStyle.backgroundColor) >= 4.5);
+    check('visible playback entry contrast >=4.5', contrast(playbackStyle.color, background(playback)) >= 4.5);
     const audioEvidence = { readyState: audio.readyState, duration: audio.duration, currentTime: audio.currentTime, paused: audio.paused, controls: audio.controls, buttonText: playback.textContent.trim(), buttonBounds: playback.getBoundingClientRect().toJSON(), audioId: audio.id };
-    await snapshot('playback-entry-paused', 1280, 1000);
+    playback.scrollIntoView({block:'center'});
+    await snapshot('playback-entry-paused', 1280, 820);
     check('no playback requested', playCalls === 0);
     window.__ommFixtureResult = { ok: true, checks, playCalls, styles, audioEvidence, snapshots, hoverPointerTested: false, hoverEvidence: 'Scoped shared normal/hover/focus declarations verified by source-named unit test; no simulated hover claimed.' };
   } catch (error) {

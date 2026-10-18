@@ -1,6 +1,6 @@
 // Real React events and independent production reads; never replace the frozen Tauri transport.
 (async () => {
-  const checks = [], reads = [], views = [], mediaEvidence = [];
+  const checks = [], reads = [], views = [], mediaEvidence = [], focusEvidence = [];
   let playCalls = 0, sequence = 0;
   const invoke = window.__TAURI_INTERNALS__.invoke.bind(window.__TAURI_INTERNALS__);
   const check = (name, condition) => { if (!condition) throw Error(name); checks.push(name); };
@@ -21,7 +21,7 @@
   };
   const click = async (name, root = document) => {
     const button = await wait(name, () => elements('button,a,[role=tab]', root).find(e => !e.disabled && (e.textContent.trim() === name || e.getAttribute('aria-label') === name)));
-    check('enabled control: ' + name, !button.disabled); button.click(); await tick(); return button;
+    check('enabled control: ' + name, !button.disabled); button.scrollIntoView({block:'nearest'}); button.focus({preventScroll:true}); button.click(); await tick(); return button;
   };
   const label = name => {
     const wrapper = elements('label').find(e => e.childNodes[0]?.textContent.trim() === name);
@@ -29,6 +29,7 @@
   };
   const change = async (element, value) => {
     check('input exists: ' + value, !!element);
+    element.scrollIntoView({block:'nearest'});
     if (element.getAttribute('role') === 'slider') {
       const track = element.closest('.mantine-Slider-root')?.querySelector('.mantine-Slider-trackContainer');
       check('actual Mantine mouse target', !!track);
@@ -48,12 +49,48 @@
     element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true })); await tick();
   };
   const modal = () => elements('dialog[open],[role=dialog]')[0];
-  const snapshot = async (name, width, height) => {
-    window.__ommFixtureSnapshotResult = null;
-    window.__ommFixtureSnapshotRequest = { name, ...(width ? { width, height } : {}) };
-    const result = await wait('owned WK snapshot ' + name, () => window.__ommFixtureSnapshotResult);
-    check('owned content snapshot: ' + name, result.ok && result.name === name && result.bytes > 0);
-    views.push({ name, width: innerWidth, height: innerHeight, theme: document.documentElement.dataset.theme, sidebar: document.documentElement.dataset.sidebar, body: text().slice(0, 12000) });
+  let titlebarInset;
+  const shot = async request => {
+    window.__ommFixtureSnapshotResult = null; window.__ommFixtureSnapshotRequest = request;
+    const result = await wait('owned WK snapshot ' + request.name, () => window.__ommFixtureSnapshotResult);
+    check('owned content snapshot: ' + request.name, result.ok && result.name === request.name && result.bytes > 0);
+  };
+  const snapshot = async (name, width = 1280, height = 820) => {
+    if (titlebarInset === undefined) {
+      await shot({name:'ui-viewport-calibration',width,height}); titlebarInset = height - innerHeight;
+      check('measured actual UI titlebar inset', titlebarInset >= 0 && titlebarInset <= 100);
+    }
+    await shot({name:name + '-size',width,height:height + titlebarInset});
+    check('actual UI content dimensions: ' + name, innerWidth === width && innerHeight === height);
+    const active = modal();
+    const last = active && elements('button',active).filter(e => !e.disabled).at(-1);
+    last?.scrollIntoView({block:'nearest'}); await tick();
+    await shot({name});
+    const overflow = Math.max(0, document.documentElement.scrollWidth - innerWidth);
+    check('no actual UI horizontal overflow: ' + name, overflow <= 1);
+    views.push({ name, width: innerWidth, height: innerHeight, titlebarInset, overflow, theme: document.documentElement.dataset.mantineColorScheme, sidebar: document.documentElement.dataset.sidebar, body: text().slice(0, 12000) });
+  };
+  const openAdvanced = async () => {
+    const control = await wait('actual advanced Accordion control', () => elements('button[aria-expanded]').find(e => e.textContent.trim().startsWith('高级筛选与数据说明')));
+    if (control.getAttribute('aria-expanded') !== 'true') { control.scrollIntoView({block:'nearest'}); control.click(); }
+    await wait('actual advanced Accordion expanded', () => control.getAttribute('aria-expanded') === 'true' && label('排序'));
+  };
+  const modalCheckpoint = async name => {
+    const active = await wait('real modal initial focus ' + name, () => { const d = modal(); return d?.contains(document.activeElement) && !document.activeElement.matches(':disabled') && d; });
+    const initial = document.activeElement;
+    const targets = elements('button,input,select,textarea,a[href],[tabindex="0"]',active).filter(e => !e.disabled && e.tabIndex >= 0);
+    check('real focusable modal controls ' + name, targets.length > 0);
+    const first = targets[0], last = targets.at(-1);
+    last.focus({preventScroll:true});
+    last.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',code:'Tab',keyCode:9,which:9,bubbles:true,cancelable:true})); await tick();
+    check('actual forward Tab boundary ' + name, document.activeElement === first);
+    first.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',code:'Tab',keyCode:9,which:9,shiftKey:true,bubbles:true,cancelable:true})); await tick();
+    check('actual reverse Tab boundary ' + name, document.activeElement === last);
+    last.scrollIntoView({block:'nearest'});
+    const rect = last.getBoundingClientRect(), hit = document.elementFromPoint(rect.left + rect.width/2,rect.top + rect.height/2);
+    check('last enabled modal control reachable ' + name, rect.top >= 0 && rect.bottom <= innerHeight + 1 && !!hit && (hit === last || last.contains(hit)));
+    focusEvidence.push({name,initialTag:initial.tagName,initialDisabled:initial.disabled ?? false,focusable:targets.length,forwardWrap:true,reverseWrap:true,lastReachable:true,syntheticKeyboardEvents:true});
+    if (initial.isConnected) initial.focus({preventScroll:true});
   };
   const localRange = preset => {
     if (preset === 'all') return null;
@@ -84,6 +121,8 @@
     await wait('server second page', () => text().includes('第 2 页') && elements('tbody tr').length > 0);
     check('real second page populated', elements('tbody tr').length > 0);
     await click('上一页');
+    check('advanced filters initially collapsed', elements('button[aria-expanded]').find(e => e.textContent.trim().startsWith('高级筛选与数据说明'))?.getAttribute('aria-expanded') === 'false');
+    await openAdvanced();
     for (const preset of ['today', 'week', '3', '7', 'all']) {
       await change(label('日期'), preset);
       const sort = { today: 'started_asc', week: 'duration_desc', '3': 'duration_asc', '7': 'started_asc', all: 'started_desc' }[preset];
@@ -143,22 +182,22 @@
     timestamp.click(); await tick();
     await wait('timestamp locates first segment paused', () => label('录音分段').selectedIndex === 0 && document.querySelector('audio')?.readyState >= 1 && document.querySelector('audio').paused);
     await click('处理版本'); await wait('real versions', () => elements('.version-row').length >= 2);
-    await click('编辑'); await change(label('会议标题'), 'UI edited synthetic title'); await click('保存', modal());
+    await click('编辑'); await modalCheckpoint('metadata-edit'); await change(label('会议标题'), 'UI edited synthetic title'); await click('保存', modal());
     await wait('metadata CAS updates DOM', () => !modal() && text().includes('UI edited synthetic title'));
     check('metadata persisted by real use case', (await list('UI edited synthetic title')).items.length === 1);
-    await click('移入回收站'); await click('移入回收站', modal());
+    await click('移入回收站'); await modalCheckpoint('retained-trash'); await click('移入回收站', modal());
     await wait('retained trash detail', () => !modal() && text().includes('此会议位于回收站'));
-    await click('恢复会议'); await click('确认恢复', modal());
+    await click('恢复会议'); await modalCheckpoint('retained-restore'); await click('确认恢复', modal());
     await wait('restored detail', () => !modal() && !text().includes('此会议位于回收站'));
     const editedMeeting = (await list('UI edited synthetic title')).items[0];
     for (const stage of ['summary', 'transcribe']) {
       const priorTasks = (await tasks(editedMeeting.meetingId)).items.map(t => t.taskId);
-      await click('重新处理'); await change(label('处理范围'), stage); await click('开始处理 1 场', modal());
+      await click('重新处理'); await modalCheckpoint('reprocess-' + stage); await change(label('处理范围'), stage); await click('开始处理 1 场', modal());
       await wait('explicit per-meeting queued outcome', () => modal()?.textContent.includes('任务已入队') || modal()?.textContent.includes('后台操作'));
       await click('关闭', modal());
       const enqueued = await wait('new retained ' + stage + ' generation', async () => (await tasks(editedMeeting.meetingId)).items.find(t => !priorTasks.includes(t.taskId)));
       check('real reprocessing task stage: ' + stage, enqueued.stage === stage);
-      await click('取消任务'); await click('确认取消', modal());
+      await click('取消任务'); await modalCheckpoint('cancel-' + stage); await click('确认取消', modal());
       await wait('owned reprocessing cancellation settled', async () => (await raw('task_get', { taskId: enqueued.taskId })).task.status === 'cancelled');
       // App queries stay fresh for 1000 ms and pause background polling. Reopen only once that real cache is stale.
       const cancellationSettledAt = Date.now();
@@ -171,13 +210,14 @@
       await wait('reopened detail has real settled cancellation', () => elements('.task-row').some(row => row.textContent.includes('已取消')));
     }
     await click('会议库'); await wait('library after restore', () => label('日期'));
-    await click('＋ 新建会议'); await change(label('会议标题'), 'UI synthetic imported meeting'); await click('选择音频文件', modal());
+    await click('＋ 新建会议'); await modalCheckpoint('new-import'); await change(label('会议标题'), 'UI synthetic imported meeting'); await click('选择音频文件', modal());
     await wait('restricted native file selection', () => label('原会议开始时间（本地）'));
+    await modalCheckpoint('selected-import');
     const now = new Date(), two = value => String(value).padStart(2, '0');
     await change(label('原会议开始时间（本地）'), `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}T${two(now.getHours())}:${two(now.getMinutes())}`);
     await click('导入', modal());
     await wait('real import persisted', async () => !modal() && (await list('UI synthetic imported meeting')).items.length === 1);
-    await click('＋ 新建会议'); await change(label('会议标题'), 'UI fake-helper recording');
+    await click('＋ 新建会议'); await modalCheckpoint('new-fake-recording'); await change(label('会议标题'), 'UI fake-helper recording');
     check('recording requires independent explicit consent', elements('button', modal()).find(e => e.textContent.trim() === '开始录音').disabled);
     elements('input[type=checkbox]', modal())[0].click(); await click('开始录音', modal());
     await wait('fake-helper recording', () => !modal() && text().includes('正在录音'));
@@ -187,6 +227,7 @@
     const base = await raw('config_get');
     await change(label('Pi 模型'), 'ui-private-draft'); await click('使用帮助');
     await wait('dirty navigation guard', () => modal()?.textContent.includes('设置尚未保存'));
+    await modalCheckpoint('dirty-navigation');
     await click('留在设置', modal()); check('cancel navigation preserves draft', label('Pi 模型').value === 'ui-private-draft');
     const current = await raw('desktop_info');
     await raw('config_save', { admission: current.compatibility.writeAdmission, expectedRevision: base.revision, patch: { startDelayMs: base.values.startDelayMs + 1 } });
@@ -196,7 +237,7 @@
     await click('使用帮助'); await click('放弃并离开', modal());
     await wait('real help', () => !modal() && text().includes('使用帮助'));
     await click('设置'); await wait('config after discard', () => label('自动录音开始延迟（毫秒）'));
-    await click('重新读取配置'); await click('放弃草稿并读取', modal());
+    await click('重新读取配置'); await modalCheckpoint('reload-config'); await click('放弃草稿并读取', modal());
     await wait('explicit config refresh after conflict', () => label('自动录音开始延迟（毫秒）').value === String(base.values.startDelayMs + 1));
     await change(label('自动录音开始延迟（毫秒）'), String(base.values.startDelayMs + 2)); await click('保存配置');
     await wait('successful UI config CAS save', () => text().includes('当前没有未保存的修改'));
@@ -222,8 +263,8 @@
     }
     await click('收起侧栏'); check('sidebar stored collapsed in private window', localStorage.getItem('omm.sidebar') === 'collapsed');
     await snapshot('library-dark-collapsed');
-    await snapshot('library-dark-narrow', 640, 700);
-    check('narrow owned viewport no root horizontal overflow', innerWidth === 640 && document.documentElement.scrollWidth <= innerWidth + 1);
+    await snapshot('library-dark-minimum', 800, 600);
+    check('minimum owned content no root horizontal overflow', innerWidth === 800 && innerHeight === 600 && document.documentElement.scrollWidth <= innerWidth + 1);
     await change(label('外观主题'), 'light'); await snapshot('library-light-narrow');
     await click('展开侧栏'); await change(label('外观主题'), 'system');
     check('system mode matches actual WK preference', document.documentElement.dataset.theme === (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
@@ -246,6 +287,7 @@
     const cancelledClose = await requestClose({ id: 'ui-close-cancel', action: 'close' });
     check('first actual Rust close requested', cancelledClose.nativeCloseRequested === true);
     await wait('actual React dirty close confirmation', () => modal()?.textContent.includes('设置尚未保存'));
+    await modalCheckpoint('native-close-cancel');
     await click('留在设置', modal());
     await wait('cancel keeps real window and unsaved draft', () => !modal() && closeField.isConnected && closeField.value === closeDraft && text().includes('有未保存的修改'));
     const afterCancel = await raw('config_get');
@@ -253,6 +295,7 @@
     const confirmedClose = await requestClose({ id: 'ui-close-confirm', action: 'close' });
     check('second actual Rust close requested', confirmedClose.nativeCloseRequested === true);
     await wait('second actual React close confirmation', () => modal()?.textContent.includes('设置尚未保存'));
+    await modalCheckpoint('native-close-confirm');
     check('draft remains unsaved until actual discard', closeField.isConnected && closeField.value === closeDraft && (await raw('config_get')).revision === closeBaseline.revision);
     await snapshot('dirty-close-confirmation');
     const discard = await wait('enabled real React discard before arming', () => elements('button', modal()).find(button => !button.disabled && button.textContent.trim() === '放弃并离开'));
@@ -260,12 +303,13 @@
     // The native arm channel is bounded to 64 KiB; retain assertions and aggregate diagnostic polling.
     const readCounts = reads.reduce((counts, read) => { const key = read.command + ':' + (read.error ?? 'ok'); counts[key] = (counts[key] ?? 0) + 1; return counts; }, {});
     const closeGuard = { cancelledWindowAndDraftRetained: true, cancelledDiskUnchanged: true, baselineRevision: closeBaseline.revision, draft: closeDraft };
-    const armed = await requestClose({ id: 'ui-close-finish', action: 'arm-destroy', result: { ok: true, checks, playCalls, views: views.map(({ body, ...view }) => view), mediaEvidence, independentNativeReadCounts: readCounts, closeGuard, storage: 'nonpersistent isolated fixture; no cross-process persistence claim', userAgent: navigator.userAgent } });
+    check('fourteen actual modal focus checkpoints completed', focusEvidence.length === 14);
+    const armed = await requestClose({ id: 'ui-close-finish', action: 'arm-destroy', result: { ok: true, checks, playCalls, views: views.map(({ body, ...view }) => view), focusEvidence, mediaEvidence, independentNativeReadCounts: readCounts, closeGuard, storage: 'nonpersistent isolated fixture; no cross-process persistence claim', userAgent: navigator.userAgent } });
     check('native evidence armed before actual React discard', armed.armed === true && armed.mainAlive === true);
     check('real discard still connected after native arming', discard.isConnected && !discard.disabled);
     // No IPC or generic completion after this click: native destruction and owned cleanup decide success.
     discard.click();
   } catch (error) {
-    window.__ommFixtureResult = { ok: false, checks, playCalls, error: String(error), views, mediaEvidence, visibility: document.visibilityState, focused: document.hasFocus(), body: text().slice(0, 16000), independentNativeReads: reads };
+    window.__ommFixtureResult = { ok: false, checks, playCalls, error: String(error), views, focusEvidence, mediaEvidence, visibility: document.visibilityState, focused: document.hasFocus(), body: text().slice(0, 16000), independentNativeReads: reads };
   }
 })();

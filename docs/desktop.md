@@ -49,13 +49,13 @@ bash scripts/install-desktop.sh --from /absolute/path/to/verified/OMM.app
 - 安全创建/原生导入/录制、metadata 版本比较写入、保留式删除与 Trash 恢复。删除不物理清音频/版本/检查点。
 - 详情顶部真实 mix 分段音频、时间定位、逐字稿/纪要/只读行动项、复制和受限导出；失败重处理仍能读取旧有效产物与版本。
 - 持久队列、有限重试、真实取消/等待 owned children、失败恢复；配置全白名单原子保存、脏态和外部写冲突；诊断/帮助及 CLI 合理配套。
-- 批准设计的浅色、柔和炭灰深色与鲜明青绿强调；实时随 OS＋手动覆盖；统一图标、持久侧栏收缩、双色自绘 omm Logo。会议内容不进入浏览器持久存储。
+- Mantine 9.7.3 官方 DefaultTheme 明暗主题；实时随 OS＋手动覆盖，持久侧栏收缩与双色自绘 omm Logo。使用锁定依赖及静态官方 CSS，不放宽生产 CSP；第三方 notices 随包校验。会议内容不进入浏览器持久存储。
 
-生产不使用静态 demo-data、硬编码成功、任意路径/通用 shell 或认证继承。会议 Markdown 禁 HTML/脚本/远程资源。真实音频保留原生controls及明确的“播放录音/暂停录音”按钮；grant/metadata未就绪时按钮禁用，仅用户明确点击播放，换段/定位不自动播放。播放器事件接线的单测使用mock，真实WK只验证可见入口、metadata及暂停定位，不验证可听发声。本开发验收**禁止播放、录音硬件、真实通知、个人会议数据/认证及真实模型调用**。
+生产不使用静态 demo-data、硬编码成功、任意路径/通用 shell 或认证继承。会议 Markdown 禁 HTML/脚本/远程资源。同一个隐藏 audio 元素只配一套可见的“播放录音/暂停录音”按钮、会议全局时间与 Mantine Slider，不再同时显示原生 controls；grant/metadata 未就绪时按钮禁用，仅用户明确点击播放，换段/定位不自动播放。真实 WK 验证 metadata、鼠标/键盘暂停定位与切页释放；播放事件计数使用 mock，不证明可听发声或用户回声原因。本轮自动化夹具**禁止硬件播放/录音、真实通知、个人会议数据/认证及真实模型调用**。
 
 ## 共享契约和兼容性
 
-参见 [冻结接口与安全语义](../contracts/desktop/v1/README.md)。先 read-only 检查 profile 和版本化 service capability，不能打开即迁移旧数据库。旧/未知 daemon 无写权；写入 admission 绑定规范 profile、所有者 generation、可信调用者和有效期，提交前持锁再检查。受限 offline admission 只允许显式初始化/隔离/已安全接管的新 profile 做安全配置保存，不伪装录音/任务已可运行。现有 legacy profile 不被隐式迁移。
+参见 [冻结接口与安全语义](../contracts/desktop/v1/README.md)。先 read-only 检查 profile 和版本化 service capability，不能打开即迁移旧数据库。旧/未知 daemon 无写权；写入 admission 绑定规范 profile、所有者 generation、可信调用者和有效期，提交前持锁再检查。受限 offline admission 只允许显式初始化/隔离/已安全接管的新 profile 做安全配置保存，不伪装录音/任务已可运行。现有 legacy profile 不被隐式迁移。受支持且经严格验证的停机旧资料库可在 App 内显式采用并更新停机登记，成功后仍停止，启动须再确认；缺 owner 标记与真正 schema 不兼容分开诊断，不能验证或仍加载的旧服务维持拒绝。边界与人工下一步见[服务恢复](desktop-service-recovery.md)。
 
 native/frontend 从同一 Foundation 本地提交分别分叉，已按等价契约去重汇合；组件独占与修复退回原 owner 的规则见 [lane board](desktop-lanes.md)。完成组件提交后才由 integration-only 汇合；[验收矩阵](desktop-acceptance.md) 全通过、fresh 独立正式评审无阻塞、实际 release 用户级安装验证后，才 SSH push 并创建 PR，不自动合并。
 
