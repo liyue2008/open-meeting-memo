@@ -273,7 +273,14 @@ pub fn prepare() -> Paths {
     std::fs::set_permissions(&disabled_capture, std::fs::Permissions::from_mode(0o700)).unwrap();
     cfg.capture_executable = disabled_capture;
     let fake_pi = output("fake-pi");
-    write_private_new(&fake_pi,b"#!/bin/sh\n/bin/cat >/dev/null\nprintf '# Private synthetic minutes\\n- [ ] Read-only fixture action\\n'\n").unwrap();
+    let pi_script: &[u8] = if scenario() == "ui" && !archive_requested() && review::mode().is_none()
+    {
+        // Longer than the UI cancellation assertion budget; exec owns one child, no descendants.
+        b"#!/bin/sh\nexec /bin/sleep 60\n"
+    } else {
+        b"#!/bin/sh\n/bin/cat >/dev/null\nprintf '# Private synthetic minutes\\n- [ ] Read-only fixture action\\n'\n"
+    };
+    write_private_new(&fake_pi, pi_script).unwrap();
     std::fs::set_permissions(&fake_pi, std::fs::Permissions::from_mode(0o700)).unwrap();
     cfg.pi.executable = fake_pi;
     let fake_worker = output("fake-worker");
