@@ -135,7 +135,14 @@ pub fn prepare() -> Paths {
     let id = Uuid::parse_str("00000000-0000-4000-8000-000000000041").unwrap();
     let directory = paths.data.join("meetings").join(id.to_string());
     private_dir(&directory).unwrap();
-    let wav = media::silent_wav(3);
+    let mut wav = media::silent_wav(if archive_requested() { 18 } else { 3 });
+    if archive_requested() {
+        // The original generator is mono 16 kHz. Equal silence bytes become 3 s stereo 48 kHz.
+        wav[22..24].copy_from_slice(&2u16.to_le_bytes());
+        wav[24..28].copy_from_slice(&48000u32.to_le_bytes());
+        wav[28..32].copy_from_slice(&192000u32.to_le_bytes());
+        wav[32..34].copy_from_slice(&4u16.to_le_bytes());
+    }
     let path = directory.join("segment.wav");
     write_private_new(&path, &wav).unwrap();
     let mut meeting = SealedMeeting {

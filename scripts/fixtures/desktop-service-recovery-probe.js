@@ -40,6 +40,8 @@
       const doc = document.documentElement;
       const active = modal();
       if (active) {
+        const focused = document.activeElement;
+        window.__ommFixtureFocusEvidence = {name, documentFocused:document.hasFocus(), tag:focused?.tagName, aria:focused?.getAttribute('aria-label'), text:focused?.textContent?.slice(0,160), inDialog:active.contains(focused), disabled:focused?.disabled};
         check('actual dialog focus retained ' + name, active.contains(document.activeElement));
         const last = [...active.querySelectorAll('button')].filter(b => !b.disabled).at(-1);
         last?.scrollIntoView({block:'nearest'});
@@ -94,6 +96,6 @@
     check('no hardware playback called', playCalls === 0);
     window.__ommFixtureResult = {ok:true, checks, snapshots, layouts, operations, playCalls, boundary:'Actual Tauri/WK/React/native lifecycle; private launchctl job state and generation-control fixture only. Start failure is native stale-generation rejection, not simulated daemon crash.'};
   } catch (error) {
-    window.__ommFixtureResult = {ok:false, checks, snapshots, layouts, operations, playCalls, error:String(error), body:document.body.innerText.slice(0,20000)};
+    window.__ommFixtureResult = {ok:false, checks, snapshots, layouts, operations, playCalls, focusEvidence:window.__ommFixtureFocusEvidence, error:String(error), body:document.body.innerText.slice(0,20000)};
   }
 })();
