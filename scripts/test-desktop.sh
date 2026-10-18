@@ -48,14 +48,20 @@ PY
     record_native_artifacts() {
       record_native_source source-after.json
       cmp "$OMM_WKWEBVIEW_EVIDENCE/source-before.json" "$OMM_WKWEBVIEW_EVIDENCE/source-after.json"
-      python3 - "$OMM_WKWEBVIEW_EVIDENCE" "$DESKTOP_ROOT" <<'PY'
+      python3 - "$OMM_WKWEBVIEW_EVIDENCE" "$DESKTOP_ROOT" "${OMM_WKWEBVIEW_SCENARIO:-native}" <<'PY'
 import hashlib, json, pathlib, subprocess, sys
-path, root = map(pathlib.Path, sys.argv[1:])
-files = [root / 'target/debug/omm-desktop', path / 'driver.js', path / 'bridge-result.json', path / 'owned-process.json']
+sys.dont_write_bytecode = True
+path, root = map(pathlib.Path, sys.argv[1:3])
+sys.path.insert(0, str(root / 'packaging/desktop'))
+from fixture_artifacts import host_artifacts
+files = [path / 'driver.js', path / 'bridge-result.json', path / 'owned-process.json']
 files += sorted((root / 'apps/desktop/dist').rglob('*'))
 files += sorted(path.glob('*.png'))
 files += [path / name for name in ['review-scenario.json', 'review-capture-pids', 'review-capture-events.jsonl']]
-value = {'head': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(), 'files': {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files if p.is_file()}}
+head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+artifact_hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files if p.is_file()}
+artifact_hashes.update(host_artifacts(root, path, head, sys.argv[3]))
+value = {'head': head, 'files': artifact_hashes}
 artifact = path / 'actual-artifact-sha256.json'
 artifact.write_text(json.dumps(value, indent=2) + '\n')
 artifact.chmod(0o600)

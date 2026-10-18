@@ -6,8 +6,11 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
 cd "$ROOT"
 export OMM_DESKTOP_PREFERENCES_EVIDENCE=${OMM_DESKTOP_PREFERENCES_EVIDENCE:-$(mktemp -d /private/tmp/omm-pref-XXXXXX)}
 python3 - <<'PY'
-import hashlib, json, os, pathlib, re, subprocess
+import hashlib, json, os, pathlib, re, subprocess, sys
+sys.dont_write_bytecode = True
 root = pathlib.Path.cwd()
+sys.path.insert(0, str(root / 'packaging/desktop'))
+from fixture_artifacts import host_artifacts
 evidence = pathlib.Path(os.environ['OMM_DESKTOP_PREFERENCES_EVIDENCE'])
 assert evidence.is_absolute() and evidence == evidence.resolve(), 'Preference evidence requires a canonical absolute path without symlinks'
 assert evidence.is_relative_to('/private/tmp') and len(os.fsencode(evidence)) <= 55, 'Preference evidence requires a short private /private/tmp root'
@@ -53,9 +56,11 @@ try:
         driver.chmod(0o600)
         run('packaging/desktop/test-wkwebview.sh', [], dict(env, OMM_WKWEBVIEW_DRIVER=str(driver), OMM_WKWEBVIEW_EVIDENCE=str(phase_root)), phase)
         # Capture the executable before cleanup rebuilds with different fixture configuration.
-        artifacts = [root / 'target/debug/omm-desktop', driver, phase_root / 'driver.js', phase_root / 'bridge-result.json', phase_root / 'owned-process.json', phase_root / 'owned-store-attached.json', phase_root / 'close-before-destroy.json']
+        artifacts = [driver, phase_root / 'driver.js', phase_root / 'bridge-result.json', phase_root / 'owned-process.json', phase_root / 'owned-store-attached.json', phase_root / 'close-before-destroy.json']
         artifacts += sorted((root / 'apps/desktop/dist').rglob('*'))
-        write(phase + '-artifact-sha256.json', {str(p): digest(p) for p in artifacts if p.is_file()})
+        artifact_hashes = {str(p): digest(p) for p in artifacts if p.is_file()}
+        artifact_hashes.update(host_artifacts(root, phase_root, before['head'], 'ui'))
+        write(phase + '-artifact-sha256.json', artifact_hashes)
         result = json.loads((phase_root / 'bridge-result.json').read_text())['result']
         receipt = json.loads((phase_root / 'owned-process.json').read_text())
         store = json.loads((phase_root / 'owned-store-attached.json').read_text())
