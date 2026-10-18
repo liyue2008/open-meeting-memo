@@ -1,0 +1,21 @@
+apps/desktop/src-tauri/src/bridge_fixture/recovery.rs
+  s_229b1f979a836b::t_bc83f5fea82864 1-318
+apps/desktop/src-tauri/src/host.rs
+  s_229b1f979a836b::t_bb8a2ad7f4c304 210-217,248-251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7601328b40b72935c38fdc219eea4c92fe66b2e5",
+  "prompts": {},
+  "sessions": {
+    "s_229b1f979a836b": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d30-4c5d-77ae-90c2-a242611d76ff",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
