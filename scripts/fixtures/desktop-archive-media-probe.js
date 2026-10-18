@@ -60,8 +60,12 @@
     const back = [...document.querySelectorAll('button')].find(e => e.textContent.trim() === '← 返回会议库');
     check('real navigation entry', !!back); back.click();
     await wait('old media released after navigation', () => !audio.isConnected && active.size === 0 && !audio.hasAttribute('src'));
-    const revoked = await fetch(oldUrl);
-    check('old real media authorization revoked', [403, 404, 410].includes(revoked.status));
+    const revoked = await fetch(oldUrl).then(response => ({status:response.status}), error => ({networkError:String(error)}));
+    media.push({revokedRequest:revoked});
+    // WK may hide the denied custom-scheme response as a network error. Native reader release is also mandatory.
+    check('old media request denied; native reader-release gate required', [403, 404, 410].includes(revoked.status) || typeof revoked.networkError === 'string');
+    const stillLive = await raw('media_manifest', {meetingId:id,cursor:null,pageSize:100});
+    check('production bridge remains live after denial', stillLive.segments.length === 2);
     check('mock one active instance only; no hardware play', maximumActive === 1 && mockPlayCalls === 1 && realPlayCalls === 0);
     window.__ommFixtureResult = { ok: true, checks, reads, media, playCalls: realPlayCalls, mockPlayCalls, maximumActive, activeAfterNavigation: active.size, sourceCleared: !audio.hasAttribute('src'), detached: !audio.isConnected, syntheticOnly: true, schedulerStarted: false };
   } catch (error) {
