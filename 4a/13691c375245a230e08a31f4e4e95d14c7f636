@@ -1,0 +1,14 @@
+tests/core_pipeline_pi.rs
+  h_b4d40596eab523 967-1001,1004,1010,1019,1024-1050,1062-1083,1086,1090-1091,1093-1095,1097,1099,1103-1105,1108-1109,1111-1127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4a13691c375245a230e08a31f4e4e95d14c7f636",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
