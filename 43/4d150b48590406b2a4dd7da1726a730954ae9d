@@ -1,0 +1,19 @@
+tests/core_pipeline_pi.rs
+  s_e6fcf3cda4e1bb::t_951396f02b56b8 294-300,349,361-364,381-384,789,796
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "434d150b48590406b2a4dd7da1726a730954ae9d",
+  "prompts": {},
+  "sessions": {
+    "s_e6fcf3cda4e1bb": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d6f-1e4a-745b-9d2c-638258fd0d45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
