@@ -1,0 +1,35 @@
+{
+  "command": "task_get",
+  "request": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "payload": {
+      "taskId": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "response": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "data": {
+      "task": {
+        "taskId": "00000000-0000-4000-8000-000000000001",
+        "meetingId": "00000000-0000-4000-8000-000000000001",
+        "attempt": 1,
+        "generationId": "00000000-0000-4000-8000-000000000001",
+        "stage": "transcribe",
+        "status": "queued",
+        "cancelRequested": false,
+        "completedSegments": 0,
+        "totalSegments": 0,
+        "retryCount": 0,
+        "nextRetryAtMs": null,
+        "error": null,
+        "canRetry": false,
+        "canCancel": false,
+        "canRequeue": false
+      },
+      "versions": [],
+      "diagnostics": []
+    }
+  }
+}

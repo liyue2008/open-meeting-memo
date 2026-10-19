@@ -24,6 +24,7 @@ capture = []
 asr = []
 
 [dependencies]
+chrono-tz = "=0.10.4"
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "process", "io-util", "time", "sync", "signal", "fs"] }
 serde = { version = "1", features = ["derive"] }
@@ -48,3 +49,8 @@ libloading = "0.8"
 
 [dev-dependencies]
 tempfile = "3"
+
+[workspace]
+members = ["apps/desktop/src-tauri"]
+default-members = ["."]
+resolver = "2"

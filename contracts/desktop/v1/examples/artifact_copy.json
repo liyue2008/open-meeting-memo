@@ -1,0 +1,21 @@
+{
+  "command": "artifact_copy",
+  "request": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "payload": {
+      "artifact": {
+        "meetingId": "00000000-0000-4000-8000-000000000001",
+        "taskId": "00000000-0000-4000-8000-000000000001",
+        "stage": "transcribe"
+      }
+    }
+  },
+  "response": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "data": {
+      "acknowledged": false
+    }
+  }
+}

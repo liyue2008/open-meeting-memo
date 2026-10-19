@@ -287,6 +287,7 @@ async fn managed_stable_launcher_uses_only_explicit_owned_node_and_isolated_pi_e
     context.config.pi.executable = launcher.clone();
     let transcript = FixtureAsr
         .transcribe(AsrRequest {
+            source_kind: None,
             context: context.clone(),
             segments: claim.segments,
         })
@@ -366,6 +367,7 @@ async fn unsupported_pi_flags_and_bad_interpreter_are_actionable_nonretryable_wi
     .unwrap();
     let transcript = FixtureAsr
         .transcribe(AsrRequest {
+            source_kind: None,
             context: claim.context.clone(),
             segments: claim.segments,
         })
@@ -396,6 +398,7 @@ async fn pi_and_node_intermediate_writable_links_block_before_child_execution() 
             let mut pi_config = claim.context.config.pi.clone();
             let transcript = FixtureAsr
                 .transcribe(AsrRequest {
+                    source_kind: None,
                     context: claim.context.clone(),
                     segments: claim.segments.clone(),
                 })
@@ -512,6 +515,7 @@ async fn pi_and_node_trusted_multi_hop_links_and_parent_after_directory_link_kee
             }
             let transcript = FixtureAsr
                 .transcribe(AsrRequest {
+                    source_kind: None,
                     context: context.clone(),
                     segments: claim.segments,
                 })
@@ -578,6 +582,7 @@ async fn pi_and_node_loop_missing_long_chain_and_overlong_paths_fail_safely_with
             }
             let transcript = FixtureAsr
                 .transcribe(AsrRequest {
+                    source_kind: None,
                     context: context.clone(),
                     segments: claim.segments,
                 })
@@ -635,6 +640,7 @@ async fn pi_node_colon_parent_is_rejected_without_starting_pi_or_unvalidated_nod
     context.config.pi.node_executable = Some(node);
     let transcript = FixtureAsr
         .transcribe(AsrRequest {
+            source_kind: None,
             context: context.clone(),
             segments: claim.segments,
         })
@@ -700,6 +706,7 @@ async fn pi_colon_executable_is_direct_and_normal_node_path_contains_only_valida
         }
         let transcript = FixtureAsr
             .transcribe(AsrRequest {
+                source_kind: None,
                 context: context.clone(),
                 segments: claim.segments,
             })
@@ -754,6 +761,7 @@ async fn missing_pi_path_is_actionable_and_force_summary_preserves_old_attempt_a
     );
     let transcript = FixtureAsr
         .transcribe(AsrRequest {
+            source_kind: None,
             context: claim.context.clone(),
             segments: claim.segments.clone(),
         })

@@ -1,0 +1,21 @@
+{
+  "command": "artifact_versions",
+  "request": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "payload": {
+      "meetingId": "00000000-0000-4000-8000-000000000001",
+      "cursor": null,
+      "pageSize": 1
+    }
+  },
+  "response": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "data": {
+      "items": [],
+      "nextCursor": null,
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+}

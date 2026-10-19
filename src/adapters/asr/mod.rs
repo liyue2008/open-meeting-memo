@@ -683,7 +683,10 @@ fn transcribe_local(req: &AsrRequest, checkpoint: Option<&Path>) -> Result<Trans
         let startup_timing = Some(AsrStartupTiming { validate_audio_ms, validate_models_ms, load_model_ms,
             prepare_audio_ms: start.elapsed().as_millis() as u64 });
         for (channel, path) in prepared.paths.iter().enumerate() {
-            let source = if channel == 0 {
+            let source = if req.source_kind == Some(AudioSource::Mix) {
+                if prepared.paths.len()!=1 {return Err(OmmError::invalid("imported mix must be mono"));}
+                AudioSource::Mix
+            } else if channel == 0 {
                 AudioSource::Mic
             } else {
                 AudioSource::System

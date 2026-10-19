@@ -298,12 +298,15 @@ pub struct CaptureStop {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AsrRequest {
+    #[serde(default)]
+    pub source_kind: Option<AudioSource>,
     pub context: TaskContext,
     pub segments: Vec<AudioSegment>,
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AudioSource {
+    Mix,
     Mic,
     System,
 }
@@ -578,6 +581,9 @@ pub trait AsrAdapter: Send + Sync {
 }
 #[async_trait]
 pub trait SummaryAdapter: Send + Sync {
+    async fn drain(&self) -> Result<()> {
+        Ok(())
+    }
     async fn summarize(&self, req: SummaryRequest) -> Result<Summary>;
 }
 

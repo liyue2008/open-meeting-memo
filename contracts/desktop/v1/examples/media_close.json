@@ -1,0 +1,17 @@
+{
+  "command": "media_close",
+  "request": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "payload": {
+      "grantId": "fixture_handle_00000001"
+    }
+  },
+  "response": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "data": {
+      "acknowledged": false
+    }
+  }
+}

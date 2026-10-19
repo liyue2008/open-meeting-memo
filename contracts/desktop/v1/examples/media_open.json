@@ -1,0 +1,24 @@
+{
+  "command": "media_open",
+  "request": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "payload": {
+      "meetingId": "00000000-0000-4000-8000-000000000001",
+      "segmentId": "00000000-0000-4000-8000-000000000001",
+      "expectedRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  "response": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "data": {
+      "grantId": "fixture_handle_00000001",
+      "url": "omm-media://localhost/fixture_handle_00000001",
+      "expiresAtMs": 0,
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mime": "audio/ogg",
+      "byteLength": 1
+    }
+  }
+}

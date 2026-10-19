@@ -6,6 +6,9 @@ use std::{fs, path::PathBuf};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppConfig {
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub loaded_revision: Option<String>,
     pub audio: AudioConfig,
     pub version: String,
     pub notifications: super::notifications::NotificationConfig,
@@ -25,6 +28,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            loaded_revision: None,
             version: "1".into(),
             audio: AudioConfig::default(),
             notifications: Default::default(),
@@ -61,7 +65,9 @@ impl AppConfig {
             return Err(OmmError::unavailable("configuration not initialized"));
         }
         validate_private_file(&file)?;
-        let mut config: Self = serde_json::from_slice(&fs::read(file)?)?;
+        let bytes = fs::read(file)?;
+        let mut config: Self = serde_json::from_slice(&bytes)?;
+        config.loaded_revision = Some(super::store::hash_bytes(&bytes));
         if config.segment_ms == 3_600_000 {
             eprintln!("warning: legacy segment_ms=3600000 clamped in memory to 1800000; configuration file unchanged");
             config.segment_ms = 1_800_000;
@@ -69,10 +75,9 @@ impl AppConfig {
         Ok(config)
     }
     pub fn save(&self, paths: &Paths) -> Result<()> {
-        write_private_replace(
-            &paths.config.join("config.json"),
-            &serde_json::to_vec_pretty(self)?,
-        )
+        let transaction = super::config_transaction::ConfigTransaction::acquire(paths)?;
+        transaction.compare(&self.loaded_revision)?;
+        transaction.publish(paths, &serde_json::to_vec_pretty(self)?)
     }
     pub fn snapshot(&self) -> ConfigSnapshot {
         let mut asr = self.asr.clone();
@@ -194,6 +199,7 @@ impl AppConfig {
         };
         let mut next: Self = serde_json::from_value(doc)
             .map_err(|_| OmmError::invalid("config value has invalid type"))?;
+        next.loaded_revision = self.loaded_revision.clone();
         next.validate_policy()?;
         next.version = uuid::Uuid::new_v4().to_string();
         *self = next;

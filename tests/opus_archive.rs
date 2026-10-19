@@ -297,6 +297,7 @@ async fn opus_force_keeps_capture_clock_and_persists_actual_decoded_hash_and_cod
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
     let adapter = LocalAsrAdapter::with_paths(script, paths.clone()).unwrap();
     let request = AsrRequest {
+        source_kind: None,
         context: claim.context.clone(),
         segments: vec![audio.clone()],
     };
@@ -368,6 +369,7 @@ async fn opus_force_keeps_capture_clock_and_persists_actual_decoded_hash_and_cod
     )
     .unwrap();
     let mut pending = Box::pin(adapter.transcribe(AsrRequest {
+        source_kind: None,
         context: claim.context.clone(),
         segments: vec![audio.clone()],
     }));
@@ -394,6 +396,7 @@ async fn opus_force_keeps_capture_clock_and_persists_actual_decoded_hash_and_cod
             .to_string_lossy()
             .starts_with(".decode-source-")));
     let mut deadline_request = AsrRequest {
+        source_kind: None,
         context: claim.context.clone(),
         segments: vec![audio],
     };

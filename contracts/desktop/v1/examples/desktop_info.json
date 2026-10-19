@@ -1,0 +1,32 @@
+{
+  "command": "desktop_info",
+  "request": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "payload": {}
+  },
+  "response": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "data": {
+      "appVersion": "0.1.0",
+      "sourceRevision": "0000000000000000000000000000000000000000",
+      "contractVersion": 1,
+      "platform": "macos-arm64",
+      "minimumOs": "15.5",
+      "compatibility": {
+        "protocolVersion": null,
+        "serviceGeneration": null,
+        "stateSchemaVersion": null,
+        "minReaderVersion": null,
+        "capabilities": [],
+        "state": "requires_switch",
+        "writesAllowed": false,
+        "reason": "incompatible_service",
+        "safeSwitchRequired": true,
+        "admissionMode": "none",
+        "writeAdmission": null
+      }
+    }
+  }
+}

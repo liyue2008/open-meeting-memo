@@ -693,6 +693,7 @@ async fn notifications_failure_disabled_or_filtered_does_not_consume_cooldown() 
         &[(NotificationEvent::AsrFailed, id)],
     )
     .await;
+    cfg = AppConfig::load(&paths).unwrap();
     cfg.notifications.enabled = true;
     cfg.notifications.events = vec![NotificationEvent::SummaryFailed];
     cfg.save(&paths).unwrap();
@@ -706,6 +707,7 @@ async fn notifications_failure_disabled_or_filtered_does_not_consume_cooldown() 
         ],
     )
     .await;
+    cfg = AppConfig::load(&paths).unwrap();
     cfg.notifications.events.push(NotificationEvent::AsrFailed);
     cfg.save(&paths).unwrap();
     emit_at(
@@ -974,6 +976,7 @@ async fn notification_title_privacy_empty_fallback_and_same_name_dates_are_persi
     assert!(!record.identity.contains("Hidden"));
     assert!(record.identity.contains("开始的会议"));
     assert!(record.identity.contains("1分0秒"));
+    cfg = AppConfig::load(&p).unwrap();
     cfg.notifications.show_meeting_title = true;
     cfg.save(&p).unwrap();
     let (sink, runner) = notification_channel(p.clone(), fake);

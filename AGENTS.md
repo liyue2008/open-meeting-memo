@@ -1,10 +1,12 @@
 # Contributor and agent guide
 
-Read [README.md](README.md), [prd.md](prd.md) and [the design](docs/overview-design.md) before changing behavior. The first implementation is macOS/Apple Silicon + Lark + Pi + CLI. Windows/Linux, other meeting apps, MCP and WebUI are later goals, not implemented features.
+Read [README.md](README.md), [prd.md](prd.md), [the design](docs/overview-design.md) and [installation](docs/install.md) before changing behavior. The CLI baseline is macOS/Apple Silicon + Lark + Pi. The approved Tauri 2 desktop App is now in integration validation for Apple Silicon/macOS 15.5+; see [desktop development](docs/desktop.md), [frozen contract](contracts/desktop/v1/README.md), [lane ownership](docs/desktop-lanes.md), [capability/CLI mapping](docs/desktop-capability-matrix.md) and [acceptance](docs/desktop-acceptance.md). Component gates are not final product acceptance; inspect the current acceptance record before installation or release. Production isolation checks must explicitly use `--ephemeral-webview --webview-store-diagnostics` with cleared inheritance and new private HOME/XDG roots; verify the actual main store is nonpersistent. Normal launches retain persistent preferences. Never substitute fixture hosts or assume HOME/XDG alone isolates WebKit. Windows/Linux, other meeting apps, MCP and browser-served WebUI remain later goals.
 
 ## Ownership and seams
 
 - `src/core`: typed contracts, XDG paths/runtime security, configuration, SQLite state, recording lifecycle and persistent pipeline. This layer owns final artifacts and task attempts.
+- `src/application`: shared App/CLI use cases and generated desktop DTOs; do not duplicate business rules in Tauri handlers. Freeze `contracts/desktop/v1`, generated Rust/TS and generator under a single internally assigned owner.
+- `apps/desktop/src`: React/TypeScript and one typed bridge; no production demo data, content in web storage or unsafe meeting Markdown. `apps/desktop/src-tauri`: thin trusted-window host, deny-default per-command ACL and bounded artifact-only media protocol, no arbitrary paths/shell. Native owns root Cargo/lock and src-tauri; frontend owns npm/lock and UI. See lane board before writes.
 - `src/service`: socket control, capture reconciliation, bounded meeting observations and user LaunchAgent registration. Recording must seal before shutdown/uninstall can report success.
 - `src/cli`: typed commands, versioned JSON results and exit codes. Diagnostics must not expose content or credentials.
 - `src/adapters/meeting`: Lark observations. Unknown is not inactive; window/process signals alone must never trigger automatic recording.
@@ -16,7 +18,7 @@ Read [README.md](README.md), [prd.md](prd.md) and [the design](docs/overview-des
 
 ## Build and controlled validation
 
-Use an existing Rust toolchain and Xcode command-line tools; do not install system tools as a side effect.
+Use an existing Rust toolchain and Xcode command-line tools; do not install system tools as a side effect. Desktop additionally uses existing Node 22.19–22.x/npm 11.x and locked project dependencies. Unified entrypoints are `scripts/{dev,test,build,package,install}-desktop.sh`; `test-desktop.sh --foundation` is only a component check. Final acceptance also requires workspace Rust, strict TS/DOM/shared bridge, actual private-profile WKWebView fixtures, release resource/signature verification and real user-only production-package installation/startup.
 
 ```sh
 cargo fmt --all --check
@@ -28,11 +30,14 @@ OMM_CAPTURE_TEST_BINARY="$PWD/target/capture/OMMCapture.app/Contents/MacOS/omm-c
 OMM_CAPTURE_TEST_BINARY="$PWD/target/capture/OMMCapture.app/Contents/MacOS/omm-capture" cargo test --locked --test core_integration review_r1_03_ -- --ignored
 ```
 
+For `scripts/test-desktop.sh --wkwebview`, first package the current committed clean revision and explicitly set `OMM_LIFECYCLE_RESOURCE_APP` to that revision's verified App. The lifecycle gate refuses older package revisions; it runs actual React first-use/service controls and native CLI cases, checks original CLI/manifest byte preservation, and records actual PID identity/owned cleanup. The private fixture host is replaced and re-signed separately from unchanged release resources. The same gate also runs source-bound cold-recording and partial-transcript fixtures using the checked-in as-is review driver: no prestarted capture peer for cold start, real segment commits and stale cursors for partial progress, and reader-release checks before teardown. Keep production commands, ACL and CSP unchanged; fixture cleanup must not turn reader leaks into passes.
+
 The ignored Swift tests use synthetic IPC fixtures, not recording hardware. Do not run all ignored tests indiscriminately; the internal fixture entry point is not a standalone acceptance test. Tests use private temporary roots, controlled helper/worker/Pi processes, synthetic WAVs and a fake C API. None proves real permissions, speech recognition, meeting detection, cloud authentication or long-meeting quality. Keep tests source-named in `tests/`, add focused regression coverage for fixes, and distinguish fixture evidence from real end-to-end results.
 
 ## Safety and local installation
 
-- Only explicit user operations install services, download models, request desktop permissions, record or call a real model. Never use personal meetings/chat logs as test material. Use short, self-generated speech and consented recording; cloud tests send only the generated transcript.
+- Only explicit user operations install services, download models, request desktop permissions, record or call a real model. Never use personal meetings/chat logs as test material. This desktop development task forbids all audio playback (`play()` included), recording hardware, real notifications, personal content/authentication and real model/cloud calls. Use private fixtures, fake helper/worker/Pi/notifier and synthetic silent WAV metadata/decode/paused seek; never infer playback permission from a recording/install/test authorization.
+- Opening a desktop profile is read-only, without implicit SQLite/config migration. All mutations verify current compatible ownership/generation under relevant locks through commit. Legacy/unknown daemon or ownership refuses writes. Offline safe-config CAS is allowed only for explicitly initialized, isolated or provably taken-over new-version profiles, with profile/caller/expiry-bound admission; absent socket alone is not proof. Keep CRUD/reprocessing retention, leases/finite retries and shared config writer locking intact.
 - User-only installation: `~/.local/bin`, XDG roots, a user app bundle and `~/Library/LaunchAgents`. No sudo/root, system daemon, virtual driver, global `/usr/local` installation, permission bypass, scripted consent or personal certificate requirement. Ad-hoc signing is development signing, not notarization.
 - Inspect existing installation metadata before changing it. Preserve recordings/configuration; back up non-secret metadata before replacement. Do not duplicate secrets in backups, logs or source control. Configure dedicated Pi authentication through Pi's supported mechanisms, not in OMM `config.json`.
 - Private OMM directories are 0700 and sensitive files 0600. Preserve canonical-path, symlink, ownership, runtime lock, peer identity and artifact hash checks. macOS runtime fallback is best effort, not a full XDG login-lifecycle guarantee.

@@ -2,6 +2,42 @@
 
 这是源码开发安装，不是签名公证的发行包。首版目标是 macOS / Apple Silicon；录音 helper 编译目标为 macOS 13+，但**本指南固定的原生库所带 ONNX Runtime 1.24.4 要求 macOS 15.5+**，不能据此宣称完整链路兼容 macOS 13。较旧系统需另行验证兼容的同版库构建；Intel 及 Windows/Linux 尚未实机验收。所有步骤用普通用户执行，无 sudo、系统服务或驱动。
 
+## 桌面 App 状态
+
+Tauri 2 桌面 App 面向 Apple Silicon/macOS 15.5+，真实前端和原生组件已合入整合分支。统一入口及当前验证状态见[桌面开发](desktop.md)和[验收矩阵](desktop-acceptance.md)。以下 CLI 源码安装流程仍可独立使用，不能代替桌面产品验收。
+
+桌面构建需要已有 Rust/Xcode、Node 22.19–22.x、npm 11.x；构建不会安装系统工具。干净已提交源码可执行：
+
+```sh
+bash scripts/test-desktop.sh --wkwebview
+bash scripts/package-desktop.sh
+# 用脚本打印的完整 .app 路径替换下方参数；安装必须另行显式执行
+bash scripts/install-desktop.sh --check
+bash scripts/install-desktop.sh --from "/absolute/path/to/Open Meeting Memo.app"
+```
+
+桌面包包含自有 CLI、worker、Swift capture helper、固定 sherpa/ONNX Runtime 与 codec 闭包、许可证和源码材料；模型权重仍按固定 manifest 安装至 XDG DATA，Pi/Node/Lark 是外部集成。安装器先验证资源/hash/签名与已有安装元数据，发布到 `~/Applications/Open Meeting Memo <version>-<revision前12位>.app`，保留旧版本；不覆盖 CLI/LaunchAgent，不改配置、录音、认证、auto/consent，也不启动个人服务。具体 receipt 和位置以安装器输出及[原生包装说明](desktop-native.md)为准。
+
+正常无参数启动仍使用原有持久WebKit偏好。只想隔离检查生产App启动时，可显式选择本次非持久模式；不是fixture宿主，也不会初始化profile或启动服务。先用已验证安装路径设置`APP`，再在全新私有目录清继承环境运行：
+
+```sh
+APP="/absolute/path/to/installed/Open Meeting Memo <version>-<revision>.app"
+T=$(mktemp -d /private/tmp/omm-production-check-XXXXXX)
+chmod 700 "$T"
+mkdir -m 700 "$T"/{home,config,data,state,cache,runtime,tmp}
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin LANG=en_US.UTF-8 \
+  HOME="$T/home" TMPDIR="$T/tmp" XDG_CONFIG_HOME="$T/config" \
+  XDG_DATA_HOME="$T/data" XDG_STATE_HOME="$T/state" \
+  XDG_CACHE_HOME="$T/cache" XDG_RUNTIME_DIR="$T/runtime" \
+  "$APP/Contents/MacOS/omm-desktop" --ephemeral-webview --webview-store-diagnostics
+```
+
+诊断只输出实际main视图存储的非内容JSON（`persistent=false`）；参数/平台不支持时拒绝，不回退default store。不要传fixture变量或store manifest，HOME/XDG本身不是WebKit隔离证明。该检查可能只创建空0600的service.lock，不代表配置/数据库已初始化；不请求录音权限或自动开始工作。关闭并确认明确owned进程退出后再处理私有检查目录，不清个人WebKit数据。普通生产持久偏好与两进程保持不受此显式模式影响。
+
+首次打开仅只读观察。首次初始化、启动/停止/安全切换服务均需在“状态与诊断”显式确认；旧或未知服务/不兼容 schema、活动录音或未封存数据会拒绝不安全写入。模型、系统权限与专用 Pi 认证分别诊断，服务运行不冒充这些依赖已就绪。开发签名是 ad-hoc，不是 Apple 公证。
+
+后续 release 安装只进入当前用户目录，先只读检查安装元数据、备份非秘密元数据，保留所有录音/配置/认证/auto/consent，不打断在录会议、不盲杀未知进程、不因启动 App 迁移旧 profile。可安全并存版本化 App，并以实际生产包＋私有 profile 验证窗口和真实桥；个人旧 daemon 不兼容时准确报告显式切换路径。ad-hoc 签名不是公证，实际注册也不是权限/运行就绪。
+
 ## 1. 构建及复制到稳定位置
 
 需要已有 Rust、Xcode/Swift 工具链；发布构建及模型解包需留出数 GB 额外磁盘空间，安装后模型约 1.74GB，CPU 推理还需额外内存。Pi 需要它自己的 Node 运行时（当前 Pi 1.1.0 文档要求 Node 22.19+）。[Pi 官方项目](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent) 的安装/认证方式可能随版本改变，请核对本机 `pi --version`、`pi --help`，不要使用不明安装脚本。

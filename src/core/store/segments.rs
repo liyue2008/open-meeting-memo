@@ -79,9 +79,7 @@ impl Store {
         {
             return Err(OmmError::invalid("active meeting metadata is invalid"));
         }
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self.conn.write_transaction()?;
         let task = Task {
             id: Uuid::new_v4(),
             session_id: meeting.session_id,
@@ -232,9 +230,7 @@ impl Store {
                 ));
             }
         }
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self.conn.write_transaction()?;
         let existing: Option<String> = tx
             .query_row(
                 "SELECT audio FROM segment_jobs WHERE session=?1 AND sequence=?2",
@@ -306,9 +302,7 @@ impl Store {
         for (sequence, audio) in meeting.segments.iter().enumerate() {
             self.admit_segment(meeting.session_id, sequence as u32, audio)?;
         }
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self.conn.write_transaction()?;
         let (parent, sealed): (String, bool) = tx.query_row(
             "SELECT parent,sealed FROM segmented_sessions WHERE session=?1",
             [meeting.session_id.to_string()],
@@ -436,9 +430,10 @@ impl Store {
         }
         self.recover_segment_commits()?;
         self.repair_segment_checkpoints()?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self.conn.write_transaction()?;
+        if super::desktop::service_stopping(&tx)? {
+            return Ok(None);
+        }
         if crate::core::resources::CpuBudget::current().shared_encoder_slot && tx.query_row("SELECT EXISTS(SELECT 1 FROM segment_archives WHERE lease IS NOT NULL AND expires>?1)",[now],|r|r.get::<_,bool>(0))?{return Ok(None);}
         tx.execute("UPDATE segment_jobs SET status='queued',lease=NULL,expires=NULL WHERE status='running' AND expires<=?1",[now])?;
         let busy:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM segment_jobs WHERE lease IS NOT NULL AND expires>?1) OR EXISTS(SELECT 1 FROM tasks WHERE lease IS NOT NULL AND expires>?1 AND stage='transcribe')",[now],|r|r.get(0))?;
@@ -446,7 +441,7 @@ impl Store {
             return Ok(None);
         }
         type Row = (String, u32, u64, u64, String, String, String, String);
-        let row:Option<Row>=tx.query_row("SELECT j.session,j.sequence,j.offset_frames,j.frames,j.audio,t.id,t.directory,t.config FROM segment_jobs j JOIN segmented_sessions s ON s.session=j.session JOIN tasks t ON t.id=s.parent WHERE j.status='queued' AND j.next_at<=?1 ORDER BY j.rowid LIMIT 1",[now],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?))).optional()?;
+        let row:Option<Row>=tx.query_row("SELECT j.session,j.sequence,j.offset_frames,j.frames,j.audio,t.id,t.directory,t.config FROM segment_jobs j JOIN segmented_sessions s ON s.session=j.session JOIN tasks t ON t.id=s.parent WHERE j.status='queued' AND j.next_at<=?1 AND NOT EXISTS(SELECT 1 FROM desktop_cancellations c WHERE c.task=t.id) ORDER BY j.rowid LIMIT 1",[now],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?))).optional()?;
         let Some((session, sequence, offset_frames, frame_count, audio, parent, dir, config)) = row
         else {
             return Ok(None);
@@ -537,7 +532,7 @@ impl Store {
         let bytes = serde_json::to_vec(t)?;
         write_private_new(&staging, &bytes)?;
         sync_dir(&dir)?;
-        let changed=self.conn.execute("UPDATE segment_jobs SET status='committing',staging=?4,destination=?5,hash=?6 WHERE session=?1 AND sequence=?2 AND lease=?3 AND expires>?7 AND status='running'",params![c.context.session_id.to_string(),c.sequence,c.context.lease.token.to_string(),staging.to_str(),dest.to_str(),hash_bytes(&bytes),now])?;
+        let changed=self.conn.execute("UPDATE segment_jobs SET status='committing',staging=?4,destination=?5,hash=?6 WHERE session=?1 AND sequence=?2 AND lease=?3 AND expires>?7 AND status='running' AND NOT EXISTS(SELECT 1 FROM desktop_cancellations c JOIN tasks t ON c.task=t.id WHERE t.session=?1)",params![c.context.session_id.to_string(),c.sequence,c.context.lease.token.to_string(),staging.to_str(),dest.to_str(),hash_bytes(&bytes),now])?;
         if changed != 1 {
             fs::remove_file(staging)?;
             return Err(conflict());
@@ -605,9 +600,7 @@ impl Store {
             r.collect::<std::result::Result<Vec<_>, _>>()?
         };
         for (session, sequence, tmp, dest, hash) in rows {
-            let tx = self
-                .conn
-                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            let tx = self.conn.write_transaction()?;
             let status: String = tx.query_row(
                 "SELECT status FROM segment_jobs WHERE session=?1 AND sequence=?2",
                 params![session, sequence],
@@ -741,9 +734,7 @@ impl Store {
 impl Store {
     /// An explicit retry resumes only failed segments/archives, never valid checkpoints.
     pub fn retry_segment_failures(&mut self, session: Uuid) -> Result<()> {
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self.conn.write_transaction()?;
         let count=tx.execute("UPDATE segment_jobs SET status='queued',retries=0,next_at=0,error=NULL WHERE session=?1 AND status='failed'",[session.to_string()])?;
         tx.execute("UPDATE segment_archives SET status='queued',retries=0,next_at=0,error=NULL WHERE session=?1 AND status='failed'",[session.to_string()])?;
         if count > 0 {
@@ -765,9 +756,7 @@ impl Store {
         document: &serde_json::Value,
     ) -> Result<()> {
         self.conn.execute_batch("CREATE TABLE IF NOT EXISTS asr_inputs(task TEXT NOT NULL REFERENCES tasks(id),lease TEXT NOT NULL,document TEXT NOT NULL,hash TEXT NOT NULL,PRIMARY KEY(task,lease))")?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self.conn.write_transaction()?;
         let alive:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM tasks WHERE id=?1 AND lease=?2 AND expires>?3) OR EXISTS(SELECT 1 FROM segment_jobs j JOIN segmented_sessions s ON j.session=s.session WHERE s.parent=?1 AND j.lease=?2 AND j.expires>?3 AND j.status='running')",params![context.task_id.to_string(),context.lease.token.to_string(),chrono::Utc::now().timestamp_millis()],|r|r.get(0))?;
         if !alive {
             return Err(conflict());

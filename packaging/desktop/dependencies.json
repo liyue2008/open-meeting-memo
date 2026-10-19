@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "version": "1.13.2",
+  "onnxruntimeVersion": "1.24.4",
+  "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.2/sherpa-onnx-v1.13.2-osx-arm64-shared-no-tts-lib.tar.bz2",
+  "sha256": "949bfacca8cfd9fe80d7067a27fdd2d44f874e7b8ef99736d73af609891784e6",
+  "licenses": {
+    "sherpa-onnx-APACHE-2.0.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "onnxruntime-MIT.txt": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+    "onnxruntime-ThirdPartyNotices.txt": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2"
+  }
+}

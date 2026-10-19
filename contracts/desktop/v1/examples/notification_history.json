@@ -1,0 +1,20 @@
+{
+  "command": "notification_history",
+  "request": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "payload": {
+      "meetingId": null,
+      "cursor": null,
+      "pageSize": 1
+    }
+  },
+  "response": {
+    "schemaVersion": 1,
+    "requestId": "fixture-request-1",
+    "data": {
+      "items": [],
+      "nextCursor": null
+    }
+  }
+}

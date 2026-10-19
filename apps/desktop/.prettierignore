@@ -1,0 +1,5 @@
+src/contracts.generated.ts
+src/bridge/validators.generated.js
+src/bridge/validators.generated.d.ts
+src/styles/demo.css
+src/styles/palette.css

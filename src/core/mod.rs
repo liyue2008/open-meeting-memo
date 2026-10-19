@@ -9,6 +9,7 @@ pub mod resources;
 pub mod store;
 
 pub mod config;
+pub mod config_transaction;
 pub mod models;
 pub mod runtime;
 

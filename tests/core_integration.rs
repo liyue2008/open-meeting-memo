@@ -131,6 +131,7 @@ printf '# Synthetic minutes\nDecision at 0ms.\n'
             },
             worker_executable: worker,
             asr: AsrConfig {
+                threads: 1,
                 model_version: "fixture-asr".into(),
                 // Concurrent subprocess fixtures need startup headroom; product deadlines are unchanged.
                 timeout_ms: 15_000,
@@ -385,7 +386,10 @@ printf '# Synthetic minutes\nDecision at 0ms.\n'
         serde_json::from_slice::<Value>(&o.stdout).unwrap()["error"].clone()
     }
     fn daemon(&self) -> ChildGuard {
-        if self.helper.is_some() {
+        self.daemon_start(true)
+    }
+    fn daemon_start(&self, external_helper: bool) -> ChildGuard {
+        if external_helper && self.helper.is_some() {
             self.start_proxy();
         }
         let log = self._temp.path().join("daemon-output");
@@ -413,6 +417,8 @@ printf '# Synthetic minutes\nDecision at 0ms.\n'
         stream
             .write_all(
                 &serde_json::to_vec(&Request {
+                    desktop_capability: None,
+                    desktop_request: None,
                     schema_version: 1,
                     command: "capture_auto_stop".into(),
                     title: None,
@@ -431,12 +437,29 @@ printf '# Synthetic minutes\nDecision at 0ms.\n'
 #[test]
 fn real_cli_service_capture_worker_and_pi_queue_round_trip_without_audio_upload_flag() {
     let f = Fixture::new();
+    // This fixture is a deliberately owned current profile, not an implicit legacy migration.
+    {
+        let location = f
+            .paths
+            .runtime_location(&std::collections::BTreeMap::from([(
+                "XDG_RUNTIME_DIR".into(),
+                f.runtime.to_string_lossy().into_owned(),
+            )]))
+            .unwrap();
+        let guard = omm::core::runtime::RuntimeGuard::acquire(&location, &f.paths.state).unwrap();
+        omm::application::profile::takeover(&f.paths, &guard).unwrap();
+    }
     assert_eq!(
         f.error(&["record", "auto", "enable"], 3)["code"],
         "consent_required"
     );
-    f.ok(&["record", "auto", "enable", "--confirm-recording-consent"]);
-    f.ok(&["record", "auto", "disable"]);
+    assert_eq!(
+        f.error(
+            &["record", "auto", "enable", "--confirm-recording-consent"],
+            3
+        )["code"],
+        "unavailable"
+    );
     // Exercise the original AppConfig one-hour default through actual service startup.
     let mut legacy = AppConfig::load(&f.paths).unwrap();
     legacy.segment_ms = 3_600_000;
@@ -448,6 +471,8 @@ fn real_cli_service_capture_worker_and_pi_queue_round_trip_without_audio_upload_
         fs::read(f.paths.config.join("config.json")).unwrap(),
         original_config
     );
+    f.ok(&["record", "auto", "enable", "--confirm-recording-consent"]);
+    f.ok(&["record", "auto", "disable"]);
     for args in [
         &["paths"][..],
         &["doctor"],
@@ -2767,4 +2792,184 @@ fn rn1_real_daemon_helper_failure_without_recording_does_not_invent_a_meeting() 
     f.state.lock().unwrap().deny = false;
     f.ok(&["service", "stop"]);
     wait_success(&mut daemon);
+}
+
+// No capture backend: an owned proxy authenticates IPC and writes synthetic silent WAVs.
+#[test]
+fn desktop_first_recording_launches_helper_only_after_valid_consent_and_restarts_it() {
+    use omm::{
+        adapters::capture::{CapturePaths, MacCaptureAdapter},
+        application::profile,
+    };
+    let f = Fixture::new();
+    f.proxy.lock().unwrap().take();
+    fs::remove_file(f.runtime.join("omm/capture/audio_daemon.sock")).unwrap();
+    let executable = f._temp.path().join("owned-capture-launcher");
+    let launches = f._temp.path().join("launches");
+    fs::write(&executable,format!("#!/bin/sh\nprintf x >> '{}'\nexport OMM_TEST_CAPTURE_SOCKET=\"$YULU_IPC_DIR/audio_daemon.sock\"\nexport OMM_TEST_CAPTURE_BROKER='{}'\nexport OMM_TEST_CAPTURE_INSTANCE=\"$YULU_SERVICE_OWNER\"\nexec '{}' --exact core_capture_helper_proxy --ignored --nocapture\n",launches.display(),f._temp.path().join("helper-broker.sock").display(),std::env::current_exe().unwrap().display())).unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let mut cfg = AppConfig::load(&f.paths).unwrap();
+    cfg.capture_executable = executable;
+    cfg.auto_record = false;
+    cfg.notifications.enabled = false;
+    cfg.save(&f.paths).unwrap();
+    let mut daemon = f.daemon_start(false);
+    assert!(!launches.exists(), "idle startup must not launch capture");
+    let owner = profile::read(&f.paths).unwrap().unwrap();
+    let admission = json!({"ownerGeneration":owner.generation,"profileId":owner.profile_id,"stateSchemaVersion":1,"token":"a".repeat(32),"expiresAtMs":chrono::Utc::now().timestamp_millis()+120000,"mode":"service"});
+    let request = json!({"schemaVersion":1,"requestId":Uuid::new_v4(),"payload":{"title":"Synthetic cold start","confirmRecordingConsent":true,"admission":admission}});
+    let send = |generation: Uuid, command: &str, request: Value| {
+        let mut stream = UnixStream::connect(f.runtime.join("omm/service.sock")).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(20)))
+            .unwrap();
+        let message = Request {
+            schema_version: 1,
+            command: "desktop_dispatch_v1".into(),
+            title: None,
+            session_id: None,
+            instance_id: Some(generation),
+            desktop_capability: None,
+            desktop_request: Some(json!({"command":command,"request":request})),
+        };
+        stream
+            .write_all(&serde_json::to_vec(&message).unwrap())
+            .unwrap();
+        stream.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut bytes = vec![];
+        stream.read_to_end(&mut bytes).unwrap();
+        serde_json::from_slice::<Reply>(&bytes).unwrap()
+    };
+    let mut no_consent = request.clone();
+    no_consent["payload"]["confirmRecordingConsent"] = json!(false);
+    assert!(!send(owner.generation, "record_start", no_consent).ok);
+    assert!(!send(Uuid::new_v4(), "record_start", request.clone()).ok);
+    let mut invalid = request.clone();
+    invalid["payload"]["title"] = json!("x".repeat(300));
+    assert!(!send(owner.generation, "record_start", invalid).ok);
+    assert!(!launches.exists());
+    assert!(Store::open(&f.paths)
+        .unwrap()
+        .state::<Value>("recording")
+        .unwrap()
+        .is_none());
+    // A new id follows the rejected no-consent attempt; dedup must not launch twice.
+    let mut request = request;
+    request["requestId"] = json!(Uuid::new_v4());
+    let first = send(owner.generation, "record_start", request.clone());
+    assert!(first.ok, "{:?}", first.error);
+    let first = first.data.unwrap();
+    assert_eq!(
+        send(owner.generation, "record_start", request)
+            .data
+            .unwrap(),
+        first
+    );
+    assert_eq!(fs::read(&launches).unwrap(), b"x");
+    assert_eq!(f.state.lock().unwrap().starts, 1);
+    f.ok(&["record", "stop"]);
+    let capture = MacCaptureAdapter::new(
+        CapturePaths {
+            state: f.paths.state.join("capture"),
+            logs: f.paths.state.join("logs"),
+            media: f.paths.data.join("meetings"),
+            ipc: f.runtime.join("omm/capture"),
+        },
+        f.instance,
+        Duration::from_secs(2),
+    )
+    .unwrap();
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(capture.shutdown())
+        .unwrap();
+    let request = json!({"schemaVersion":1,"requestId":Uuid::new_v4(),"payload":{"title":"Synthetic restart","confirmRecordingConsent":true,"admission":admission}});
+    let second = send(owner.generation, "record_start", request);
+    assert!(second.ok, "{:?}", second.error);
+    assert_ne!(second.data.unwrap()["meetingId"], first["meetingId"]);
+    assert_eq!(fs::read(&launches).unwrap(), b"xx");
+    assert_eq!(f.state.lock().unwrap().starts, 2);
+    f.ok(&["record", "stop"]);
+    f.ok(&["service", "stop"]);
+    wait_success(&mut daemon);
+    assert!(!f.runtime.join("omm/capture/audio_daemon.sock").exists());
+}
+
+#[test]
+fn desktop_idle_shutdown_rejects_persistently_owned_processing_before_stopping_service() {
+    let f = Fixture::new();
+    let id = Uuid::new_v4();
+    let directory = f.paths.data.join("meetings").join(id.to_string());
+    omm::core::paths::private_dir(&directory).unwrap();
+    let path = directory.join("silent.wav");
+    omm::core::paths::write_private_new(&path, &omm::application::media::silent_wav(1)).unwrap();
+    let meeting = SealedMeeting {
+        session_id: id,
+        title: "Synthetic active lease".into(),
+        directory,
+        sealed_at_ms: chrono::Utc::now().timestamp_millis(),
+        segments: vec![AudioSegment {
+            capture: None,
+            sha256: omm::core::store::hash_file(&path).unwrap(),
+            path,
+            duration_ms: 1000,
+        }],
+    };
+    let mut store = Store::open(&f.paths).unwrap();
+    let task = store
+        .enqueue(
+            &meeting,
+            &AppConfig::load(&f.paths).unwrap().snapshot(),
+            false,
+        )
+        .unwrap();
+    let now = chrono::Utc::now().timestamp_millis();
+    let claim = store.claim_asr(now, 120_000).unwrap().unwrap();
+    assert_eq!(claim.context.task_id, task.id);
+    let mut daemon = f.daemon();
+    let owner = omm::core::runtime::verify_active(&f.runtime.join("omm"), &f.paths.state).unwrap();
+    let send = || {
+        let mut stream = UnixStream::connect(f.runtime.join("omm/service.sock")).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(20)))
+            .unwrap();
+        let message = Request {
+            schema_version: 1,
+            command: "desktop_idle_shutdown_v1".into(),
+            title: None,
+            session_id: None,
+            instance_id: Some(owner.instance_id),
+            desktop_request: None,
+            desktop_capability: None,
+        };
+        stream
+            .write_all(&serde_json::to_vec(&message).unwrap())
+            .unwrap();
+        stream.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut bytes = vec![];
+        stream.read_to_end(&mut bytes).unwrap();
+        serde_json::from_slice::<Reply>(&bytes).unwrap()
+    };
+    let reply = send();
+    assert!(
+        !reply.ok,
+        "idle shutdown must not cancel an active persistent processing lease"
+    );
+    assert_eq!(reply.error.unwrap().code, ErrorCode::Conflict);
+    assert!(daemon.0.try_wait().unwrap().is_none());
+    assert_eq!(
+        store.task(task.id).unwrap().status,
+        TaskStatus::Transcribing
+    );
+    store
+        .fail(
+            &claim,
+            &OmmError::new(ErrorCode::Corrupt, false, "synthetic settled failure"),
+            chrono::Utc::now().timestamp_millis(),
+        )
+        .unwrap();
+    let reply = send();
+    assert!(reply.ok, "{:?}", reply.error);
+    wait_success(&mut daemon);
+    assert!(!f.runtime.join("omm/service.sock").exists());
 }
