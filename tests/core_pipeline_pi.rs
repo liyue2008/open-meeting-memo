@@ -308,14 +308,25 @@ async fn managed_stable_launcher_uses_only_explicit_owned_node_and_isolated_pi_e
         "fixture\n",
     )
     .unwrap();
+    let trace = t.path().join("managed-stages");
+    fs::write(&trace, "").unwrap();
+    fs::set_permissions(&trace, fs::Permissions::from_mode(0o600)).unwrap();
+    let mark = format!(
+        "stage() {{ printf '%s\\n' \"$1\" >> '{}'; }}\ntrap 'stage \"exit=$?\"' EXIT\n",
+        trace.display()
+    );
     let launcher = bin.join("pi");
-    fs::write(&launcher,"#!/bin/sh\nroot=$(/usr/bin/dirname \"$0\")/..\nv=$(/bin/cat \"$root/install/current-version\")\nexec \"$root/install/releases/$v/pi.js\" \"$@\"\n").unwrap();
+    fs::write(&launcher,format!("#!/bin/sh\n{mark}stage \"launcher:start pid=$$\"\nroot=$(/usr/bin/dirname \"$0\")/..\nstage launcher:root\nv=$(/bin/cat \"$root/install/current-version\")\nstage launcher:version\nexec \"$root/install/releases/$v/pi.js\" \"$@\"\n")).unwrap();
     let js = install.join("pi.js");
-    fs::write(&js,"#!/usr/bin/env node\n[ -n \"$PI_CODING_AGENT_DIR\" ] || exit 81\n[ \"$HOME\" != \"$PI_CODING_AGENT_DIR\" ] || exit 82\nfor flag in --no-tools --no-mcp --no-extensions --no-skills --no-session --no-context-files; do case \" $* \" in *\" $flag \"*) ;; *) exit 83;; esac; done\n/bin/cat >/dev/null\nprintf '# managed stable minutes'\n").unwrap();
+    fs::write(&js,format!("#!/usr/bin/env node\n{mark}stage \"js:start pid=$$\"\n[ -n \"$PI_CODING_AGENT_DIR\" ] || exit 81\n[ \"$HOME\" != \"$PI_CODING_AGENT_DIR\" ] || exit 82\nfor flag in --no-tools --no-mcp --no-extensions --no-skills --no-session --no-context-files; do case \" $* \" in *\" $flag \"*) ;; *) exit 83;; esac; done\nstage js:stdin-before\n/bin/cat >/dev/null\nstage js:stdin-after\nstage js:stdout-before\nprintf '# managed stable minutes'\nstage js:stdout-after\n")).unwrap();
     let runtime = t.path().join("runtime");
     omm::core::paths::private_dir(&runtime).unwrap();
     let node = runtime.join("node");
-    fs::write(&node, "#!/bin/sh\nexec /bin/sh \"$@\"\n").unwrap();
+    fs::write(
+        &node,
+        format!("#!/bin/sh\n{mark}stage \"node:start pid=$$\"\nexec /bin/sh \"$@\"\n"),
+    )
+    .unwrap();
     for p in [&launcher, &js, &node] {
         fs::set_permissions(p, fs::Permissions::from_mode(0o700)).unwrap();
     }
@@ -339,16 +350,29 @@ async fn managed_stable_launcher_uses_only_explicit_owned_node_and_isolated_pi_e
         })
         .await
         .unwrap_err();
-    assert!(!error.retryable);
-    assert!(error.message.contains("pi.node_executable"));
+    let stages = fs::read_to_string(&trace).unwrap();
+    eprintln!("managed missing explicit node: {error:?}; stages={stages:?}");
+    assert!(
+        !error.retryable,
+        "actual error={error:?}; synthetic stages={stages:?}"
+    );
+    assert!(
+        error.message.contains("pi.node_executable"),
+        "actual error={error:?}; synthetic stages={stages:?}"
+    );
     context.config.pi.node_executable = Some(node.clone());
-    assert!(adapter
+    let result = adapter
         .summarize(SummaryRequest {
             context: context.clone(),
-            transcript: transcript.clone()
+            transcript: transcript.clone(),
         })
-        .await
-        .unwrap()
+        .await;
+    let stages = fs::read_to_string(&trace).unwrap();
+    eprintln!("managed explicit node: result={result:?}; stages={stages:?}");
+    assert!(result
+        .unwrap_or_else(|error| panic!(
+            "managed explicit node: actual error={error:?}; synthetic stages={stages:?}"
+        ))
         .markdown
         .contains("managed stable minutes"));
     fs::set_permissions(&node, fs::Permissions::from_mode(0o777)).unwrap();
@@ -709,8 +733,10 @@ async fn pi_colon_executable_is_direct_and_normal_node_path_contains_only_valida
         let pi_dir = t.path().join("pi:stable");
         omm::core::paths::private_dir(&pi_dir).unwrap();
         let executable = pi_dir.join("pi");
-        let body =
-            "/bin/cat >/dev/null\nprintf 'PATH=%s\\n' \"$PATH\"\nprintf '# trusted direct Pi'\n";
+        let trace = t.path().join("colon-stages");
+        fs::write(&trace, "").unwrap();
+        fs::set_permissions(&trace, fs::Permissions::from_mode(0o600)).unwrap();
+        let body = format!("stage() {{ printf '%s\\n' \"$1\" >> '{}'; }}\ntrap 'stage \"exit=$?\"' EXIT\nstage \"pi:start pid=$$\"\nstage stdin-before\n/bin/cat >/dev/null\nstage stdin-after\nstage stdout-before\nprintf 'PATH=%s\\n' \"$PATH\"\nprintf '# trusted direct Pi'\nstage stdout-after\n", trace.display());
         fs::write(
             &executable,
             format!(
@@ -734,7 +760,7 @@ async fn pi_colon_executable_is_direct_and_normal_node_path_contains_only_valida
             let runtime = t.path().join("trusted-runtime");
             omm::core::paths::private_dir(&runtime).unwrap();
             let node = runtime.join("node");
-            fs::write(&node, "#!/bin/sh\nexec /bin/sh \"$@\"\n").unwrap();
+            fs::write(&node, format!("#!/bin/sh\nprintf '%s\\n' \"node:start pid=$$\" >> '{}'\nexec /bin/sh \"$@\"\n", trace.display())).unwrap();
             fs::set_permissions(&node, fs::Permissions::from_mode(0o700)).unwrap();
             context.config.pi.node_executable = Some(node);
             expected.insert(0, runtime);
@@ -747,13 +773,19 @@ async fn pi_colon_executable_is_direct_and_normal_node_path_contains_only_valida
             })
             .await
             .unwrap();
-        let summary = PiAdapter::new(p)
+        let result = PiAdapter::new(p)
             .summarize(SummaryRequest {
                 context,
                 transcript,
             })
-            .await
-            .unwrap();
+            .await;
+        let stages = fs::read_to_string(&trace).unwrap();
+        eprintln!("colon node_case={node_case}: result={result:?}; synthetic stages={stages:?}");
+        let summary = result.unwrap_or_else(|error| {
+            panic!(
+                "colon node_case={node_case}: actual error={error:?}; synthetic stages={stages:?}"
+            )
+        });
         assert!(summary.markdown.contains("trusted direct Pi"));
         let observed = summary
             .markdown
