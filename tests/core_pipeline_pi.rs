@@ -291,6 +291,13 @@ async fn pipeline_renews_lease_during_backend_wait_and_cleans_disposable_work() 
     assert!(!paths.cache.join("tasks").join(task.id.to_string()).exists());
 }
 
+fn pi_fixture_child_receipts(paths: &Paths) -> Vec<serde_json::Value> {
+    fs::read_dir(paths.cache.join("pi")).into_iter().flatten().filter_map(|entry| {
+        let bytes = fs::read(entry.ok()?.path().join("owner.json")).ok()?;
+        let owner: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+        Some(serde_json::json!({"child_pid": owner["child_pid"], "owner_pid": owner["owner_pid"], "background_unverified": owner["background_unverified"]}))
+    }).collect()
+}
 #[tokio::test]
 async fn managed_stable_launcher_uses_only_explicit_owned_node_and_isolated_pi_environment() {
     let (t, paths, mut store, _) = setup("/bin/cat >/dev/null; printf '# fixture'");
@@ -339,7 +346,7 @@ async fn managed_stable_launcher_uses_only_explicit_owned_node_and_isolated_pi_e
         })
         .await
         .unwrap();
-    let adapter = PiAdapter::new(paths);
+    let adapter = PiAdapter::new(paths.clone());
     context.config.pi.max_input_bytes = 256000;
     let mut large = transcript.clone();
     large.segments[0].text = "SYNTHETIC.".repeat(15000);
@@ -351,7 +358,10 @@ async fn managed_stable_launcher_uses_only_explicit_owned_node_and_isolated_pi_e
         .await
         .unwrap_err();
     let stages = fs::read_to_string(&trace).unwrap();
-    eprintln!("managed missing explicit node: {error:?}; stages={stages:?}");
+    eprintln!(
+        "managed missing explicit node: {error:?}; stages={stages:?}; owned={:?}",
+        pi_fixture_child_receipts(&paths)
+    );
     assert!(
         !error.retryable,
         "actual error={error:?}; synthetic stages={stages:?}"
@@ -368,7 +378,10 @@ async fn managed_stable_launcher_uses_only_explicit_owned_node_and_isolated_pi_e
         })
         .await;
     let stages = fs::read_to_string(&trace).unwrap();
-    eprintln!("managed explicit node: result={result:?}; stages={stages:?}");
+    eprintln!(
+        "managed explicit node: result={result:?}; stages={stages:?}; owned={:?}",
+        pi_fixture_child_receipts(&paths)
+    );
     assert!(result
         .unwrap_or_else(|error| panic!(
             "managed explicit node: actual error={error:?}; synthetic stages={stages:?}"
@@ -773,14 +786,14 @@ async fn pi_colon_executable_is_direct_and_normal_node_path_contains_only_valida
             })
             .await
             .unwrap();
-        let result = PiAdapter::new(p)
+        let result = PiAdapter::new(p.clone())
             .summarize(SummaryRequest {
                 context,
                 transcript,
             })
             .await;
         let stages = fs::read_to_string(&trace).unwrap();
-        eprintln!("colon node_case={node_case}: result={result:?}; synthetic stages={stages:?}");
+        eprintln!("colon node_case={node_case}: result={result:?}; synthetic stages={stages:?}; owned={:?}", pi_fixture_child_receipts(&p));
         let summary = result.unwrap_or_else(|error| {
             panic!(
                 "colon node_case={node_case}: actual error={error:?}; synthetic stages={stages:?}"
