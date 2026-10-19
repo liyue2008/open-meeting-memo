@@ -1,0 +1,14 @@
+scripts/test-desktop-entrypoints.sh
+  h_b4d40596eab523 9-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d045e390eef6380bd260d8ebe6e496997bdbb464",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
