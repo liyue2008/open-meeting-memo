@@ -1,0 +1,27 @@
+docs/install.md
+  s_e6fcf3cda4e1bb::t_3f810dd49e3f30 289-292
+docs/overview-design.md
+  s_e6fcf3cda4e1bb::t_d0306f7ff55067 179
+src/adapters/pi/workspace.rs
+  s_e6fcf3cda4e1bb::t_9b7a68c610bd37 26-27,31-33,124,151,170-173,190,228-231
+src/core/pipeline.rs
+  s_e6fcf3cda4e1bb::t_9de56f33bbe277 236-239,323,327-329
+tests/core_pipeline_pi.rs
+  s_e6fcf3cda4e1bb::t_3a48d19ade218e 116-151,849-965
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "40543f31e1332a09a17b22f6bf60f82b6943fb0c",
+  "prompts": {},
+  "sessions": {
+    "s_e6fcf3cda4e1bb": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d6f-1e4a-745b-9d2c-638258fd0d45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
