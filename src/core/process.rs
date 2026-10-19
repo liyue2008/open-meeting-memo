@@ -8,6 +8,12 @@ use tokio::{process::Child, sync::watch};
 #[derive(Clone, Default)]
 pub struct Reapers(Arc<Mutex<Vec<watch::Receiver<Option<bool>>>>>);
 impl Reapers {
+    /// Register a bounded adapter cleanup before its task can be cancelled.
+    pub fn register_cleanup(&self) -> watch::Sender<Option<bool>> {
+        let (complete, receiver) = watch::channel(None);
+        self.0.lock().unwrap().push(receiver);
+        complete
+    }
     /// Receivers remain registered across cancellation of this wait.
     pub async fn drain(&self) -> Result<()> {
         loop {
@@ -15,7 +21,7 @@ impl Reapers {
             if receivers.is_empty() {
                 break;
             }
-            for mut receiver in receivers {
+            for mut receiver in receivers.iter().cloned() {
                 while receiver.borrow_and_update().is_none() {
                     receiver.changed().await.map_err(|_| {
                         OmmError::unavailable(
@@ -32,7 +38,8 @@ impl Reapers {
             self.0
                 .lock()
                 .unwrap()
-                .retain(|receiver| receiver.borrow().is_none());
+                // A cleanup task may register its child reaper while we await it.
+                .retain(|receiver| !receivers.iter().any(|waited| waited.same_channel(receiver)));
         }
         Ok(())
     }

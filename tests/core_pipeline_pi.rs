@@ -113,7 +113,42 @@ printf '# Fixture minutes\nDecision: test passed.\n'
         .await
         .unwrap()
         .is_none());
-    assert_eq!(fs::read_dir(paths.cache.join("pi")).unwrap().count(), 0);
+    let directories = fs::read_dir(paths.cache.join("pi"))
+        .unwrap()
+        .collect::<std::io::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(
+        directories.len(),
+        1,
+        "owned Pi wait is not full background coverage; retain its private workspace"
+    );
+    let marker = directories[0].path().join("owner.json");
+    let owner: serde_json::Value = serde_json::from_slice(&fs::read(&marker).unwrap()).unwrap();
+    assert_eq!(owner["background_unverified"], true);
+    assert_eq!(
+        omm::adapters::pi::recover_workspaces(&paths, &store)
+            .unwrap()
+            .removed,
+        0
+    );
+    assert!(marker.exists());
+    let mut legacy = owner;
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("background_unverified");
+    omm::core::paths::write_private_replace(&marker, &serde_json::to_vec(&legacy).unwrap())
+        .unwrap();
+    assert_eq!(
+        omm::adapters::pi::recover_workspaces(&paths, &store)
+            .unwrap()
+            .retained_unknown,
+        1
+    );
+    assert!(
+        marker.exists(),
+        "legacy records must not infer full-chain exit from PIDs"
+    );
 }
 #[tokio::test]
 async fn pi_failure_does_not_disclose_stderr_and_only_summary_retries() {
@@ -256,6 +291,13 @@ async fn pipeline_renews_lease_during_backend_wait_and_cleans_disposable_work() 
     assert!(!paths.cache.join("tasks").join(task.id.to_string()).exists());
 }
 
+fn pi_fixture_child_receipts(paths: &Paths) -> Vec<serde_json::Value> {
+    fs::read_dir(paths.cache.join("pi")).into_iter().flatten().filter_map(|entry| {
+        let bytes = fs::read(entry.ok()?.path().join("owner.json")).ok()?;
+        let owner: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+        Some(serde_json::json!({"child_pid": owner["child_pid"], "owner_pid": owner["owner_pid"], "background_unverified": owner["background_unverified"]}))
+    }).collect()
+}
 #[tokio::test]
 async fn managed_stable_launcher_uses_only_explicit_owned_node_and_isolated_pi_environment() {
     let (t, paths, mut store, _) = setup("/bin/cat >/dev/null; printf '# fixture'");
@@ -273,14 +315,25 @@ async fn managed_stable_launcher_uses_only_explicit_owned_node_and_isolated_pi_e
         "fixture\n",
     )
     .unwrap();
+    let trace = t.path().join("managed-stages");
+    fs::write(&trace, "").unwrap();
+    fs::set_permissions(&trace, fs::Permissions::from_mode(0o600)).unwrap();
+    let mark = format!(
+        "stage() {{ printf '%s\\n' \"$1\" >> '{}'; }}\ntrap 'stage \"exit=$?\"' EXIT\n",
+        trace.display()
+    );
     let launcher = bin.join("pi");
-    fs::write(&launcher,"#!/bin/sh\nroot=$(/usr/bin/dirname \"$0\")/..\nv=$(/bin/cat \"$root/install/current-version\")\nexec \"$root/install/releases/$v/pi.js\" \"$@\"\n").unwrap();
+    fs::write(&launcher,format!("#!/bin/sh\n{mark}stage \"launcher:start pid=$$\"\nroot=$(/usr/bin/dirname \"$0\")/..\nstage launcher:root\nv=$(/bin/cat \"$root/install/current-version\")\nstage launcher:version\nexec \"$root/install/releases/$v/pi.js\" \"$@\"\n")).unwrap();
     let js = install.join("pi.js");
-    fs::write(&js,"#!/usr/bin/env node\n[ -n \"$PI_CODING_AGENT_DIR\" ] || exit 81\n[ \"$HOME\" != \"$PI_CODING_AGENT_DIR\" ] || exit 82\nfor flag in --no-tools --no-mcp --no-extensions --no-skills --no-session --no-context-files; do case \" $* \" in *\" $flag \"*) ;; *) exit 83;; esac; done\n/bin/cat >/dev/null\nprintf '# managed stable minutes'\n").unwrap();
+    fs::write(&js,format!("#!/usr/bin/env node\n{mark}stage \"js:start pid=$$\"\n[ -n \"$PI_CODING_AGENT_DIR\" ] || exit 81\n[ \"$HOME\" != \"$PI_CODING_AGENT_DIR\" ] || exit 82\nfor flag in --no-tools --no-mcp --no-extensions --no-skills --no-session --no-context-files; do case \" $* \" in *\" $flag \"*) ;; *) exit 83;; esac; done\nstage js:stdin-before\n/bin/cat >/dev/null\nstage js:stdin-after\nstage js:stdout-before\nprintf '# managed stable minutes'\nstage js:stdout-after\n")).unwrap();
     let runtime = t.path().join("runtime");
     omm::core::paths::private_dir(&runtime).unwrap();
     let node = runtime.join("node");
-    fs::write(&node, "#!/bin/sh\nexec /bin/sh \"$@\"\n").unwrap();
+    fs::write(
+        &node,
+        format!("#!/bin/sh\n{mark}stage \"node:start pid=$$\"\nexec /bin/sh \"$@\"\n"),
+    )
+    .unwrap();
     for p in [&launcher, &js, &node] {
         fs::set_permissions(p, fs::Permissions::from_mode(0o700)).unwrap();
     }
@@ -293,7 +346,7 @@ async fn managed_stable_launcher_uses_only_explicit_owned_node_and_isolated_pi_e
         })
         .await
         .unwrap();
-    let adapter = PiAdapter::new(paths);
+    let adapter = PiAdapter::new(paths.clone());
     context.config.pi.max_input_bytes = 256000;
     let mut large = transcript.clone();
     large.segments[0].text = "SYNTHETIC.".repeat(15000);
@@ -304,16 +357,35 @@ async fn managed_stable_launcher_uses_only_explicit_owned_node_and_isolated_pi_e
         })
         .await
         .unwrap_err();
-    assert!(!error.retryable);
-    assert!(error.message.contains("pi.node_executable"));
+    let stages = fs::read_to_string(&trace).unwrap();
+    eprintln!(
+        "managed missing explicit node: {error:?}; stages={stages:?}; owned={:?}",
+        pi_fixture_child_receipts(&paths)
+    );
+    assert!(
+        !error.retryable,
+        "actual error={error:?}; synthetic stages={stages:?}"
+    );
+    assert!(
+        error.message.contains("pi.node_executable"),
+        "actual error={error:?}; synthetic stages={stages:?}"
+    );
     context.config.pi.node_executable = Some(node.clone());
-    assert!(adapter
+    let result = adapter
         .summarize(SummaryRequest {
             context: context.clone(),
-            transcript: transcript.clone()
+            transcript: transcript.clone(),
         })
-        .await
-        .unwrap()
+        .await;
+    let stages = fs::read_to_string(&trace).unwrap();
+    eprintln!(
+        "managed explicit node: result={result:?}; stages={stages:?}; owned={:?}",
+        pi_fixture_child_receipts(&paths)
+    );
+    assert!(result
+        .unwrap_or_else(|error| panic!(
+            "managed explicit node: actual error={error:?}; synthetic stages={stages:?}"
+        ))
         .markdown
         .contains("managed stable minutes"));
     fs::set_permissions(&node, fs::Permissions::from_mode(0o777)).unwrap();
@@ -662,6 +734,87 @@ async fn pi_node_colon_parent_is_rejected_without_starting_pi_or_unvalidated_nod
     assert!(!node_trace.exists());
 }
 
+// Model the native Node process boundary, not a JavaScript engine or a shell forwarder.
+fn compile_native_node_fixture(
+    node: &std::path::Path,
+    script: &std::path::Path,
+    trace: &std::path::Path,
+) {
+    let source = r##"#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+static const char *script_path = OMM_SCRIPT_PATH;
+static const char *trace_path = OMM_TRACE_PATH;
+static const char script_identity[] = "#!/usr/bin/env node\n// OMM_NATIVE_NODE_FIXTURE\n";
+static int stage(const char *name) {
+    FILE *f = fopen(trace_path, "a");
+    if (!f) return -1;
+    int failed = fprintf(f, "%s\n", name) < 0;
+    return fclose(f) || failed ? -1 : 0;
+}
+int main(int argc, char **argv) {
+    if (argc != 21) return 70;
+    if (strcmp(argv[1], script_path)) return 71;
+    const char *flags[] = {"--print", "--mode", "text", "--no-session", "--no-tools",
+        "--no-mcp", "--no-extensions", "--no-skills", "--no-prompt-templates",
+        "--no-themes", "--no-context-files", "--no-approve", "--offline", "--system-prompt"};
+    for (int i = 0; i < 14; ++i) if (strcmp(argv[i + 2], flags[i])) return 72;
+    if (!argv[16][0] || strcmp(argv[17], "--provider") || strcmp(argv[18], "fixture-provider") ||
+        strcmp(argv[19], "--model") || strcmp(argv[20], "fixture-model")) return 72;
+    char script[sizeof(script_identity)];
+    FILE *f = fopen(argv[1], "rb");
+    if (!f) return 73;
+    size_t length = fread(script, 1, sizeof(script), f);
+    int read_error = ferror(f);
+    int close_error = fclose(f);
+    if (read_error || close_error || length != sizeof(script_identity) - 1 ||
+        memcmp(script, script_identity, sizeof(script_identity) - 1)) return 73;
+    const char *path = getenv("PATH");
+    if (!path || stage("native-node:start") || stage("stdin-before")) return 74;
+    char input[16384];
+    size_t used = 0;
+    for (;;) {
+        if (used == sizeof(input) - 1) return 75;
+        ssize_t count = read(STDIN_FILENO, input + used, sizeof(input) - 1 - used);
+        if (count < 0) { if (errno == EINTR) continue; return 75; }
+        if (count == 0) break;
+        used += (size_t)count;
+    }
+    input[used] = 0;
+    if (!strstr(input, "TRANSCRIPT_FIXTURE_NOT_ARGV")) return 76;
+    if (stage("stdin-after") || stage("stdout-before")) return 74;
+    if (printf("PATH=%s\n# trusted direct Pi", path) < 0 || fflush(stdout)) return 77;
+    return stage("stdout-after") ? 74 : 0;
+}
+"##
+    .replace(
+        "OMM_SCRIPT_PATH",
+        &serde_json::to_string(&script.to_str().unwrap()).unwrap(),
+    )
+    .replace(
+        "OMM_TRACE_PATH",
+        &serde_json::to_string(&trace.to_str().unwrap()).unwrap(),
+    );
+    let source_path = node.with_extension("c");
+    fs::write(&source_path, source).unwrap();
+    fs::set_permissions(&source_path, fs::Permissions::from_mode(0o600)).unwrap();
+    let output = std::process::Command::new("/usr/bin/cc")
+        .args(["-std=c11", "-Wall", "-Wextra", "-Werror"])
+        .arg(&source_path)
+        .arg("-o")
+        .arg(node)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "native fixture compilation: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    fs::set_permissions(node, fs::Permissions::from_mode(0o700)).unwrap();
+}
+
 #[tokio::test]
 async fn pi_colon_executable_is_direct_and_normal_node_path_contains_only_validated_entries() {
     for node_case in [false, true] {
@@ -674,19 +827,17 @@ async fn pi_colon_executable_is_direct_and_normal_node_path_contains_only_valida
         let pi_dir = t.path().join("pi:stable");
         omm::core::paths::private_dir(&pi_dir).unwrap();
         let executable = pi_dir.join("pi");
-        let body =
-            "/bin/cat >/dev/null\nprintf 'PATH=%s\\n' \"$PATH\"\nprintf '# trusted direct Pi'\n";
+        let trace = t.path().join("colon-stages");
+        fs::write(&trace, "").unwrap();
+        fs::set_permissions(&trace, fs::Permissions::from_mode(0o600)).unwrap();
+        let body = format!("stage() {{ printf '%s\\n' \"$1\" >> '{}' || {{ printf 'fixture-marker-write-failed\\n' >&2; exit 74; }}; }}\ntrap 'stage \"exit=$?\"' EXIT\nstage \"pi:start pid=$$\"\nstage stdin-before\n/bin/cat >/dev/null\nstage stdin-after\nstage stdout-before\nprintf 'PATH=%s\\n' \"$PATH\"\nprintf '# trusted direct Pi'\nstage stdout-after\n", trace.display());
         fs::write(
             &executable,
-            format!(
-                "{}{}",
-                if node_case {
-                    "#!/usr/bin/env node\n"
-                } else {
-                    "#!/bin/sh\n"
-                },
-                body
-            ),
+            if node_case {
+                "#!/usr/bin/env node\n// OMM_NATIVE_NODE_FIXTURE\n".to_owned()
+            } else {
+                format!("#!/bin/sh\n{body}")
+            },
         )
         .unwrap();
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
@@ -699,8 +850,55 @@ async fn pi_colon_executable_is_direct_and_normal_node_path_contains_only_valida
             let runtime = t.path().join("trusted-runtime");
             omm::core::paths::private_dir(&runtime).unwrap();
             let node = runtime.join("node");
-            fs::write(&node, "#!/bin/sh\nexec /bin/sh \"$@\"\n").unwrap();
-            fs::set_permissions(&node, fs::Permissions::from_mode(0o700)).unwrap();
+            compile_native_node_fixture(&node, &context.config.pi.executable, &trace);
+            // Wrong script identity and malformed invocation must fail before stdin/output.
+            let valid_args = [
+                "--print",
+                "--mode",
+                "text",
+                "--no-session",
+                "--no-tools",
+                "--no-mcp",
+                "--no-extensions",
+                "--no-skills",
+                "--no-prompt-templates",
+                "--no-themes",
+                "--no-context-files",
+                "--no-approve",
+                "--offline",
+                "--system-prompt",
+                "fixture prompt",
+                "--provider",
+                "fixture-provider",
+                "--model",
+                "fixture-model",
+            ];
+            let wrong_script = std::process::Command::new(&node)
+                .env_clear()
+                .arg(pi_dir.join("wrong-pi"))
+                .args(valid_args)
+                .output()
+                .unwrap();
+            assert_eq!(wrong_script.status.code(), Some(71));
+            assert!(wrong_script.stdout.is_empty());
+            let malformed = std::process::Command::new(&node)
+                .env_clear()
+                .arg(&context.config.pi.executable)
+                .output()
+                .unwrap();
+            assert_eq!(malformed.status.code(), Some(70));
+            assert!(malformed.stdout.is_empty());
+            let empty_input = std::process::Command::new(&node)
+                .env_clear()
+                .env("PATH", "/fixture-negative-path")
+                .arg(&context.config.pi.executable)
+                .args(valid_args)
+                .output()
+                .unwrap();
+            assert_eq!(empty_input.status.code(), Some(76));
+            assert!(empty_input.stdout.is_empty());
+            // Attribute subsequent stages only to the real shebang/env invocation.
+            fs::write(&trace, "").unwrap();
             context.config.pi.node_executable = Some(node);
             expected.insert(0, runtime);
         }
@@ -712,14 +910,25 @@ async fn pi_colon_executable_is_direct_and_normal_node_path_contains_only_valida
             })
             .await
             .unwrap();
-        let summary = PiAdapter::new(p)
+        let result = PiAdapter::new(p.clone())
             .summarize(SummaryRequest {
                 context,
                 transcript,
             })
-            .await
-            .unwrap();
+            .await;
+        let stages = fs::read_to_string(&trace).unwrap();
+        eprintln!("colon node_case={node_case}: result={result:?}; synthetic stages={stages:?}; owned={:?}", pi_fixture_child_receipts(&p));
+        let summary = result.unwrap_or_else(|error| {
+            panic!(
+                "colon node_case={node_case}: actual error={error:?}; synthetic stages={stages:?}"
+            )
+        });
         assert!(summary.markdown.contains("trusted direct Pi"));
+        if node_case {
+            assert!(stages.contains("native-node:start\n"));
+            assert!(stages.contains("stdin-after\n"));
+            assert!(stages.contains("stdout-after\n"));
+        }
         let observed = summary
             .markdown
             .lines()
@@ -810,4 +1019,369 @@ async fn missing_pi_path_is_actionable_and_force_summary_preserves_old_attempt_a
         before,
         store.read_artifact(task.id, Stage::Transcribe).unwrap()
     );
+}
+
+#[tokio::test]
+async fn reapers_observe_nested_cleanup_failure_registered_during_drain() {
+    use std::{future::Future, task::Poll};
+    let reapers = omm::core::process::Reapers::default();
+    let first = reapers.register_cleanup();
+    let drain = reapers.drain();
+    tokio::pin!(drain);
+    std::future::poll_fn(|cx| {
+        assert!(drain.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    let nested = reapers.register_cleanup();
+    nested.send_replace(Some(false));
+    first.send_replace(Some(true));
+    assert!(
+        drain.await.is_err(),
+        "nested unconfirmed child must not be removed as an observed wait"
+    );
+}
+
+#[tokio::test]
+async fn summary_commit_and_notification_boundary_waits_for_adapter_drain() {
+    struct ObserveDrain(Paths);
+    #[async_trait]
+    impl SummaryAdapter for ObserveDrain {
+        async fn summarize(&self, _: SummaryRequest) -> Result<Summary> {
+            Ok(Summary {
+                schema_version: 1,
+                markdown: "fixture minutes".into(),
+                provider: "fixture-provider".into(),
+                model: "fixture-model".into(),
+                prompt_version: "1".into(),
+            })
+        }
+        async fn drain(&self) -> Result<()> {
+            let store = Store::open(&self.0)?;
+            let tasks = store.tasks()?;
+            assert!(
+                tasks
+                    .iter()
+                    .all(|task| task.status != TaskStatus::Completed),
+                "public completion must not precede owned drain"
+            );
+            Ok(())
+        }
+    }
+    let (_temp, paths, mut store, task) = setup("exit 81");
+    let pi = ObserveDrain(paths);
+    run_one(&mut store, &FixtureAsr, &pi, 10000).await.unwrap();
+    assert_eq!(
+        run_one(&mut store, &FixtureAsr, &pi, 10000)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        TaskStatus::Completed
+    );
+    assert!(store.read_artifact(task.id, Stage::Summary).is_ok());
+}
+
+#[tokio::test]
+async fn cancelled_owned_pi_is_waited_before_settlement_and_retains_unverified_workspace() {
+    use tokio::io::AsyncReadExt;
+    let (_temp, paths, mut store, task) = setup("exit 81");
+    let socket = _temp.path().canonicalize().unwrap().join("ready.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let script = format!("#!/bin/sh\nexec /usr/bin/python3 -c 'import socket,sys; sys.stdout.write(\"synthetic partial output\"); sys.stdout.flush(); sys.stderr.write(\"synthetic diagnostic\"); sys.stderr.flush(); s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); s.sendall(b\"ready\"); s.recv(1)' '{}'\n", socket.display());
+    fs::write(_temp.path().join("fake-pi"), script).unwrap();
+    let pi = PiAdapter::new(paths.clone());
+    run_one(&mut store, &FixtureAsr, &pi, 10000).await.unwrap();
+    let mut observer = Store::open(&paths).unwrap();
+    let operation = run_one(&mut store, &FixtureAsr, &pi, 10000);
+    tokio::pin!(operation);
+    let (mut stream, _) = tokio::select! {
+        accepted = listener.accept() => accepted.unwrap(),
+        result = &mut operation => panic!("Pi finished before readiness: {result:?}"),
+    };
+    let mut ready = [0; 5];
+    stream.read_exact(&mut ready).await.unwrap();
+    observer.desktop_cancel(task.id).unwrap();
+    let cancelled = operation.await.unwrap().unwrap();
+    assert_eq!(cancelled.status, TaskStatus::Blocked);
+    let mut bytes = vec![];
+    stream.read_to_end(&mut bytes).await.unwrap();
+    pi.drain().await.unwrap();
+    let directory = fs::read_dir(paths.cache.join("pi"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let owner: serde_json::Value =
+        serde_json::from_slice(&fs::read(directory.join("owner.json")).unwrap()).unwrap();
+    let pid = owner["child_pid"].as_u64().unwrap() as i32;
+    let mut status = 0;
+    assert_eq!(
+        unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) },
+        -1
+    );
+    assert_eq!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(libc::ECHILD),
+        "owned child must already have been waited, not merely marked terminal"
+    );
+    eprintln!("synthetic Pi pid={pid}: registered drain completed, kernel reports ECHILD, private workspace retained; background unverified");
+    assert!(observer.read_artifact(task.id, Stage::Summary).is_err());
+    assert!(observer.read_artifact(task.id, Stage::Transcribe).is_ok());
+    assert!(observer
+        .claim_summary(chrono::Utc::now().timestamp_millis(), 10000)
+        .unwrap()
+        .is_none());
+    let report = omm::adapters::pi::recover_workspaces(&paths, &observer).unwrap();
+    assert_eq!(report.removed, 0);
+    assert_eq!(report.retained_unknown, 1);
+}
+
+// A synchronous guard retains the real child handle even if fixture setup unwinds.
+struct PiPipeHolder {
+    control: Option<std::process::ChildStdin>,
+    waiter: Option<std::thread::JoinHandle<std::io::Result<std::process::Output>>>,
+    pid: u32,
+}
+impl PiPipeHolder {
+    fn finish(&mut self) -> std::io::Result<std::process::Output> {
+        drop(self.control.take());
+        let output = self
+            .waiter
+            .take()
+            .unwrap()
+            .join()
+            .map_err(|_| std::io::Error::other("synthetic pipe holder waiter panicked"))??;
+        eprintln!(
+            "synthetic pipe holder pid={}: actual wait={}, stderr={}",
+            self.pid,
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        Ok(output)
+    }
+}
+impl Drop for PiPipeHolder {
+    fn drop(&mut self) {
+        if self.waiter.is_some() {
+            if let Err(error) = self.finish() {
+                eprintln!("synthetic pipe holder wait failed: {error}");
+            }
+        }
+    }
+}
+
+// Transfer actual Pi stdout to an owned bounded holder, not an un-waitable grandchild.
+async fn cancelled_pi_pipe_hold_outlasts_lease(invalidate_lease: bool) {
+    use std::process::Stdio;
+    use tokio::io::AsyncReadExt;
+    const LEASE_MS: i64 = 600;
+    let (temp, paths, mut store, task) = setup("exit 81");
+    let root = temp.path().canonicalize().unwrap();
+    let ready_path = root.join("ready.sock");
+    let hold_path = root.join("hold.sock");
+    let diagnostic_path = root.join("synthetic-pi-diagnostic.txt");
+    let listener = tokio::net::UnixListener::bind(&ready_path).unwrap();
+    let holder_script = r#"import array,os,select,socket,sys
+server=socket.socket(socket.AF_UNIX)
+server.bind(sys.argv[1]); server.listen(1); server.settimeout(4)
+ready=socket.socket(socket.AF_UNIX); ready.connect(sys.argv[2]); ready.sendall(b'H')
+s,_=server.accept()
+_,anc,_,_=s.recvmsg(1,socket.CMSG_SPACE(4))
+fds=array.array('i'); fds.frombytes(anc[0][2][:4])
+s.sendall(b'K')
+if select.select([sys.stdin],[],[],4)[0]: sys.stdin.buffer.read(1)
+os.close(fds[0]); s.close(); server.close()
+ready.sendall(b'D'); ready.close()
+"#;
+    let pi_script = root.join("synthetic-pi.py");
+    fs::write(
+        &pi_script,
+        r#"import array,os,socket,sys,traceback
+try:
+    s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1])
+    s.sendmsg([b'x'],[(socket.SOL_SOCKET,socket.SCM_RIGHTS,array.array('i',[1]))])
+    assert s.recv(1)==b'K'
+    r=socket.socket(socket.AF_UNIX); r.connect(sys.argv[2]); r.sendall(b'P'); r.recv(1)
+except BaseException:
+    with os.fdopen(os.open(sys.argv[3],os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600),'w') as output:
+        traceback.print_exc(file=output)
+    raise
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("fake-pi"),
+        format!(
+            "#!/bin/sh\nexec /usr/bin/python3 '{}' '{}' '{}' '{}' \"$@\"\n",
+            pi_script.display(),
+            hold_path.display(),
+            ready_path.display(),
+            diagnostic_path.display()
+        ),
+    )
+    .unwrap();
+    let pi = PiAdapter::new(paths.clone());
+    run_one(&mut store, &FixtureAsr, &pi, 10000).await.unwrap();
+    let mut observer = Store::open(&paths).unwrap();
+    let db = rusqlite::Connection::open(paths.state.join("state.sqlite")).unwrap();
+    let expires = || {
+        db.query_row(
+            "SELECT expires FROM tasks WHERE id=?1",
+            [task.id.to_string()],
+            |row| row.get::<_, i64>(0),
+        )
+    };
+    let mut child = std::process::Command::new("/usr/bin/python3")
+        .args(["-c", holder_script])
+        .arg(&hold_path)
+        .arg(&ready_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut holder = PiPipeHolder {
+        control: child.stdin.take(),
+        pid: child.id(),
+        waiter: Some(std::thread::spawn(move || child.wait_with_output())),
+    };
+    // All fallible setup and adapter work return through the common cleanup below.
+    let phase: Result<_> = async {
+        let (mut holder_ready, _) = tokio::time::timeout(
+            std::time::Duration::from_secs(4), listener.accept(),
+        ).await.map_err(|_| OmmError::unavailable("synthetic holder readiness timed out"))??;
+        let mut byte = [0];
+        holder_ready.read_exact(&mut byte).await?;
+        if &byte != b"H" { return Err(OmmError::invalid("synthetic holder readiness")); }
+        let notifications = omm::core::notifications::NotificationSink::default();
+        let operation = omm::core::pipeline::run_summary_one_notifying(
+            &mut store, &FixtureAsr, &pi, LEASE_MS, &notifications,
+        );
+        tokio::pin!(operation);
+        let (mut ready, _) = tokio::select! {
+            accepted = listener.accept() => accepted?,
+            result = &mut operation => return Err(OmmError::invalid(&format!("Pi finished before pipe readiness: {result:?}"))),
+        };
+        ready.read_exact(&mut byte).await?;
+        if &byte != b"P" { return Err(OmmError::invalid("synthetic Pi readiness")); }
+        let before = expires()?;
+        if invalidate_lease {
+            db.execute("UPDATE tasks SET expires=0 WHERE id=?1", [task.id.to_string()])?;
+        } else {
+            observer.desktop_cancel(task.id)?;
+        }
+        // Deliberately expose two lease windows while EOF is held by the test.
+        let pending = tokio::time::timeout(
+            std::time::Duration::from_millis(2 * LEASE_MS as u64), operation.as_mut(),
+        ).await;
+        let after = expires()?;
+        let now = chrono::Utc::now().timestamp_millis();
+        let still_draining = pending.is_err();
+        drop(holder.control.take());
+        let result = match pending { Ok(result) => result, Err(_) => operation.await };
+        let mut eof = Vec::new();
+        ready.read_to_end(&mut eof).await?;
+        holder_ready.read_to_end(&mut eof).await?;
+        Ok((result, still_draining, before, after, now))
+    }.await;
+    // Release EOF, wait/drain the holder and Pi, then permit any assertion/panic.
+    let holder_output = holder.finish();
+    let drained = pi.drain().await;
+    drop(listener);
+    if let Ok(diagnostic) = fs::read_to_string(&diagnostic_path) {
+        eprintln!(
+            "synthetic Pi diagnostic: {}",
+            diagnostic.chars().take(2000).collect::<String>()
+        );
+    }
+    assert!(holder_output.unwrap().status.success());
+    drained.unwrap();
+    let (result, still_draining, lease_before, lease_after, observed_at) = phase.unwrap();
+    assert!(still_draining, "renewal failure must not drop owned drain");
+    assert!(observer.read_artifact(task.id, Stage::Summary).is_err());
+    assert!(observer.read_artifact(task.id, Stage::Transcribe).is_ok());
+    if invalidate_lease {
+        assert_eq!(
+            result.unwrap_err().code,
+            ErrorCode::Conflict,
+            "lost ownership must remain an error after cleanup"
+        );
+        return;
+    }
+    assert!(
+        result.is_ok(),
+        "cancellation must settle after held EOF: {result:?}"
+    );
+    eprintln!("durable lease before={lease_before} after={lease_after} observed_at={observed_at}; held Pi stdout across two lease windows");
+    assert!(
+        lease_after > lease_before && lease_after > observed_at,
+        "drain must renew the actual durable lease"
+    );
+    assert_eq!(result.unwrap().unwrap().status, TaskStatus::Blocked);
+    assert!(observer
+        .claim_summary(chrono::Utc::now().timestamp_millis(), 10000)
+        .unwrap()
+        .is_none());
+    let config: String = db
+        .query_row(
+            "SELECT config FROM tasks WHERE id=?1",
+            [task.id.to_string()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let config: ConfigSnapshot = serde_json::from_str(&config).unwrap();
+    let session_id = uuid::Uuid::new_v4();
+    let directory = paths.data.join("meetings").join(session_id.to_string());
+    private_dir(&directory).unwrap();
+    let audio = directory.join("segment.wav");
+    fs::write(&audio, b"synthetic").unwrap();
+    let next = store
+        .enqueue(
+            &SealedMeeting {
+                session_id,
+                title: "independent synthetic".into(),
+                directory,
+                sealed_at_ms: 1,
+                segments: vec![AudioSegment {
+                    capture: None,
+                    path: audio,
+                    duration_ms: 1000,
+                    sha256: hash_bytes(b"synthetic"),
+                }],
+            },
+            &config,
+            false,
+        )
+        .unwrap();
+    fs::write(
+        root.join("fake-pi"),
+        "#!/bin/sh\n/bin/cat >/dev/null\nprintf '# independent summary'\n",
+    )
+    .unwrap();
+    run_one(&mut store, &FixtureAsr, &pi, 10000).await.unwrap();
+    let notifications = omm::core::notifications::NotificationSink::default();
+    let completed = omm::core::pipeline::run_summary_one_notifying(
+        &mut store,
+        &FixtureAsr,
+        &pi,
+        10000,
+        &notifications,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(completed.id, next.id);
+    assert_eq!(completed.status, TaskStatus::Completed);
+}
+
+#[tokio::test]
+async fn cancelled_pi_renews_lease_while_owned_drain_waits_for_held_pipe() {
+    cancelled_pi_pipe_hold_outlasts_lease(false).await;
+}
+
+#[tokio::test]
+async fn cancelled_pi_finishes_owned_drain_even_when_renewal_loses_lease() {
+    cancelled_pi_pipe_hold_outlasts_lease(true).await;
 }

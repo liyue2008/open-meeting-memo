@@ -473,6 +473,20 @@ pub fn finish(app: tauri::AppHandle<tauri::Wry>, paths: Paths, mut result: Value
         let shutdown = omm::service::daemon::request(&paths, "shutdown", None)
             .await
             .is_ok();
+        if !wait_fixture_service(&app, &paths) {
+            result["ok"] = json!(false);
+            result["error"] =
+                json!("owned fixture CLI did not exit normally; control handle retained");
+            write_private_new(
+                &output("bridge-result.json"),
+                &serde_json::to_vec_pretty(
+                    &json!({"result":result,"profile":"private review producers"}),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            return;
+        }
         let helper = app
             .state::<Mutex<Option<capture::ChildGuard>>>()
             .lock()

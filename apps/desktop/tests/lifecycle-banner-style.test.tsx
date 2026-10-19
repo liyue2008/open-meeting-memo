@@ -16,19 +16,15 @@ describe('features/lifecycle banner entry foreground/background pairing', () => 
       expect(button.closest('.compatibility-banner')).toBeTruthy();
     });
   }
-  it('shares explicit colors and disables native paint for normal, hover and focus states', () => {
+  it('uses Mantine Button default variant without a competing legacy skin', async () => {
+    const fake = fixtureBridge({
+      service_plan: () => ({ ...sample('service_plan'), state: 'unknown' }),
+    });
+    render(<App bridge={fake.bridge} />);
+    const button = await screen.findByRole('button', { name: '打开服务设置' });
+    expect(button).toHaveClass('mantine-Button-root');
+    expect(button).toHaveAttribute('data-variant', 'default');
     const css = fs.readFileSync('src/styles.css', 'utf8');
-    const rule = css.match(
-      /\.compatibility-banner \.service-entry,\s*\.compatibility-banner \.service-entry:hover:not\(:disabled\),\s*\.compatibility-banner \.service-entry:focus-visible\s*\{([^}]+)\}/,
-    )?.[1];
-    expect(rule).toBeDefined();
-    expect(rule).toContain('color: var(--ink)');
-    expect(rule).toContain('background: var(--surface)');
-    expect(rule).toContain('-webkit-appearance: none');
-    expect(rule).toContain('appearance: none');
-    const hover = css.match(
-      /\.compatibility-banner \.service-entry:hover:not\(:disabled\)\s*\{([^}]+)\}/,
-    )?.[1];
-    expect(hover?.trim()).toBe('border-color: var(--teal);');
+    expect(css).not.toMatch(/service-entry[^}]*background|service-entry[^}]*color:/);
   });
 });

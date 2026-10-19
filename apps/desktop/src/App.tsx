@@ -1,9 +1,20 @@
+import {
+  Anchor,
+  Alert,
+  Badge,
+  Button,
+  NativeSelect,
+  NavLink,
+  Paper,
+  Text,
+  Tooltip,
+} from '@mantine/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { BridgeContext, Notices, useInfo, useBridge } from './app/context';
-import { useAppearance, type Theme } from './app/preferences';
+import { BridgeContext, Notices, NoticeOutlet, useInfo, useBridge } from './app/context';
+import { AppearanceProvider, useAppearance, type Theme } from './app/preferences';
 import { createBridge, type Bridge } from './bridge/client';
 import { ErrorNotice, Icon, Logo, Modal } from './components/ui';
 import { Library } from './features/library';
@@ -86,7 +97,6 @@ function Shell() {
   const [pending, setPending] = useState<(() => void) | null>(null);
   const [saving, setSaving] = useState(false);
   const [closeError, setCloseError] = useState<unknown>(null);
-  const [tooltip, setTooltip] = useState<string | null>(null);
   const guard = useRef<DraftGuard | null>(null);
   const main = useRef<HTMLElement>(null);
   const register = useCallback((next: DraftGuard | null) => {
@@ -131,18 +141,12 @@ function Shell() {
     page === 'detail' ? '会议详情' : (navigation.find((n) => n.id === page)?.label ?? '会议库');
   return (
     <>
-      <a className="skip" href="#main">
+      <Anchor className="skip" href="#main">
         跳到主内容
-      </a>
-      <aside
-        className="sidebar"
-        aria-label="主导航"
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') setTooltip(null);
-        }}
-      >
+      </Anchor>
+      <Paper component="aside" withBorder p="md" className="sidebar" aria-label="主导航">
         <div className="sidebar-header">
-          <a
+          <Anchor
             className="brand"
             href="#library"
             aria-label="Open Meeting Memo 会议库"
@@ -153,71 +157,75 @@ function Shell() {
           >
             <Logo />
             <strong>
-              Open Meeting Memo<small>会议记录，清晰留存</small>
+              Open Meeting Memo
+              <Text component="small" size="sm" c="dimmed">
+                会议记录，清晰留存
+              </Text>
             </strong>
-          </a>
-          <button
+          </Anchor>
+          <Button
             className="sidebar-toggle"
             aria-label={appearance.collapsed ? '展开侧栏' : '收起侧栏'}
             aria-expanded={!appearance.collapsed}
             onClick={appearance.toggleSidebar}
+            type="button"
+            variant="default"
           >
             <Icon name="collapse" />
             <span className="sidebar-toggle-label">收起侧栏</span>
-          </button>
+          </Button>
         </div>
         <div className="workspace-label">
           本机工作空间 <span>LOCAL</span>
         </div>
         <nav>
           {navigation.map((n) => (
-            <a
+            <Tooltip
               key={n.id}
-              href={`#${n.id}`}
-              aria-label={n.label}
-              aria-current={
-                page === n.id || (page === 'detail' && n.id === 'library') ? 'page' : undefined
-              }
-              className={page === n.id || (page === 'detail' && n.id === 'library') ? 'active' : ''}
-              onClick={(e) => {
-                e.preventDefault();
-                setTooltip(null);
-                go(n.id);
-              }}
-              onMouseEnter={() => {
-                if (appearance.collapsed) setTooltip(n.label);
-              }}
-              onMouseLeave={() => setTooltip(null)}
-              onFocus={() => {
-                if (appearance.collapsed) setTooltip(n.label);
-              }}
-              onBlur={() => setTooltip(null)}
+              label={n.label}
+              events={{ hover: true, focus: true, touch: false }}
+              openDelay={0}
+              closeDelay={0}
+              disabled={!appearance.collapsed}
+              position="right"
+              transitionProps={{ duration: 0 }}
             >
-              <Icon name={n.id} />
-              <span className="nav-label">{n.label}</span>
-              {(n.id === 'library' || n.id === 'queue') && (
-                <span
-                  className="nav-count"
-                  aria-hidden="true"
-                  title={
-                    n.id === 'library'
-                      ? '会议库总数；— 表示尚未确定'
-                      : '未完成任务；+ 表示还有后续页，— 表示尚未确定'
-                  }
-                >
-                  {counts[n.id]}
-                </span>
-              )}
-              {tooltip === n.label && appearance.collapsed && (
-                <span className="sidebar-tooltip" role="tooltip">
-                  {n.label}
-                </span>
-              )}
-            </a>
+              <NavLink
+                component="a"
+                href={`#${n.id}`}
+                aria-label={n.label}
+                aria-current={
+                  page === n.id || (page === 'detail' && n.id === 'library') ? 'page' : undefined
+                }
+                active={page === n.id || (page === 'detail' && n.id === 'library')}
+                label={<span className="nav-label">{n.label}</span>}
+                leftSection={<Icon name={n.id} />}
+                rightSection={
+                  (n.id === 'library' || n.id === 'queue') && !appearance.collapsed ? (
+                    <Badge
+                      variant="light"
+                      size="sm"
+                      aria-hidden="true"
+                      title={
+                        n.id === 'library'
+                          ? '会议库总数；— 表示尚未确定'
+                          : '未完成任务；+ 表示还有后续页，— 表示尚未确定'
+                      }
+                    >
+                      {counts[n.id]}
+                    </Badge>
+                  ) : undefined
+                }
+                onClick={(e) => {
+                  e.preventDefault();
+                  go(n.id);
+                }}
+              />
+            </Tooltip>
           ))}
         </nav>
         <div className="sidebar-foot">
-          <a
+          <Anchor
             className="sidebar-status"
             href="#diagnostics"
             aria-label="查看后台服务状态"
@@ -232,20 +240,20 @@ function Shell() {
                 ? '服务协议兼容'
                 : '查看服务与依赖状态'}
             </span>
-          </a>
-          <p>
+          </Anchor>
+          <Text component="p">
             录音与转写留在本机
             <br />
             纪要使用专用 Pi 环境
-          </p>
+          </Text>
         </div>
-      </aside>
+      </Paper>
       <div className="shell">
-        <header className="topbar">
+        <Paper component="header" withBorder p="sm" className="topbar">
           <span id="breadcrumb">工作空间 / {label}</span>
           <label className="theme-picker">
             外观
-            <select
+            <NativeSelect
               aria-label="外观主题"
               value={appearance.theme}
               onChange={(e) => appearance.setTheme(e.target.value as Theme)}
@@ -253,22 +261,23 @@ function Shell() {
               <option value="system">跟随系统</option>
               <option value="light">浅色</option>
               <option value="dark">深色</option>
-            </select>
+            </NativeSelect>
           </label>
-        </header>
+        </Paper>
         {appearance.warning && (
-          <p className="theme-warning" role="status">
+          <Text className="theme-warning" role="status" component="p">
             {appearance.warning}
-          </p>
+          </Text>
         )}
         <RecordingBar />
         <ServiceBanner open={() => go('diagnostics')} />
         {info.data && !info.data.compatibility.writesAllowed && (
-          <div className="compatibility-banner" role="status">
+          <Alert className="compatibility-banner" role="status" color="orange">
             当前资料库为只读或服务不可用。查看“状态与诊断”修复；不会自动迁移个人资料或重启服务。
-          </div>
+          </Alert>
         )}
         <main id="main" tabIndex={-1} ref={main}>
+          <NoticeOutlet />
           {!!closeError && <ErrorNotice error={closeError} />}{' '}
           <div hidden={page !== 'library'}>
             <Library open={(id) => go('detail', id)} />
@@ -303,14 +312,19 @@ function Shell() {
           }}
           busy={saving}
         >
-          <p>
+          <Text component="p">
             离开前可以保存当前配置、放弃草稿，或留在设置继续编辑。保存冲突时保留草稿，不会覆盖其他进程的修改。
-          </p>
+          </Text>
           <div className="modal-actions">
-            <button disabled={saving} onClick={() => setPending(null)}>
+            <Button
+              disabled={saving}
+              onClick={() => setPending(null)}
+              type="button"
+              variant="default"
+            >
               留在设置
-            </button>
-            <button
+            </Button>
+            <Button
               disabled={saving}
               onClick={() => {
                 guard.current?.discard();
@@ -318,10 +332,12 @@ function Shell() {
                 setPending(null);
                 next();
               }}
+              type="button"
+              variant="default"
             >
               放弃并离开
-            </button>
-            <button
+            </Button>
+            <Button
               className="primary"
               disabled={saving}
               onClick={() => {
@@ -336,9 +352,11 @@ function Shell() {
                   })
                   .finally(() => setSaving(false));
               }}
+              type="button"
+              variant="filled"
             >
               保存并离开
-            </button>
+            </Button>
           </div>
         </Modal>
       )}
@@ -358,12 +376,14 @@ export function App({ bridge, client }: { bridge?: Bridge; client?: QueryClient 
       }),
   );
   return (
-    <BridgeContext.Provider value={realBridge}>
-      <QueryClientProvider client={queryClient}>
-        <Notices>
-          <Shell />
-        </Notices>
-      </QueryClientProvider>
-    </BridgeContext.Provider>
+    <AppearanceProvider>
+      <BridgeContext.Provider value={realBridge}>
+        <QueryClientProvider client={queryClient}>
+          <Notices>
+            <Shell />
+          </Notices>
+        </QueryClientProvider>
+      </BridgeContext.Provider>
+    </AppearanceProvider>
   );
 }

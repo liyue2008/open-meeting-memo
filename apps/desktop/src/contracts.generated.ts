@@ -8,7 +8,7 @@ export interface Empty {
 
 }
 export type ErrorCode = "invalid_input" | "unavailable" | "permission" | "consent_required" | "interaction_required" | "timeout" | "conflict" | "corrupt" | "io" | "backend";
-export type ErrorReason = "not_found" | "cancelled" | "incomplete" | "incompatible_service" | "incompatible_schema" | "stale_revision" | "busy" | "unsafe_path" | "dependency_missing" | "indexing_pending" | "invalid_grant" | "budget_exceeded";
+export type ErrorReason = "not_found" | "cancelled" | "incomplete" | "incompatible_service" | "incompatible_schema" | "stale_revision" | "busy" | "unsafe_path" | "dependency_missing" | "indexing_pending" | "invalid_grant" | "budget_exceeded" | "profile_requires_takeover";
 export interface FieldError {
   field: string;
   message: string;
@@ -183,8 +183,8 @@ export interface RecordStatus {
   state: "idle" | "recording" | "sealing" | "unknown";
   meetingId: Id | null;
   startedAtMs: number | null;
-  autoRecord: boolean;
-  recordingConsent: boolean;
+  autoRecord: boolean | null;
+  recordingConsent: boolean | null;
   compatibility: ServiceCompatibility;
   error: BridgeError | null;
 }
@@ -393,8 +393,8 @@ export interface ConfigSnapshot {
   structurallyComplete: boolean;
   modelVersion: string;
   roots: StorageRoots;
-  autoRecord: boolean;
-  recordingConsent: boolean;
+  autoRecord: boolean | null;
+  recordingConsent: boolean | null;
   warnings: Array<string>;
   compatibility: ServiceCompatibility;
 }
@@ -502,7 +502,7 @@ export interface ServiceCapabilityResponse {
 }
 export type ServiceAction = "start" | "stop" | "switch";
 export type ServiceLifecycleState = "uninitialized" | "stopped" | "running" | "incompatible" | "busy" | "unknown";
-export type ServicePlanReason = "ready" | "profile_not_initialized" | "profile_not_empty" | "service_busy" | "unowned_service" | "bundle_unavailable" | "service_unreachable" | "already_running" | "already_stopped" | "incompatible_service";
+export type ServicePlanReason = "ready" | "profile_not_initialized" | "profile_not_empty" | "service_busy" | "unowned_service" | "bundle_unavailable" | "service_unreachable" | "already_running" | "already_stopped" | "incompatible_service" | "profile_requires_takeover" | "external_stop_required" | "external_unload_required" | "registration_review_required" | "incompatible_schema";
 export interface ServicePlanRequest {
   action: ServiceAction;
 }
@@ -516,6 +516,8 @@ export interface ServicePlan {
   targetVersion: string;
   reasons: Array<ServicePlanReason>;
   compatibility: ServiceCompatibility;
+  effects: Array<string>;
+  guidance: string | null;
 }
 export interface ServiceApplyRequest {
   planToken: string;

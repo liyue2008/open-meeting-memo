@@ -229,10 +229,43 @@ async fn run_one_lane(
     let result: Result<Output> = loop {
         tokio::select! {
             output=&mut operation => break output,
-            _=heartbeat.tick() => { if store.cancel_requested(claim.task.id)? {break Err(OmmError::new(ErrorCode::Unavailable,false,"task cancellation requested"));} store.renew(&mut claim,chrono::Utc::now().timestamp_millis(),lease_ms)?; }
+            _ = heartbeat.tick() => {
+                let progress = store.cancel_requested(claim.task.id).and_then(|cancelled| {
+                    if !cancelled {
+                        store.renew(&mut claim, chrono::Utc::now().timestamp_millis(), lease_ms)?;
+                    }
+                    Ok(cancelled)
+                });
+                match progress {
+                    Ok(true) => break Err(OmmError::new(ErrorCode::Unavailable, false, "task cancellation requested")),
+                    Ok(false) => {},
+                    Err(error) if stage == Stage::Summary => break Err(error),
+                    Err(error) => return Err(error),
+                }
+            }
         }
     };
     drop(operation);
+    // Cancellation stops adapter work, not lease renewal or owned invocation cleanup.
+    if stage == Stage::Summary {
+        let mut drain = Box::pin(pi.drain());
+        let mut renewal_error = None;
+        let drained = loop {
+            tokio::select! {
+                result = &mut drain => break result,
+                _ = heartbeat.tick(), if renewal_error.is_none() => {
+                    if let Err(error) = store.renew(&mut claim, chrono::Utc::now().timestamp_millis(), lease_ms) {
+                        // Lost ownership forbids publication, but must not abandon cleanup.
+                        renewal_error = Some(error);
+                    }
+                }
+            }
+        };
+        drained?;
+        if let Some(error) = renewal_error {
+            return Err(error);
+        }
+    }
     if let Err(e) = &result {
         record_stage_error_best_effort(
             store,
@@ -316,11 +349,13 @@ async fn run_one_lane(
     } else if stage == Stage::Summary {
         notifications.emit_task(NotificationEvent::SummaryReady, &claim.context);
     }
-    // Completed disposable work is removed only after owned ASR children exited.
+    // Preserve ASR cleanup ordering; Pi uses a separate retained private workspace.
     if audio_decode {
         asr.drain().await?;
     }
-    pi.drain().await?;
+    if stage != Stage::Summary {
+        pi.drain().await?;
+    }
     store.settle_cancellation(claim.task.id)?;
     if claim.context.work_dir.exists() {
         std::fs::remove_dir_all(&claim.context.work_dir)?;

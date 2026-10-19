@@ -40,7 +40,7 @@
     controls.push(value); return value;
   };
   const rejectedPlan = async name => {
-    await wait('real Core conflict visible: ' + name, () => modal()?.querySelector('[role=alert]')?.textContent.trim() === 'State changed or work is active; reload and retry（stale_revision）');
+    await wait('real Core conflict visible: ' + name, () => modal()?.querySelector('[role=alert] .notice-copy')?.textContent.trim() === 'State changed or work is active; reload and retry（stale_revision）');
     check('rejected plan consumed in real UI: ' + name, find(name, modal()).disabled);
     views.push({ name: 'rejected-' + name, body: modal().innerText });
   };
@@ -80,7 +80,9 @@
     const stale = await control('stale-plan');
     check('actual held generation changed', stale.held === 'stale' && stale.details.observedPlan.compatibility.serviceGeneration !== originalGeneration);
     await click('确认启动', modal()); await rejectedPlan('确认启动');
-    check('stale plan did not start service', (await raw('service_plan', { action: 'start' })).state === 'stopped');
+    const afterStale = await raw('service_plan', { action: 'start' });
+    window.__ommLifecycleDebug = { phase: 'stale-plan-observation', state: afterStale.state, reasons: afterStale.reasons, canApply: afterStale.canApply, observedAtMs: Date.now() };
+    check('stale plan did not start service', afterStale.state === 'stopped');
     const staleRestore = await control('restore');
     check('exact original owner restored', staleRestore.details.originalOwnerRestored && (await raw('service_plan', { action: 'start' })).compatibility.serviceGeneration === originalGeneration);
     check('restoring generation does not replay consumed UI plan', find('确认启动', modal()).disabled);

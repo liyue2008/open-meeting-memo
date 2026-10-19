@@ -228,6 +228,8 @@ pub fn start(view: tauri::Webview<tauri::Wry>, paths: Paths) {
         tauri::async_runtime::block_on(async {
             let _ = omm::service::daemon::request(&paths, "shutdown", None).await;
         });
-        app.exit(if result["ok"] == true { 0 } else { 1 });
+        if super::wait_fixture_service(&app, &paths) && !super::children::exit_blocked() {
+            app.exit(if result["ok"] == true { 0 } else { 1 });
+        }
     });
 }

@@ -8,17 +8,14 @@ use std::{
     io::{Read, Write},
     os::unix::{fs::PermissionsExt, net::UnixListener},
     path::PathBuf,
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     time::Duration,
 };
 use uuid::Uuid;
-pub struct ChildGuard(pub Child);
-impl Drop for ChildGuard {
-    fn drop(&mut self) {
-        if self.0.try_wait().ok().flatten().is_none() {
-            let _ = self.0.kill();
-        }
-        let _ = self.0.wait();
+pub struct ChildGuard(pub super::children::ManagedChild);
+impl ChildGuard {
+    pub fn new(child: std::process::Child) -> Self {
+        Self(super::children::ManagedChild::new(child))
     }
 }
 pub fn start(paths: &Paths) -> ChildGuard {
@@ -37,7 +34,7 @@ pub fn start(paths: &Paths) -> ChildGuard {
         .stderr(Stdio::inherit())
         .spawn()
         .unwrap();
-    let mut guard = ChildGuard(child);
+    let mut guard = ChildGuard::new(child);
     for _ in 0..200 {
         if socket.exists() {
             return guard;

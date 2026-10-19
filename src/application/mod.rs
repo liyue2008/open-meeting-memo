@@ -7,8 +7,11 @@ pub mod configuration_journal;
 pub mod desktop_contracts;
 pub mod imports;
 pub mod lifecycle;
+pub mod local_coordination;
 pub mod media;
+pub mod observation;
 pub mod profile;
+pub mod recovery;
 pub mod validation;
 use crate::core::{
     config::AppConfig,

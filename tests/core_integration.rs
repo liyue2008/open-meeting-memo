@@ -843,7 +843,7 @@ fn review_r1_02_slow_lark_never_blocks_status_stop_and_observer_is_reaped() {
     );
 }
 #[test]
-fn review_r1_04_normal_stop_cancels_pi_and_removes_workspace_after_child_exit() {
+fn review_r1_04_normal_stop_cancels_pi_and_retains_workspace_after_child_exit() {
     let f = Fixture::new();
     let script = f._temp.path().join("fake-pi");
     // Atomic publication makes path existence mean the PID is ready to parse.
@@ -865,12 +865,12 @@ fn review_r1_04_normal_stop_cancels_pi_and_removes_workspace_after_child_exit() 
     assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
     assert_eq!(
         fs::read_dir(f.paths.cache.join("pi")).unwrap().count(),
-        0,
-        "cancelled Pi workspace leaked"
+        1,
+        "owned wait must not authorize deleting unverified background workspace"
     );
 }
 #[test]
-fn review_r1_04_sigkill_keeps_live_orphan_then_reclaims_owned_workspace_after_exit() {
+fn review_r1_04_sigkill_keeps_live_orphan_and_retains_unverified_workspace_after_exit() {
     let f = Fixture::new();
     fs::write(f._temp.path().join("fake-pi"), "#!/bin/sh\n/bin/cat >/dev/null\npid_file=\"$(/usr/bin/dirname \"$0\")/pi-pid\"\necho $$ > \"$pid_file.tmp\"\n/bin/mv \"$pid_file.tmp\" \"$pid_file\"\nexec /bin/sleep 3\n").unwrap();
     let mut cfg = AppConfig::load(&f.paths).unwrap();
@@ -900,11 +900,12 @@ fn review_r1_04_sigkill_keeps_live_orphan_then_reclaims_owned_workspace_after_ex
         "do not remove workspace while orphan is live"
     );
     assert_eq!(
-        f.ok(&["service", "status"])["piCacheRecovery"]["retainedLive"],
-        1
+        f.ok(&["service", "status"])["piCacheRecovery"]["retainedUnknown"],
+        1,
+        "released lock does not establish full background liveness or exit"
     );
     await_condition(|| unsafe { libc::kill(pid, 0) } == -1);
-    await_condition(|| fs::read_dir(f.paths.cache.join("pi")).unwrap().count() == 0);
+    assert_eq!(fs::read_dir(f.paths.cache.join("pi")).unwrap().count(), 1);
     f.ok(&["service", "stop"]);
     assert!(restarted.0.wait().unwrap().success());
 }
@@ -1005,8 +1006,13 @@ fn review_r1_04_recovery_validates_task_state_lock_and_path_without_deleting_unk
     assert!(saved.join("home").is_dir());
     fs::remove_file(&directory).unwrap();
     fs::rename(&saved, &directory).unwrap();
-    assert_eq!(recover_workspaces(&f.paths, &store).unwrap().removed, 1);
-    assert!(!directory.exists());
+    assert_eq!(
+        recover_workspaces(&f.paths, &store)
+            .unwrap()
+            .retained_unknown,
+        1
+    );
+    assert!(directory.exists());
     assert!(outside.exists());
 }
 

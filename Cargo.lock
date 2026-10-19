@@ -2383,16 +2383,20 @@ name = "omm-desktop"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "async-trait",
  "block2",
  "chrono",
  "libc",
  "objc2",
  "open-meeting-memo",
  "rfd",
+ "rusqlite",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
+ "tempfile",
+ "tokio",
  "uuid",
 ]
 

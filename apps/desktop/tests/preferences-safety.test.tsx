@@ -1,4 +1,5 @@
-import { act, render, renderHook, screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
+import { render, renderHook } from './render';
 import { describe, expect, it, vi } from 'vitest';
 import { useAppearance } from '../src/app/preferences';
 import { SafeMarkdown, readOnlyActions, timestampMs } from '../src/features/artifacts';

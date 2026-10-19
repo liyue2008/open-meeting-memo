@@ -1,3 +1,4 @@
+import { seekSlider } from './slider-interaction';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -199,21 +200,28 @@ describe('Detail source artifacts and paused segmented media through typed bridg
     Object.defineProperty(audio, 'duration', { configurable: true, value: 20 });
     Object.defineProperty(audio, 'readyState', { configurable: true, value: 1 });
     fireEvent.loadedMetadata(audio);
-    fireEvent.change(screen.getByLabelText('会议时间定位'), { target: { value: '10000' } });
+    await seekSlider(10000);
     expect(audio.currentTime).toBe(10);
-    fireEvent.change(screen.getByLabelText('会议时间定位'), { target: { value: '25000' } });
+    await seekSlider(25000);
     expect(await screen.findByText(/此时间位于录音间隙/)).toBeVisible();
     expect(audio.currentTime).toBe(10);
-    fireEvent.change(screen.getByLabelText('会议时间定位'), { target: { value: '35000' } });
+    await seekSlider(35000);
     await waitFor(() =>
-      expect(audio).toHaveAttribute('src', 'omm-media://localhost/fixture_media_grant_000002'),
+      expect(screen.getByLabelText('录音播放控件')).toHaveAttribute(
+        'src',
+        'omm-media://localhost/fixture_media_grant_000002',
+      ),
     );
-    fireEvent.loadedMetadata(audio);
-    expect(audio.currentTime).toBe(5);
+    const nextAudio = screen.getByLabelText('录音播放控件') as HTMLAudioElement;
+    expect(nextAudio).not.toBe(audio);
+    expect(audio).not.toHaveAttribute('src');
+    Object.defineProperty(nextAudio, 'duration', { configurable: true, value: 20 });
+    fireEvent.loadedMetadata(nextAudio);
+    expect(nextAudio.currentTime).toBe(5);
     expect(pause).toHaveBeenCalled();
     expect(play).not.toHaveBeenCalled();
     await userEvent.selectOptions(screen.getByLabelText('速度'), '1.5');
-    expect(audio.playbackRate).toBe(1.5);
+    expect(nextAudio.playbackRate).toBe(1.5);
     unmount();
     await waitFor(() =>
       expect(fake.calls.filter((c) => c.command === 'media_close')).toHaveLength(2),

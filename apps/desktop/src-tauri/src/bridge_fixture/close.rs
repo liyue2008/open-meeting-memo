@@ -172,6 +172,20 @@ pub fn finish(app: tauri::AppHandle<tauri::Wry>, paths: Paths, mut result: Value
         let shutdown = omm::service::daemon::request(&paths, "shutdown", None)
             .await
             .is_ok();
+        if !wait_fixture_service(&app, &paths) {
+            result["ok"] = json!(false);
+            result["error"] =
+                json!("owned fixture CLI did not exit normally; control handle retained");
+            write_private_new(
+                &output("bridge-result.json"),
+                &serde_json::to_vec_pretty(
+                    &json!({"result":result,"profile":"private UI close fixture"}),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            return;
+        }
         let mut capture_waited = false;
         let mut capture_success = false;
         let helper = app
@@ -183,13 +197,13 @@ pub fn finish(app: tauri::AppHandle<tauri::Wry>, paths: Paths, mut result: Value
             for _ in 0..100 {
                 if let Ok(Some(status)) = helper.0.try_wait() {
                     capture_success = status.success();
+                    capture_waited = true;
                     break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
-            // On a failed shutdown, ChildGuard kills/waits only this explicitly owned child.
+            // A live helper moves to the host registry; dropping never sends a signal.
             drop(helper);
-            capture_waited = true;
         }
         let readers_closed = Store::open_read_only(&paths)
             .and_then(|s| s.active_audio_readers())
@@ -198,6 +212,7 @@ pub fn finish(app: tauri::AppHandle<tauri::Wry>, paths: Paths, mut result: Value
         result["nativeClose"]["captureChildWaited"] = json!(capture_waited);
         result["nativeClose"]["captureExitSuccess"] = json!(capture_success);
         result["nativeClose"]["readersReleased"] = json!(readers_closed);
+        result["nativeClose"]["retainedChildPids"] = json!(children::retained_ids());
         if !shutdown || !capture_waited || !capture_success || !readers_closed {
             result["ok"] = json!(false);
         }

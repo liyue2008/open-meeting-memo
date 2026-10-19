@@ -1,4 +1,5 @@
 //! Feature-only snapshots of the current owned WK view, never of a display or other window.
+use super::stage_trace::{self, NativeStage};
 use super::*;
 use objc2::{
     msg_send,
@@ -6,7 +7,7 @@ use objc2::{
 };
 use serde_json::{json, Value};
 
-const REQUEST: &str = "JSON.stringify((()=>{const r=window.__ommFixtureSnapshotRequest;window.__ommFixtureSnapshotRequest=null;return r?{request:r,viewport:[innerWidth,innerHeight]}:null})())";
+const REQUEST: &str = "JSON.stringify((()=>{const r=window.__ommFixtureSnapshotRequest;window.__ommFixtureSnapshotRequest=null;const enabled=window.__ommFixtureStageTraceEnabled===true;return r||enabled?{request:r??null,viewport:[innerWidth,innerHeight],stageTraceEnabled:enabled,stageTrace:enabled?(window.__ommFixtureStageTrace??[]).splice(0,128):[]}:null})())";
 
 fn finish(view: &tauri::Webview<tauri::Wry>, result: Value) {
     view.eval(format!("window.__ommFixtureSnapshotResult={result}"))
@@ -27,7 +28,23 @@ fn receive(view: &tauri::Webview<tauri::Wry>, text: &str) {
     if envelope.is_null() {
         return;
     }
+    let local_main = view.label() == "main"
+        && view
+            .url()
+            .is_ok_and(|u| u.scheme() == "tauri" && u.host_str() == Some("localhost"));
+    if !local_main {
+        finish(
+            view,
+            json!({"ok":false,"error":"invalid owned-view snapshot request"}),
+        );
+        return;
+    }
+    let tracing = stage_trace::receive(&envelope);
     let request = &envelope["request"];
+    if request.is_null() {
+        return;
+    }
+    stage_trace::native(tracing, NativeStage::Receive, false);
     let name = request["name"].as_str().unwrap_or("");
     let valid_name = !name.is_empty()
         && name.len() <= 64
@@ -36,11 +53,7 @@ fn receive(view: &tauri::Webview<tauri::Wry>, text: &str) {
         m.keys()
             .all(|k| matches!(k.as_str(), "name" | "width" | "height"))
     });
-    let local_main = view.label() == "main"
-        && view
-            .url()
-            .is_ok_and(|u| u.scheme() == "tauri" && u.host_str() == Some("localhost"));
-    if !valid_name || !valid_fields || !local_main {
+    if !valid_name || !valid_fields {
         finish(
             view,
             json!({"ok":false,"error":"invalid owned-view snapshot request"}),
@@ -64,11 +77,13 @@ fn receive(view: &tauri::Webview<tauri::Wry>, text: &str) {
             );
             return;
         }
+        stage_trace::native(tracing, NativeStage::InnerSize, false);
         let before = view
             .window()
             .inner_size()
             .unwrap()
             .to_logical::<u32>(view.window().scale_factor().unwrap());
+        stage_trace::native(tracing, NativeStage::InnerSize, true);
         // Preserve the measured WK titlebar inset instead of guessing a CSS viewport height.
         let viewport = &envelope["viewport"];
         let expected = json!([
@@ -76,18 +91,26 @@ fn receive(view: &tauri::Webview<tauri::Wry>, text: &str) {
             viewport[1].as_i64().unwrap() + h as i64 - before.height as i64
         ]);
         // Only this fixture-owned window. No IPC window-management grant.
+        stage_trace::native(tracing, NativeStage::MinSize, false);
         view.window()
             .set_min_size(Some(tauri::LogicalSize::new(360, 480)))
             .unwrap();
+        stage_trace::native(tracing, NativeStage::MinSize, true);
+        stage_trace::native(tracing, NativeStage::SetSize, false);
         view.window()
             .set_size(tauri::LogicalSize::new(w as u32, h as u32))
             .unwrap();
+        stage_trace::native(tracing, NativeStage::SetSize, true);
         Some((w, h, expected))
     };
+    stage_trace::native(tracing, NativeStage::Receive, true);
     let view = view.clone();
     let name = name.to_owned();
+    stage_trace::native(tracing, NativeStage::Worker, false);
     std::thread::spawn(move || {
+        stage_trace::native(tracing, NativeStage::Worker, true);
         if let Some((w, h, expected)) = dimensions {
+            stage_trace::native(tracing, NativeStage::Resize, false);
             if !wait_for_resize(&view, w, h, &expected) {
                 finish(
                     &view,
@@ -95,8 +118,9 @@ fn receive(view: &tauri::Webview<tauri::Wry>, text: &str) {
                 );
                 return;
             }
+            stage_trace::native(tracing, NativeStage::Resize, true);
         }
-        take_snapshot(&view, name);
+        take_snapshot(&view, name, tracing);
     });
 }
 fn wait_for_resize(view: &tauri::Webview<tauri::Wry>, w: u64, h: u64, expected: &Value) -> bool {
@@ -127,11 +151,13 @@ fn wait_for_resize(view: &tauri::Webview<tauri::Wry>, w: u64, h: u64, expected: 
     }
     false
 }
-fn take_snapshot(view: &tauri::Webview<tauri::Wry>, name: String) {
+fn take_snapshot(view: &tauri::Webview<tauri::Wry>, name: String, tracing: bool) {
     let file = output(&format!("{name}.png"));
     let done = view.clone();
+    stage_trace::native(tracing, NativeStage::Snapshot, false);
     view.with_webview(move |native| {
         let callback = block2::RcBlock::new(move |image:*mut AnyObject,error:*mut AnyObject| {
+            stage_trace::native(tracing, NativeStage::Callback, false);
             let result = if !error.is_null() || image.is_null() { Err("WK takeSnapshot failed".into()) }
                 else {
                     // The callback owns the NSImage lifetime; conversion objects stay valid until return.
@@ -144,6 +170,7 @@ fn take_snapshot(view: &tauri::Webview<tauri::Wry>, name: String) {
                 Ok(bytes) => json!({"ok":true,"name":name,"bytes":bytes,"kind":"owned WKWebView content only"}),
                 Err(error) => json!({"ok":false,"name":name,"error":error})
             });
+            stage_trace::native(tracing, NativeStage::Callback, true);
         });
         // Main-thread WK API. No display capture, other windows, arbitrary paths or permissions.
         unsafe {
@@ -153,6 +180,7 @@ fn take_snapshot(view: &tauri::Webview<tauri::Wry>, name: String) {
             let _:() = msg_send![wk, takeSnapshotWithConfiguration:config, completionHandler:&*callback];
             let _:() = msg_send![config, release];
         }
+        stage_trace::native(tracing, NativeStage::Snapshot, true);
     }).unwrap();
 }
 // Called only inside WK's main-thread snapshot callback, before autoreleased objects expire.

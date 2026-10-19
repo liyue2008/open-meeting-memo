@@ -97,8 +97,9 @@ pub fn snapshot(paths: &Paths, compatibility: &Value) -> Result<Value> {
         );
     }
     let runtime = paths.runtime_location(&std::env::vars().collect()).ok();
+    let (auto_record, recording_consent) = super::observation::recording_preferences(paths);
     Ok(
-        json!({"revision":config.loaded_revision,"values":values,"initialized":initialized,"structurallyComplete":config.validate().is_ok(),"modelVersion":config.asr.model_version,"roots":{"config":paths.config,"data":paths.data,"state":paths.state,"cache":paths.cache,"runtime":runtime.map(|r|r.path.to_string_lossy().into_owned()).unwrap_or_default()},"autoRecord":config.auto_record,"recordingConsent":config.recording_consent,"warnings":if initialized{vec![]}else{vec!["Configuration is not initialized; displayed defaults have not been saved"]},"compatibility":compatibility}),
+        json!({"revision":config.loaded_revision,"values":values,"initialized":initialized,"structurallyComplete":config.validate().is_ok(),"modelVersion":config.asr.model_version,"roots":{"config":paths.config,"data":paths.data,"state":paths.state,"cache":paths.cache,"runtime":runtime.map(|r|r.path.to_string_lossy().into_owned()).unwrap_or_default()},"autoRecord":auto_record,"recordingConsent":recording_consent,"warnings":if initialized{vec![]}else{vec!["Configuration is not initialized; displayed defaults have not been saved"]},"compatibility":compatibility}),
     )
 }
 pub fn save(paths: &Paths, expected: &Option<String>, patch: &Value) -> Result<()> {

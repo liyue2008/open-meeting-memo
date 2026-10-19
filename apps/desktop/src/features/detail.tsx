@@ -1,3 +1,4 @@
+import { Alert, Badge, Button, Paper, Text, Title } from '@mantine/core';
 import { useState, useSyncExternalStore } from 'react';
 import { focusManager, useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useBridge } from '../app/context';
@@ -50,7 +51,9 @@ export function Detail({
   if (detail.error)
     return (
       <>
-        <button onClick={back}>← 会议库</button>
+        <Button onClick={back} type="button" variant="default">
+          ← 会议库
+        </Button>
         <ErrorNotice error={detail.error} retry={() => void detail.refetch()} />
       </>
     );
@@ -58,36 +61,56 @@ export function Detail({
   const meeting = data.meeting;
   return (
     <>
-      <button className="back-link text-button" onClick={back}>
+      <Button className="back-link text-button" onClick={back} type="button" variant="subtle">
         ← 返回会议库
-      </button>
+      </Button>
       <Heading
         title={meeting.metadata.title}
         text={`${dateTime(meeting.startedAtMs)} · ${SOURCES[meeting.source]} · ${meeting.durationMs === null ? '时长未知' : clock(meeting.durationMs)}`}
       >
         <Status status={meeting.status} />
-        <button disabled={!meeting.capabilities.edit} onClick={() => setDialog('edit')}>
+        <Button
+          disabled={!meeting.capabilities.edit}
+          onClick={() => setDialog('edit')}
+          type="button"
+          variant="default"
+        >
           编辑
-        </button>
-        <button disabled={!meeting.capabilities.reprocess} onClick={() => setDialog('process')}>
+        </Button>
+        <Button
+          disabled={!meeting.capabilities.reprocess}
+          onClick={() => setDialog('process')}
+          type="button"
+          variant="default"
+        >
           重新处理
-        </button>
-        <button
+        </Button>
+        <Button
           disabled={meeting.trashed ? !meeting.capabilities.restore : !meeting.capabilities.trash}
           onClick={() => setDialog('trash')}
+          type="button"
+          variant="default"
         >
           {meeting.trashed ? '恢复会议' : '移入回收站'}
-        </button>
+        </Button>
       </Heading>
-      {meeting.trashed && <div className="notice">此会议位于回收站，录音和产物保留。</div>}
+      {meeting.trashed && (
+        <Alert className="notice" variant="light" role="status">
+          此会议位于回收站，录音和产物保留。
+        </Alert>
+      )}
       <div className="tag-list">
         {meeting.metadata.tags.map((t) => (
-          <span className="tag" key={t}>
+          <Badge className="tag" key={t}>
             {t}
-          </span>
+          </Badge>
         ))}
       </div>
-      {meeting.metadata.note && <p className="meeting-note">{meeting.metadata.note}</p>}
+      {meeting.metadata.note && (
+        <Text className="meeting-note" component="p">
+          {meeting.metadata.note}
+        </Text>
+      )}
       <Player meetingId={id} seek={seek} />
       <Artifacts
         meeting={meeting}
@@ -100,8 +123,8 @@ export function Detail({
         }}
         onTranscript={setTranscript}
       />
-      <section className="panel section-spaced">
-        <h2>本场处理任务</h2>
+      <Paper className="panel section-spaced" withBorder p="md" component="section">
+        <Title order={2}>本场处理任务</Title>
         {tasks.isPending && <Loading />}
         {tasks.error && <ErrorNotice error={tasks.error} retry={() => void tasks.refetch()} />}{' '}
         {tasks.data?.pages
@@ -109,26 +132,38 @@ export function Detail({
           .map((t) => (
             <article className="task-row" key={t.taskId}>
               <div>
-                <button className="text-button" onClick={() => setTaskId(t.taskId)}>
+                <Button
+                  className="text-button"
+                  onClick={() => setTaskId(t.taskId)}
+                  type="button"
+                  variant="subtle"
+                >
                   第 {t.attempt} 次 · {t.stage === 'summary' ? '纪要' : '转写'}
-                </button>
-                <p>
+                </Button>
+                <Text component="p">
                   <Status status={t.status} /> · {t.completedSegments} / {t.totalSegments} 段
                   {t.cancelRequested && ' · 取消处理中'}
-                </p>
+                </Text>
               </div>
               <TaskControls task={t} />
             </article>
           ))}
         {tasks.data?.pages.every((p) => p.items.length === 0) && (
-          <p className="empty-state">尚无处理任务。</p>
+          <Text className="empty-state" component="p">
+            尚无处理任务。
+          </Text>
         )}
         {tasks.hasNextPage && (
-          <button disabled={tasks.isFetchingNextPage} onClick={() => void tasks.fetchNextPage()}>
+          <Button
+            disabled={tasks.isFetchingNextPage}
+            onClick={() => void tasks.fetchNextPage()}
+            type="button"
+            variant="default"
+          >
             更多任务
-          </button>
+          </Button>
         )}
-      </section>
+      </Paper>
       {dialog === 'edit' && <EditMeeting meeting={meeting} close={() => setDialog(null)} />}{' '}
       {dialog === 'trash' && (
         <RetainMeetings

@@ -35,6 +35,8 @@ pub enum ErrorReason {
     InvalidGrant,
     #[serde(rename = "budget_exceeded")]
     BudgetExceeded,
+    #[serde(rename = "profile_requires_takeover")]
+    ProfileRequiresTakeover,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -430,8 +432,10 @@ pub struct RecordStatus {
     pub meeting_id: Option<Id>,
     #[serde(deserialize_with = "required_nullable")]
     pub started_at_ms: Option<i64>,
-    pub auto_record: bool,
-    pub recording_consent: bool,
+    #[serde(deserialize_with = "required_nullable")]
+    pub auto_record: Option<bool>,
+    #[serde(deserialize_with = "required_nullable")]
+    pub recording_consent: Option<bool>,
     pub compatibility: ServiceCompatibility,
     #[serde(deserialize_with = "required_nullable")]
     pub error: Option<BridgeError>,
@@ -769,8 +773,10 @@ pub struct ConfigSnapshot {
     pub structurally_complete: bool,
     pub model_version: String,
     pub roots: StorageRoots,
-    pub auto_record: bool,
-    pub recording_consent: bool,
+    #[serde(deserialize_with = "required_nullable")]
+    pub auto_record: Option<bool>,
+    #[serde(deserialize_with = "required_nullable")]
+    pub recording_consent: Option<bool>,
     pub warnings: Vec<String>,
     pub compatibility: ServiceCompatibility,
 }
@@ -979,6 +985,16 @@ pub enum ServicePlanReason {
     AlreadyStopped,
     #[serde(rename = "incompatible_service")]
     IncompatibleService,
+    #[serde(rename = "profile_requires_takeover")]
+    ProfileRequiresTakeover,
+    #[serde(rename = "external_stop_required")]
+    ExternalStopRequired,
+    #[serde(rename = "external_unload_required")]
+    ExternalUnloadRequired,
+    #[serde(rename = "registration_review_required")]
+    RegistrationReviewRequired,
+    #[serde(rename = "incompatible_schema")]
+    IncompatibleSchema,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -999,6 +1015,9 @@ pub struct ServicePlan {
     pub target_version: String,
     pub reasons: Vec<ServicePlanReason>,
     pub compatibility: ServiceCompatibility,
+    pub effects: Vec<String>,
+    #[serde(deserialize_with = "required_nullable")]
+    pub guidance: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

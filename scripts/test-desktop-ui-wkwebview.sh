@@ -7,8 +7,11 @@ cd "$ROOT"
 EVIDENCE=${OMM_DESKTOP_UI_EVIDENCE:-$(mktemp -d /private/tmp/omm-desktop-ui-XXXXXX)}
 export OMM_DESKTOP_UI_EVIDENCE="$EVIDENCE"
 python3 - <<'PY'
-import hashlib, json, os, pathlib, subprocess
+import hashlib, json, os, pathlib, subprocess, sys
+sys.dont_write_bytecode = True
 root = pathlib.Path.cwd()
+sys.path.insert(0, str(root / 'packaging/desktop'))
+from fixture_artifacts import host_artifacts
 requested = pathlib.Path(os.environ['OMM_DESKTOP_UI_EVIDENCE'])
 evidence = requested.resolve()
 assert requested.is_absolute() and requested == evidence, 'UI evidence requires a canonical absolute path without symlinks'
@@ -38,9 +41,11 @@ with (evidence / 'command.log').open('w') as log:
 (evidence / 'command.exit').write_text(str(result.returncode) + '\n')
 after = sources()
 write('source-after.json', {'head': subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip(), 'files': after})
-artifacts = [root / 'target/debug/omm-desktop', evidence / 'driver.js', evidence / 'bridge-result.json', evidence / 'owned-process.json']
+artifacts = [evidence / 'driver.js', evidence / 'bridge-result.json', evidence / 'owned-process.json']
 artifacts += sorted((root / 'apps/desktop/dist').rglob('*'))
-write('artifact-sha256.json', {str(p): digest(p) for p in artifacts if p.is_file()})
+artifact_hashes = {str(p): digest(p) for p in artifacts if p.is_file()}
+artifact_hashes.update(host_artifacts(root, evidence, head, 'ui'))
+write('artifact-sha256.json', artifact_hashes)
 print('UI evidence:', evidence, flush=True)
 assert before == after, 'Source changed during actual UI run'
 assert head == subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip(), 'HEAD changed during actual UI run'

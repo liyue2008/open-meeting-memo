@@ -817,7 +817,8 @@
         "dependency_missing",
         "indexing_pending",
         "invalid_grant",
-        "budget_exceeded"
+        "budget_exceeded",
+        "profile_requires_takeover"
       ]
     },
     "FieldError": {
@@ -1876,10 +1877,24 @@
           ]
         },
         "autoRecord": {
-          "type": "boolean"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "recordingConsent": {
-          "type": "boolean"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "compatibility": {
           "$ref": "#/$defs/ServiceCompatibility"
@@ -3084,10 +3099,24 @@
           "$ref": "#/$defs/StorageRoots"
         },
         "autoRecord": {
-          "type": "boolean"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "recordingConsent": {
-          "type": "boolean"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "warnings": {
           "type": "array",
@@ -5934,7 +5963,12 @@
         "service_unreachable",
         "already_running",
         "already_stopped",
-        "incompatible_service"
+        "incompatible_service",
+        "profile_requires_takeover",
+        "external_stop_required",
+        "external_unload_required",
+        "registration_review_required",
+        "incompatible_schema"
       ]
     },
     "ServicePlanRequest": {
@@ -6004,6 +6038,25 @@
         },
         "compatibility": {
           "$ref": "#/$defs/ServiceCompatibility"
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "maxItems": 8
+        },
+        "guidance": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1024
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -6015,7 +6068,9 @@
         "expiresAtMs",
         "targetVersion",
         "reasons",
-        "compatibility"
+        "compatibility",
+        "effects",
+        "guidance"
       ]
     },
     "ServiceApplyRequest": {

@@ -49,17 +49,19 @@ bash scripts/install-desktop.sh --from /absolute/path/to/verified/OMM.app
 - 安全创建/原生导入/录制、metadata 版本比较写入、保留式删除与 Trash 恢复。删除不物理清音频/版本/检查点。
 - 详情顶部真实 mix 分段音频、时间定位、逐字稿/纪要/只读行动项、复制和受限导出；失败重处理仍能读取旧有效产物与版本。
 - 持久队列、有限重试、真实取消/等待 owned children、失败恢复；配置全白名单原子保存、脏态和外部写冲突；诊断/帮助及 CLI 合理配套。
-- 批准设计的浅色、柔和炭灰深色与鲜明青绿强调；实时随 OS＋手动覆盖；统一图标、持久侧栏收缩、双色自绘 omm Logo。会议内容不进入浏览器持久存储。
+- Mantine 9.7.3 官方 DefaultTheme 明暗主题；实时随 OS＋手动覆盖，持久侧栏收缩与双色自绘 omm Logo。使用锁定依赖及静态官方 CSS，不放宽生产 CSP；第三方 notices 随包校验。会议内容不进入浏览器持久存储。
 
-生产不使用静态 demo-data、硬编码成功、任意路径/通用 shell 或认证继承。会议 Markdown 禁 HTML/脚本/远程资源。真实音频保留原生controls及明确的“播放录音/暂停录音”按钮；grant/metadata未就绪时按钮禁用，仅用户明确点击播放，换段/定位不自动播放。播放器事件接线的单测使用mock，真实WK只验证可见入口、metadata及暂停定位，不验证可听发声。本开发验收**禁止播放、录音硬件、真实通知、个人会议数据/认证及真实模型调用**。
+生产不使用静态 demo-data、硬编码成功、任意路径/通用 shell 或认证继承。会议 Markdown 禁 HTML/脚本/远程资源。同一个隐藏 audio 元素只配一套可见的“播放录音/暂停录音”按钮、会议全局时间与 Mantine Slider，不再同时显示原生 controls；grant/metadata 未就绪时按钮禁用，仅用户明确点击播放，换段/定位不自动播放。真实 WK 验证 metadata、鼠标/键盘暂停定位与切页释放；播放事件计数使用 mock，不证明可听发声或用户回声原因。本轮自动化夹具**禁止硬件播放/录音、真实通知、个人会议数据/认证及真实模型调用**。
 
 ## 共享契约和兼容性
 
-参见 [冻结接口与安全语义](../contracts/desktop/v1/README.md)。先 read-only 检查 profile 和版本化 service capability，不能打开即迁移旧数据库。旧/未知 daemon 无写权；写入 admission 绑定规范 profile、所有者 generation、可信调用者和有效期，提交前持锁再检查。受限 offline admission 只允许显式初始化/隔离/已安全接管的新 profile 做安全配置保存，不伪装录音/任务已可运行。现有 legacy profile 不被隐式迁移。
+参见 [冻结接口与安全语义](../contracts/desktop/v1/README.md)。先 read-only 检查 profile 和版本化 service capability，不能打开即迁移旧数据库。旧/未知 daemon 无写权；写入 admission 绑定规范 profile、所有者 generation、可信调用者和有效期，提交前持锁再检查。受限 offline admission 只允许显式初始化/隔离/已安全接管的新 profile 做安全配置保存，不伪装录音/任务已可运行。现有 legacy profile 不被隐式迁移。受支持且经严格验证的停机旧资料库可在 App 内显式采用并更新停机登记，成功后仍停止，启动须再确认；缺 owner 标记与真正 schema 不兼容分开诊断，不能验证或仍加载的旧服务维持拒绝。边界与人工下一步见[服务恢复](desktop-service-recovery.md)。
 
 native/frontend 从同一 Foundation 本地提交分别分叉，已按等价契约去重汇合；组件独占与修复退回原 owner 的规则见 [lane board](desktop-lanes.md)。完成组件提交后才由 integration-only 汇合；[验收矩阵](desktop-acceptance.md) 全通过、fresh 独立正式评审无阻塞、实际 release 用户级安装验证后，才 SSH push 并创建 PR，不自动合并。
 
 ## 统一门禁与证据边界
+
+公开桥、独立 UI、首用服务与 UUID 偏好入口共用 `packaging/desktop/fixture_runner.py`：要求 clean committed 源码，验证当前 revision 的正式资源包（缺失时调用现有 package 脚本），将同源 `custom-protocol,native-bridge-fixture` 宿主放入私有 App 并严格重签校验。fixture 与正式宿主同用 `--release --target aarch64-apple-darwin`、`MACOSX_DEPLOYMENT_TARGET=15.5`；fixture 独立输出到 `target/desktop-fixture/`，不覆盖正式包宿主，构建命令与实际产物路径写入 provenance。UI、偏好及完整 WK 入口按当前阶段 provenance/host-start 核对源码版本、scenario、私有 App 宿主及构建源宿主的各自哈希；不从旧 debug 路径取值，已运行阶段缺少宿主、越界或哈希不符即失败。默认显式非持久 WK，清空继承环境并分配 HOME/全部 XDG；UUID 偏好仅使用原工具分配的隔离 store。case/output 仍用原 `OMM_WKWEBVIEW_*` 环境变量，拒绝位置参数、未知 case、旧资源包、symlink/非本人/可被组或其他用户写入的资源；证据根最长55字节。原入口无需 `/tmp` wrapper，也不从 PATH 找个人 CLI。超时返回124，取消返回130；均不发信号、不删除 workspace，准确 host 身份与未 wait 状态供显式恢复。成功也保留原始证据。
 
 需求/CLI用例与源码命名测试的逐项对应见[能力映射](desktop-capability-matrix.md)。完整测试入口会执行私有 wrapper 参数回归、锁定 npm 安装、36命令/100定义共享契约、格式/严格类型、UTC 与 America/Los_Angeles 两个时区的 DOM 测试、生产构建、root 与 workspace 的 Rust fmt/test/clippy/build、fixture-feature clippy，以及指定的 Swift synthetic IPC 17+3 项。`--foundation` 只运行有限组件子集；`--wkwebview` 额外启动私有合成 profile 的真实 macOS WKWebView，不能以 Chromium 或 DOM mocks 代替。原生/ACL、F2/F5队列/内容、F7明暗/播放入口、cold-recording及partial-transcript各进程均保存独立源码前后清单和实际宿主/dist/driver/结果/owned hash。
 
@@ -69,7 +71,7 @@ native/frontend 从同一 Foundation 本地提交分别分叉，已按等价契�
 
 完整媒体路径使用 verified descriptor/hash 和短效 grant；fixture 只做无输出节点的静音解码、metadata 与暂停定位，`playCalls` 必须为0。生产播放仅由用户控制。真实权限、硬件采集、语音识别质量、个人 Pi 认证、可见通知及长会议质量不由这些 fixture 证明。
 
-首用服务门禁通过 `OMM_LIFECYCLE_RESOURCE_APP` 显式绑定当前clean revision的资源包，拒绝旧包来源。自有React驱动经受限canonical/owned0600 UTF8<128KiB入口原样执行：真实初始化/取消、60秒自然到期与重检、旧plan真正stale、held归属不明和录音/未封存拒绝、恢复后启动/切换/停止。另跑默认原生4case；两阶段原包CLI/manifest前后字节不变，实际CLI PID路径经身份校验。只替换私有fixture宿主并外层ad-hoc重签，不能把测试宿主说成原生产宿主。`source-before/after`、实际driver/宿主/dist/资源及owned回执由独立入口保存；失败保留并由native自动restore/shutdown/wait。它仍不安装LaunchAgent，不请求权限或调用真实模型。
+首用服务门禁通过 `OMM_LIFECYCLE_RESOURCE_APP` 显式绑定当前clean revision的资源包，拒绝旧包来源。自有React驱动经受限canonical/owned0600 UTF8<128KiB入口原样执行：真实初始化/取消、60秒自然到期与重检、旧plan真正stale、held归属不明和录音/未封存拒绝、恢复后启动/切换/停止。另跑默认原生4case；两阶段原包CLI/manifest前后字节不变，实际CLI PID路径经身份校验。只替换私有fixture宿主并外层ad-hoc重签，不能把测试宿主说成原生产宿主。`source-before/after`、实际driver/宿主/dist/资源及owned回执由独立入口保存；失败先显式restore及认证Core普通shutdown；fixture持有的Child仅有真实wait回执时才记waited，未退出的句柄由宿主保留，阻止宿主退出，不发送SIGTERM/SIGKILL。Core所启动CLI的wait在其既有reaper线程内，fixture不能直接观测结果，单列为不可观测，不以owner消失冒称allOwnedNormalWait。仍有live owned时门禁为红，保留控制权/workspace作有界交接。它仍不安装LaunchAgent，不请求权限或调用真实模型。
 
 发布流程是：当前源码全量验证 → fresh 只读正式评审 → 最终 clean commit 构建并验证资源/signature/license/source hash → 显式用户目录 side-by-side 安装并用私有 profile 实际启动 → 既有 SSH origin push 与 GitHub PR（不 merge）。整合 owner 不提前安装或推送；组件包中旧 Foundation 界面不能冒充最终产品包。
 

@@ -83,12 +83,12 @@ impl Controller {
     }
     pub fn restore(&mut self, paths: &Paths) -> std::result::Result<Value, String> {
         self.deadline = None;
-        let Some(held) = self.held.take() else {
+        let Some(mut held) = self.held.take() else {
             return Ok(json!({"restored":null}));
         };
         let name = held.name();
         let result = (|| -> std::result::Result<Value, String> {
-            match held {
+            match &mut held {
                 Held::Busy { session, directory } => {
                     let store = Store::open(paths).map_err(|e| e.to_string())?;
                     let record = store
@@ -104,7 +104,7 @@ impl Controller {
                         );
                     }
                     store.clear_state("recording").map_err(|e| e.to_string())?;
-                    std::fs::remove_dir(&directory).map_err(|e| e.to_string())?;
+                    std::fs::remove_dir(directory).map_err(|e| e.to_string())?;
                     Ok(json!({"restored":name,"recordingCleared":true,"sessionId":session}))
                 }
                 Held::Stale {
@@ -114,13 +114,15 @@ impl Controller {
                     let _offline = profile::offline_lock(paths).map_err(|e| e.to_string())?;
                     let _writer = profile::writer_lock(paths).map_err(|e| e.to_string())?;
                     let owner = paths.state.join("desktop-owner.json");
-                    if std::fs::read(&owner).map_err(|e| e.to_string())? != replacement {
+                    if std::fs::read(&owner).map_err(|e| e.to_string())?.as_slice()
+                        != replacement.as_slice()
+                    {
                         return Err("held generation changed; not overwriting foreign owner".into());
                     }
-                    write_private_replace(&owner, &original).map_err(|e| e.to_string())?;
+                    write_private_replace(&owner, original).map_err(|e| e.to_string())?;
                     Ok(json!({"restored":name,"originalOwnerRestored":true}))
                 }
-                Held::Unknown { mut child } => {
+                Held::Unknown { child } => {
                     if let Some(mut input) = child.0.stdin.take() {
                         let _ = input.write_all(b"q");
                     }
@@ -132,9 +134,8 @@ impl Controller {
                         }
                         std::thread::sleep(Duration::from_millis(10));
                     }
-                    let forced = status.is_none();
-                    if forced {
-                        let _ = child.0.kill();
+                    if status.is_none() {
+                        return Err("owned unknown listener still live; handle and held state retained without signals".into());
                     }
                     let status = child.0.wait().map_err(|e| e.to_string())?;
                     let location = paths
@@ -142,8 +143,8 @@ impl Controller {
                         .map_err(|e| e.to_string())?;
                     let released = profile::offline_lock(paths).is_ok()
                         && !location.path.join("service.sock").exists();
-                    let receipt = json!({"restored":name,"pid":child.0.id(),"waited":true,"exitCode":status.code(),"forced":forced,"socketRemovedAndLocksReleased":released});
-                    if forced || !status.success() || !released {
+                    let receipt = json!({"restored":name,"pid":child.0.id(),"waited":true,"exitCode":status.code(),"forced":false,"socketRemovedAndLocksReleased":released});
+                    if !status.success() || !released {
                         self.receipts.push(receipt);
                         return Err("owned unknown listener failed graceful cleanup".into());
                     }
@@ -152,6 +153,7 @@ impl Controller {
             }
         })();
         if result.is_err() {
+            self.held = Some(held);
             self.cleanup_failed = true;
         }
         result
@@ -303,7 +305,7 @@ impl Controller {
                     return Err("refusing to replace an existing socket".into());
                 }
                 drop(offline);
-                let mut child = capture::ChildGuard(
+                let mut child = capture::ChildGuard::new(
                     std::process::Command::new(std::env::current_exe().map_err(|e| e.to_string())?)
                         .env("OMM_LIFECYCLE_UNKNOWN_LISTENER", "1")
                         .stdin(Stdio::piped())
@@ -326,9 +328,11 @@ impl Controller {
                     std::thread::sleep(Duration::from_millis(10));
                 }
                 if !ready {
-                    let _ = child.0.kill();
-                    let _ = child.0.wait();
-                    return Err("owned unknown listener did not become ready".into());
+                    self.held = Some(Held::Unknown { child });
+                    return Err(
+                        "owned unknown listener not ready; held handle retained for normal restore"
+                            .into(),
+                    );
                 }
                 Held::Unknown { child }
             }

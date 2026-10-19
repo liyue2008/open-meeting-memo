@@ -1,6 +1,6 @@
 //! Structural serde checks paired with the JSON Schema boundary tests in the desktop project.
 use omm::application::desktop_contracts::{
-    ConfigPatch, DesktopRequest, DesktopResponse, MeetingRow,
+    ConfigPatch, DesktopRequest, DesktopResponse, MeetingRow, ServicePlanReason,
 };
 use serde_json::{json, Value};
 use std::{fs, path::Path};
@@ -59,6 +59,22 @@ fn desktop_contracts_config_patch_distinguishes_omitted_null_and_value() {
     );
     assert!(serde_json::from_value::<ConfigPatch>(json!({"autoRecord":true})).is_err());
     assert!(serde_json::from_value::<ConfigPatch>(json!({"apiKey":"forbidden"})).is_err());
+}
+
+#[test]
+fn desktop_contracts_service_plan_reason_accepts_loaded_registration_emitter() {
+    // Also emitted by the real lifecycle plan in
+    // desktop_service_recovery_loaded_or_reloaded_registration_never_controls_job.
+    let wire = json!("external_unload_required");
+    let schema: Value =
+        serde_json::from_str(include_str!("../contracts/desktop/v1/schema.json")).unwrap();
+    assert!(schema["$defs"]["ServicePlanReason"]["enum"]
+        .as_array()
+        .unwrap()
+        .contains(&wire));
+    let parsed: ServicePlanReason = serde_json::from_value(wire.clone()).unwrap();
+    assert_eq!(serde_json::to_value(parsed).unwrap(), wire);
+    assert!(serde_json::from_value::<ServicePlanReason>(json!("not-a-defined-reason")).is_err());
 }
 
 #[test]

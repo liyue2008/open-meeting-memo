@@ -1,3 +1,4 @@
+import { Alert, Button, NativeSelect, Paper, Text, Title } from '@mantine/core';
 import { useState } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useAction, useAdmission, useBridge } from '../app/context';
@@ -26,34 +27,57 @@ export function TaskControls({ task }: { task: TaskRow }) {
     });
   return (
     <div className="button-row">
-      <button
+      <Button
         disabled={!task.canRetry || action.busy}
         onClick={() => void mutate('processing_retry')}
+        type="button"
+        variant="default"
       >
         重试失败阶段
-      </button>
-      <button
+      </Button>
+      <Button
         disabled={!task.canRequeue || action.busy}
         onClick={() => void mutate('processing_requeue')}
+        type="button"
+        variant="default"
       >
         重新入队
-      </button>
-      <button disabled={!task.canCancel || action.busy} onClick={() => setCancel(true)}>
+      </Button>
+      <Button
+        disabled={!task.canCancel || action.busy}
+        onClick={() => {
+          action.clearError();
+          setCancel(true);
+        }}
+        type="button"
+        variant="default"
+      >
         取消任务
-      </button>
-      {!!action.error && <ErrorNotice error={action.error} />}
+      </Button>
+      {!!action.error && !cancel && <ErrorNotice error={action.error} />}
       {cancel && (
         <Modal title="取消处理任务" close={() => setCancel(false)} busy={action.busy}>
-          <p>
+          <Text component="p">
             保留已经提交的产物。运行中的任务需等待已拥有的子进程退出后才会完成取消；关闭此界面不会撤回取消意图。
-          </p>
+          </Text>
+          {!!action.error && <ErrorNotice error={action.error} />}
           <div className="modal-actions">
-            <button disabled={action.busy} onClick={() => setCancel(false)}>
+            <Button
+              disabled={action.busy}
+              onClick={() => setCancel(false)}
+              type="button"
+              variant="default"
+            >
               继续处理
-            </button>
-            <button disabled={action.busy} onClick={() => void mutate('processing_cancel')}>
+            </Button>
+            <Button
+              disabled={action.busy}
+              onClick={() => void mutate('processing_cancel')}
+              type="button"
+              variant="default"
+            >
               确认取消
-            </button>
+            </Button>
           </div>
         </Modal>
       )}
@@ -83,33 +107,39 @@ export function TaskDialog({
         <ErrorNotice error={detail.error} retry={() => void detail.refetch()} />
       ) : (
         <>
-          <p>
+          <Text component="p">
             第 {detail.data.task.attempt} 次 · <Status status={detail.data.task.status} />
-          </p>
-          <p>
+          </Text>
+          <Text component="p">
             {detail.data.task.completedSegments} / {detail.data.task.totalSegments} 段 · 已重试{' '}
             {detail.data.task.retryCount} 次
-          </p>
-          <p>下次重试：{dateTime(detail.data.task.nextRetryAtMs)}</p>
+          </Text>
+          <Text component="p">下次重试：{dateTime(detail.data.task.nextRetryAtMs)}</Text>
           {detail.data.task.cancelRequested && (
-            <div className="notice">取消请求已持久保存，等待工作进程收束。</div>
+            <Alert className="notice" variant="light" role="status">
+              取消请求已持久保存，等待工作进程收束。
+            </Alert>
           )}
           {detail.data.task.error && (
             <ErrorNotice error={new Error(detail.data.task.error.message)} />
           )}
           <TaskControls task={detail.data.task} />
-          <h3>脱敏诊断</h3>
+          <Title order={3}>脱敏诊断</Title>
           {detail.data.diagnostics.map((d, i) => (
-            <p key={i}>{d}</p>
+            <Text key={i} component="p">
+              {d}
+            </Text>
           ))}
-          <button
+          <Button
             onClick={() => {
               openMeeting(detail.data.task.meetingId);
               close();
             }}
+            type="button"
+            variant="default"
           >
             查看会议及旧产物
-          </button>
+          </Button>
         </>
       )}
     </Modal>
@@ -137,11 +167,14 @@ export function Queue({ openMeeting }: { openMeeting: (id: string) => void }) {
         title="处理队列"
         text="后台任务独立于窗口；关闭 App 不会取消任务。重试沿用有限重试和有效检查点。"
       />
-      <section className="panel">
+      <Paper className="panel" withBorder p="md" component="section">
         <div className="filter-top">
           <label>
             任务状态
-            <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>
+            <NativeSelect
+              value={status}
+              onChange={(e) => setStatus(e.target.value as typeof status)}
+            >
               <option value="">全部状态</option>
               {Object.entries(STATUS)
                 .filter(([k]) => !['recording', 'unsealed', 'empty', 'unknown'].includes(k))
@@ -150,7 +183,7 @@ export function Queue({ openMeeting }: { openMeeting: (id: string) => void }) {
                     {v}
                   </option>
                 ))}
-            </select>
+            </NativeSelect>
           </label>
         </div>
         {tasks.isPending ? (
@@ -164,38 +197,57 @@ export function Queue({ openMeeting }: { openMeeting: (id: string) => void }) {
               .map((task) => (
                 <article className="task-row" key={task.taskId}>
                   <div>
-                    <h3>
-                      <button className="text-button" onClick={() => setSelected(task.taskId)}>
+                    <Title order={3}>
+                      <Button
+                        className="text-button"
+                        onClick={() => setSelected(task.taskId)}
+                        type="button"
+                        variant="subtle"
+                      >
                         第 {task.attempt} 次 · {task.stage === 'transcribe' ? '转写' : '纪要'}
-                      </button>
-                    </h3>
-                    <p className="muted">
+                      </Button>
+                    </Title>
+                    <Text className="muted" component="p" c="dimmed">
                       {task.meetingId} · {task.completedSegments} / {task.totalSegments} 段
-                    </p>
-                    <p>
+                    </Text>
+                    <Text component="p">
                       <Status status={task.status} />
                       {task.cancelRequested && ' · 正在取消'} · 重试 {task.retryCount} 次
-                    </p>
-                    {task.error && <p className="error-text">{task.error.message}</p>}
+                    </Text>
+                    {task.error && (
+                      <Text className="error-text" component="p" c="red">
+                        {task.error.message}
+                      </Text>
+                    )}
                   </div>
                   <TaskControls task={task} />
-                  <button onClick={() => openMeeting(task.meetingId)}>查看会议</button>
+                  <Button
+                    onClick={() => openMeeting(task.meetingId)}
+                    type="button"
+                    variant="default"
+                  >
+                    查看会议
+                  </Button>
                 </article>
               ))}
             {tasks.data.pages.every((p) => p.items.length === 0) && (
-              <p className="empty-state">没有符合条件的任务。</p>
+              <Text className="empty-state" component="p">
+                没有符合条件的任务。
+              </Text>
             )}
             {tasks.hasNextPage && (
-              <button
+              <Button
                 disabled={tasks.isFetchingNextPage}
                 onClick={() => void tasks.fetchNextPage()}
+                type="button"
+                variant="default"
               >
                 更多任务
-              </button>
+              </Button>
             )}
           </>
         )}
-      </section>
+      </Paper>
       {selected && (
         <TaskDialog id={selected} close={() => setSelected(null)} openMeeting={openMeeting} />
       )}
