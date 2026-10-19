@@ -1,0 +1,16 @@
+src/core/store/desktop.rs
+  h_b4d40596eab523 778,804
+tests/execution_parent/cases.rs
+  h_b4d40596eab523 332,353-453,478,482,596-612,618,622-626
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f82c90d37cbb4cf29d8104a9518d7948697d6b1a",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
