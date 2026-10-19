@@ -1,3 +1,11 @@
+// A mutable task stage is not a record of its requested starting stage.
+function reprocessingEvidence(stage, task, versions, transcript) {
+  const version = versions.find(v => v.artifact.taskId === task.taskId && v.artifact.stage === 'transcribe' && v.status === 'committed');
+  if (!version) return false;
+  if (stage === 'summary') return task.stage === 'summary' && typeof version.sourceTranscriptTaskId === 'string';
+  return stage === 'transcribe' && ['transcribe', 'summary'].includes(task.stage)
+    && version.sourceTranscriptTaskId === null && transcript.includes('PRIVATE_SYNTHETIC_TRANSCRIPT');
+}
 // Real React events and independent production reads; never replace the frozen Tauri transport.
 (async () => {
   const checks = [], reads = [], views = [], mediaEvidence = [], focusEvidence = [];
@@ -353,7 +361,14 @@
       await wait('explicit per-meeting queued outcome', () => modal()?.textContent.includes('任务已入队') || modal()?.textContent.includes('后台操作'));
       await click('关闭', modal());
       const enqueued = await wait('new retained ' + stage + ' generation', async () => (await tasks(editedMeeting.meetingId)).items.find(t => !priorTasks.includes(t.taskId)));
-      check('real reprocessing task stage: ' + stage, enqueued.stage === stage);
+      const executed = await wait('real reprocessing execution evidence: ' + stage, async () => {
+        const current = await raw('task_get', { taskId: enqueued.taskId });
+        if (!current.versions.some(v => v.artifact.taskId === enqueued.taskId && v.artifact.stage === 'transcribe' && v.status === 'committed')) return false;
+        const artifact = stage === 'transcribe' ? await raw('artifact_read', { artifact: { meetingId: editedMeeting.meetingId, taskId: enqueued.taskId, stage: 'transcribe' }, cursor: null, maxBytes: 4096 }) : null;
+        const transcript = artifact?.text ?? '';
+        return reprocessingEvidence(stage, current.task, current.versions, transcript) ? { ...current, transcript } : false;
+      });
+      check('real reprocessing requested work: ' + stage, reprocessingEvidence(stage, executed.task, executed.versions, executed.transcript));
       await click('取消任务'); await modalCheckpoint('cancel-' + stage); await click('确认取消', modal());
       await wait('owned reprocessing cancellation settled', async () => (await raw('task_get', { taskId: enqueued.taskId })).task.status === 'cancelled');
       // App queries stay fresh for 1000 ms and pause background polling. Reopen only once that real cache is stale.

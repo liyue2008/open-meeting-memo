@@ -9,6 +9,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 CASES = {'native', 'window-acl', 'ui', 'lifecycle', 'recovery', 'store'}
@@ -57,18 +58,77 @@ def source_snapshot():
     names = subprocess.check_output(['git', '--no-optional-locks', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')
     return {name: sha(ROOT / name) for name in names if name and (ROOT / name).is_file()}
 
+def request_normal_exit(child, identity, binary, expected_hash=None):
+    # Only the original owner may request normal Cocoa quit of its bound child.
+    fields = identity.split(None, 8)
+    if len(fields) != 9 or child is None or fields[0] != str(child.pid) or fields[2] != str(os.getuid()):
+        return False
+    if child.poll() is not None or fields[8] != str(binary):
+        return False
+    if expected_hash is None or sha(binary) != expected_hash:
+        return False
+    current = subprocess.run(['/bin/ps', '-p', str(child.pid), '-o', 'pid=,ppid=,uid=,lstart=,comm='], text=True, capture_output=True, check=False)
+    if current.returncode != 0:
+        return False
+    observed = current.stdout.strip().split(None, 8)
+    if len(observed) != 9 or observed[0] != fields[0] or observed[2:] != fields[2:] or sha(binary) != expected_hash:
+        return False
+    if child.poll() is not None:
+        return False
+    done = subprocess.run(['/usr/bin/osascript', '-l', 'JavaScript', str(ROOT / 'packaging/desktop/fixture_normal_quit.js'), str(child.pid), str(binary)], text=True, capture_output=True, check=False)
+    return done.returncode == 0 and done.stdout.strip() == 'accepted'
+
 def await_owned(child, timeout, evidence, identity, binary):
+    deadline = time.monotonic() + timeout
+    failure = None
+    cancelled = False
+    while failure is None:
+        try:
+            result_path = evidence / 'bridge-result.json'
+            if result_path.exists():
+                try:
+                    if json.loads(result_path.read_text()).get('result', {}).get('ok') is False:
+                        failure = 1
+                        break
+                except (ValueError, OSError):
+                    pass  # A concurrently written result is read again within the original deadline.
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                failure = 124
+                break
+            code = child.wait(timeout=min(0.1, remaining))
+            write(evidence, 'owned-process.json', {'pid':child.pid,'ownerPid':os.getpid(),'exitCode':code,'waited':True,'timeout':False,'cancelled':False,'terminatedOnTimeout':False,'forcedSignals':0,'workspaceRetained':True,'controlIdentity':identity})
+            return code, True
+        except subprocess.TimeoutExpired:
+            continue
+        except KeyboardInterrupt:
+            failure, cancelled = 130, True
+        except Exception:
+            failure = 1
+    waited, exit_code, accepted = False, None, False
     try:
-        code = child.wait(timeout=timeout)
-    except (subprocess.TimeoutExpired, KeyboardInterrupt) as error:
-        cancelled = isinstance(error, KeyboardInterrupt)
-        code = 130 if cancelled else 124
-        write(evidence, 'owned-process.json', {'pid':child.pid,'exitCode':None,'waited':False,'timeout':not cancelled,'cancelled':cancelled,'terminatedOnTimeout':False,'forcedSignals':0,'workspaceRetained':True,'controlIdentity':identity,'executable':str(binary),'sha256':sha(binary)})
-        (evidence/'runtime.exit').write_text(str(code)+'\n')
+        exit_code = child.wait(timeout=0)
+        waited = True
+    except (subprocess.TimeoutExpired, KeyboardInterrupt):
+        pass
+    if not waited:
+        try:
+            start = evidence / 'host-start.json'
+            expected_hash = json.loads(start.read_text()).get('sha256') if start.exists() else None
+            accepted = request_normal_exit(child, identity, binary, expected_hash)
+        except (Exception, KeyboardInterrupt):
+            accepted = False
+    if accepted:
+        try:
+            exit_code = child.wait(timeout=60)
+            waited = True
+        except (subprocess.TimeoutExpired, KeyboardInterrupt):
+            pass
+    write(evidence, 'owned-process.json', {'pid':child.pid,'ownerPid':os.getpid(),'exitCode':exit_code,'waited':waited,'failureExitCode':failure,'timeout':failure==124,'cancelled':cancelled,'terminatedOnTimeout':False,'forcedSignals':0,'workspaceRetained':True,'normalQuitAccepted':accepted,'controlIdentity':identity,'executable':str(binary),'sha256':sha(binary)})
+    (evidence/'runtime.exit').write_text(str(failure)+'\n')
+    if not waited:
         print('BLOCKED: owned host retained; inspect host-start/retained-control; no signals sent', file=sys.stderr)
-        return code, False
-    write(evidence, 'owned-process.json', {'pid':child.pid,'exitCode':code,'waited':True,'timeout':False,'cancelled':False,'terminatedOnTimeout':False,'forcedSignals':0,'workspaceRetained':True,'controlIdentity':identity})
-    return code, True
+    return failure, waited
 
 def main(args=None):
     args = sys.argv[1:] if args is None else args
