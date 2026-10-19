@@ -6,6 +6,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 FIXTURE=$(mktemp -d /private/tmp/omm-desktop-entrypoints-XXXXXX)
 trap 'rm -rf "$FIXTURE"' EXIT
 mkdir -p "$FIXTURE/scripts" "$FIXTURE/packaging/desktop"
+cp "$ROOT/packaging/desktop/fixture_artifacts.py" "$ROOT/packaging/desktop/fixture_runner.py" \
+  "$FIXTURE/packaging/desktop/"
 cp "$ROOT/scripts/desktop-common.sh" "$ROOT/scripts/install-desktop.sh" "$ROOT/scripts/package-desktop.sh" "$FIXTURE/scripts/"
 # Only the copied private preflight is bypassed: no global tools or real package are used.
 printf '\ndesktop_preflight() { :; }\n' >> "$FIXTURE/scripts/desktop-common.sh"
