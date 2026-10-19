@@ -1,0 +1,19 @@
+tests/process_ownership.rs
+  s_e6fcf3cda4e1bb::t_eb527c947e59a1 97-98,174-177,182-189,191-272,274-275,277-289,292-308
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f596a5f4b135d03ec05eaadc17e3d82465ccf01c",
+  "prompts": {},
+  "sessions": {
+    "s_e6fcf3cda4e1bb": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d6f-1e4a-745b-9d2c-638258fd0d45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
