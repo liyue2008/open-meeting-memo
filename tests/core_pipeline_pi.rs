@@ -897,6 +897,8 @@ async fn pi_colon_executable_is_direct_and_normal_node_path_contains_only_valida
                 .unwrap();
             assert_eq!(empty_input.status.code(), Some(76));
             assert!(empty_input.stdout.is_empty());
+            // Attribute subsequent stages only to the real shebang/env invocation.
+            fs::write(&trace, "").unwrap();
             context.config.pi.node_executable = Some(node);
             expected.insert(0, runtime);
         }
