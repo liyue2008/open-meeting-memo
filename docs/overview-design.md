@@ -176,7 +176,7 @@ Rust 源码建议 `src/core`、`src/adapters`、`src/service`、`src/cli`，辅�
 - `summary --force` 复用校验过的提交转写，保留原 ASR 来源/hash/配置，创建新的纪要 attempt；不自动重新转写。卸载注销服务，不删除用户会议数据；封存不明确时拒绝卸载。
 - **macOS runtime replacement 已按用户修订接入**：安全系统用户临时根、稳定 rendezvous、UID/0700/本地路径/socket/进程锁/实例校验、warning、正常清理和强杀后失效资源恢复；明确最佳努力而非完整登录周期。未设显式 runtime 的服务/多 CLI、重复服务与同 STATE 分裂保护、恶意权限/symlink、正常清理及 SIGKILL 重启使用隔离假服务回归验证。四持久根与安装 profile 冲突保护不变；显式 runtime 同样冻结/校验，不把替代根当固定 locator。
 - 飞书观察在独立、有界的单任务中运行：总预算 8 秒，最多 8 次参与状态查询/8 个日志目录；失败为 unknown，取消后等待观察子进程回收，不与下一轮未收束任务叠加。控制请求/封存/轮换不等待飞书查询，配置或手动控制变更使旧观察结果失效。
-- Pi workspace 以实例、任务/session/attempt、STATE 和 UID 标识并持有锁；每次 spawn 前持久记录 child 未知，spawn 后记录实际 PID。取消时先 kill+wait 所持 child、再释放目录；服务退出等待回收。恢复只清理锁空闲、所有权/任务一致、父与子均确认死亡的目录。SIGKILL 父后孤儿可能继续模型调用；活跃、PID 复用、权限错误或记录/路径未知均保留诊断，不凭 PID 擅杀、不删除另一 STATE 的工作空间。
+- Pi workspace 以实例、任务/session/attempt、STATE和UID标识并持有锁；尝试spawn前持久记录后台未验证，spawn后记录实际PID。仅保证所持child句柄真实wait，取消回收及输出处理先于提交/失败发布/取消结算/通知。未知启动脚本后台不冒充完整覆盖；主动cleanup、Drop和恢复保留可能仍在使用的工作目录，旧记录亦保守保留，并输出具体诊断。工作目录可能含文本并持续占用缓存；取消不承诺擦除文本，不扫描或盲杀未知进程，不凭PID死亡或空闲锁授权清理。
 - 已接管 helper 的正常退出已接线：封存成功后，无论是否持有 child 句柄都调用实例绑定的 shutdown；验证实际进程退出及端点消失，持有 child 时再 wait。正常 stop/uninstall、错误身份/录制中/quit 失败拒绝、缺失端点与从未启动区分、封存失败保留音频均有 core 回归；真实 Swift `--ipc-fixture` 合成回归覆盖预启动接管后 stop/uninstall 及服务启动 child 后退出。卸载不把活服务的身份拒绝误当服务缺席，不强制 bootout；遗留 helper 未对账时保留安装状态。仅音频外围退出协议变更，音频内核不变；已通过独立复审，不宣称真实录音或发布验收通过。
 - 假 helper/Pi/worker、合成音频和 C API 夹具验证，不替代真实系统授权/录音、官方库/权重推理、整小时准确率/性能、睡眠/设备切换、macOS 13 实机或发布验证。诊断中的 unknown 权限和准备状态不等于已获系统授权；安全收缩不是操作系统沙箱。
 

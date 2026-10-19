@@ -233,6 +233,10 @@ async fn run_one_lane(
         }
     };
     drop(operation);
+    // Pi completion/cancellation must not publish before its owned invocation drains.
+    if stage == Stage::Summary {
+        pi.drain().await?;
+    }
     if let Err(e) = &result {
         record_stage_error_best_effort(
             store,
@@ -316,11 +320,13 @@ async fn run_one_lane(
     } else if stage == Stage::Summary {
         notifications.emit_task(NotificationEvent::SummaryReady, &claim.context);
     }
-    // Completed disposable work is removed only after owned ASR children exited.
+    // Preserve ASR cleanup ordering; Pi uses a separate retained private workspace.
     if audio_decode {
         asr.drain().await?;
     }
-    pi.drain().await?;
+    if stage != Stage::Summary {
+        pi.drain().await?;
+    }
     store.settle_cancellation(claim.task.id)?;
     if claim.context.work_dir.exists() {
         std::fs::remove_dir_all(&claim.context.work_dir)?;

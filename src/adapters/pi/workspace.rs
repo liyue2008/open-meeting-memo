@@ -23,8 +23,13 @@ struct Owner {
     uid: u32,
     owner_pid: u32,
     child_pid: Option<u32>,
+    #[serde(default = "legacy_background_unverified")]
+    background_unverified: bool,
     device: u64,
     inode: u64,
+}
+fn legacy_background_unverified() -> bool {
+    true
 }
 pub(super) struct Workspace {
     pub path: PathBuf,
@@ -116,6 +121,7 @@ impl Workspace {
             uid: unsafe { libc::geteuid() },
             owner_pid: std::process::id(),
             child_pid: None,
+            background_unverified: false,
             device: metadata.dev(),
             inode: metadata.ino(),
         };
@@ -142,6 +148,7 @@ impl Workspace {
         }
         let mut next = owner.clone();
         next.child_pid = child_pid;
+        next.background_unverified = true;
         write_private_replace(&self.path.join("owner.json"), &serde_json::to_vec(&next)?)?;
         *owner = next;
         Ok(())
@@ -160,6 +167,10 @@ impl Workspace {
         if actual.dev() != held.dev() || actual.ino() != held.ino() {
             return Err(OmmError::invalid("Pi workspace lock changed"));
         }
+        if owner.background_unverified {
+            tracing::warn!(task_id = %owner.task_id, workspace_id = %owner.workspace_id, "Pi owned processes settled; background activity unverified; private workspace retained");
+            return Ok(());
+        }
         fs::remove_dir_all(&self.path)?;
         Ok(())
     }
@@ -176,15 +187,7 @@ pub struct Recovery {
     pub retained_live: usize,
     pub retained_unknown: usize,
 }
-fn confirmed_dead(pid: u32) -> bool {
-    let Ok(pid) = i32::try_from(pid) else {
-        return false;
-    };
-    pid > 0
-        && unsafe { libc::kill(pid, 0) } == -1
-        && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
-}
-/// Only a released, owned lock AND confirmed-dead owner/child permit removal; no PID is signalled.
+/// Spawned or legacy Pi workspaces never establish complete background coverage; no PID is signalled.
 pub fn recover(paths: &Paths, store: &Store) -> Result<Recovery> {
     let root = paths.cache.join("pi");
     let mut report = Recovery::default();
@@ -222,23 +225,10 @@ pub fn recover(paths: &Paths, store: &Store) -> Result<Recovery> {
             }
             Ok(()) => {}
         }
-        let Some(child) = owner.child_pid else {
-            report.retained_unknown += 1;
-            continue;
-        };
-        if !confirmed_dead(owner.owner_pid) || !confirmed_dead(child) {
-            report.retained_live += 1;
-            continue;
-        }
-        // Revalidate after taking the lock; never follow a substituted directory or marker.
-        if verify_owner(&path, &owner, &state).is_err()
-            || !read_owner(&path).is_ok_and(|actual| actual == owner)
-        {
-            report.retained_unknown += 1;
-            continue;
-        }
-        fs::remove_dir_all(path)?;
-        report.removed += 1;
+        // A free lock or a dead recorded PID cannot cover launcher-created background work.
+        // Missing legacy flags are deliberately conservative too.
+        report.retained_unknown += 1;
+        tracing::warn!(task_id = %owner.task_id, workspace_id = %owner.workspace_id, "Pi background activity unverified; recovery retained private workspace");
     }
     Ok(report)
 }

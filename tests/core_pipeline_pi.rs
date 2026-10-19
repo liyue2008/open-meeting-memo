@@ -113,7 +113,42 @@ printf '# Fixture minutes\nDecision: test passed.\n'
         .await
         .unwrap()
         .is_none());
-    assert_eq!(fs::read_dir(paths.cache.join("pi")).unwrap().count(), 0);
+    let directories = fs::read_dir(paths.cache.join("pi"))
+        .unwrap()
+        .collect::<std::io::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(
+        directories.len(),
+        1,
+        "owned Pi wait is not full background coverage; retain its private workspace"
+    );
+    let marker = directories[0].path().join("owner.json");
+    let owner: serde_json::Value = serde_json::from_slice(&fs::read(&marker).unwrap()).unwrap();
+    assert_eq!(owner["background_unverified"], true);
+    assert_eq!(
+        omm::adapters::pi::recover_workspaces(&paths, &store)
+            .unwrap()
+            .removed,
+        0
+    );
+    assert!(marker.exists());
+    let mut legacy = owner;
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("background_unverified");
+    omm::core::paths::write_private_replace(&marker, &serde_json::to_vec(&legacy).unwrap())
+        .unwrap();
+    assert_eq!(
+        omm::adapters::pi::recover_workspaces(&paths, &store)
+            .unwrap()
+            .retained_unknown,
+        1
+    );
+    assert!(
+        marker.exists(),
+        "legacy records must not infer full-chain exit from PIDs"
+    );
 }
 #[tokio::test]
 async fn pi_failure_does_not_disclose_stderr_and_only_summary_retries() {
@@ -810,4 +845,121 @@ async fn missing_pi_path_is_actionable_and_force_summary_preserves_old_attempt_a
         before,
         store.read_artifact(task.id, Stage::Transcribe).unwrap()
     );
+}
+
+#[tokio::test]
+async fn reapers_observe_nested_cleanup_failure_registered_during_drain() {
+    use std::{future::Future, task::Poll};
+    let reapers = omm::core::process::Reapers::default();
+    let first = reapers.register_cleanup();
+    let drain = reapers.drain();
+    tokio::pin!(drain);
+    std::future::poll_fn(|cx| {
+        assert!(drain.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    let nested = reapers.register_cleanup();
+    nested.send_replace(Some(false));
+    first.send_replace(Some(true));
+    assert!(
+        drain.await.is_err(),
+        "nested unconfirmed child must not be removed as an observed wait"
+    );
+}
+
+#[tokio::test]
+async fn summary_commit_and_notification_boundary_waits_for_adapter_drain() {
+    struct ObserveDrain(Paths);
+    #[async_trait]
+    impl SummaryAdapter for ObserveDrain {
+        async fn summarize(&self, _: SummaryRequest) -> Result<Summary> {
+            Ok(Summary {
+                schema_version: 1,
+                markdown: "fixture minutes".into(),
+                provider: "fixture-provider".into(),
+                model: "fixture-model".into(),
+                prompt_version: "1".into(),
+            })
+        }
+        async fn drain(&self) -> Result<()> {
+            let store = Store::open(&self.0)?;
+            let tasks = store.tasks()?;
+            assert!(
+                tasks
+                    .iter()
+                    .all(|task| task.status != TaskStatus::Completed),
+                "public completion must not precede owned drain"
+            );
+            Ok(())
+        }
+    }
+    let (_temp, paths, mut store, task) = setup("exit 81");
+    let pi = ObserveDrain(paths);
+    run_one(&mut store, &FixtureAsr, &pi, 10000).await.unwrap();
+    assert_eq!(
+        run_one(&mut store, &FixtureAsr, &pi, 10000)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        TaskStatus::Completed
+    );
+    assert!(store.read_artifact(task.id, Stage::Summary).is_ok());
+}
+
+#[tokio::test]
+async fn cancelled_owned_pi_is_waited_before_settlement_and_retains_unverified_workspace() {
+    use tokio::io::AsyncReadExt;
+    let (_temp, paths, mut store, task) = setup("exit 81");
+    let socket = _temp.path().canonicalize().unwrap().join("ready.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let script = format!("#!/bin/sh\nexec /usr/bin/python3 -c 'import socket,sys; sys.stdout.write(\"synthetic partial output\"); sys.stdout.flush(); sys.stderr.write(\"synthetic diagnostic\"); sys.stderr.flush(); s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); s.sendall(b\"ready\"); s.recv(1)' '{}'\n", socket.display());
+    fs::write(_temp.path().join("fake-pi"), script).unwrap();
+    let pi = PiAdapter::new(paths.clone());
+    run_one(&mut store, &FixtureAsr, &pi, 10000).await.unwrap();
+    let mut observer = Store::open(&paths).unwrap();
+    let operation = run_one(&mut store, &FixtureAsr, &pi, 10000);
+    tokio::pin!(operation);
+    let (mut stream, _) = tokio::select! {
+        accepted = listener.accept() => accepted.unwrap(),
+        result = &mut operation => panic!("Pi finished before readiness: {result:?}"),
+    };
+    let mut ready = [0; 5];
+    stream.read_exact(&mut ready).await.unwrap();
+    observer.desktop_cancel(task.id).unwrap();
+    let cancelled = operation.await.unwrap().unwrap();
+    assert_eq!(cancelled.status, TaskStatus::Blocked);
+    let mut bytes = vec![];
+    stream.read_to_end(&mut bytes).await.unwrap();
+    pi.drain().await.unwrap();
+    let directory = fs::read_dir(paths.cache.join("pi"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let owner: serde_json::Value =
+        serde_json::from_slice(&fs::read(directory.join("owner.json")).unwrap()).unwrap();
+    let pid = owner["child_pid"].as_u64().unwrap() as i32;
+    let mut status = 0;
+    assert_eq!(
+        unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) },
+        -1
+    );
+    assert_eq!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(libc::ECHILD),
+        "owned child must already have been waited, not merely marked terminal"
+    );
+    eprintln!("synthetic Pi pid={pid}: registered drain completed, kernel reports ECHILD, private workspace retained; background unverified");
+    assert!(observer.read_artifact(task.id, Stage::Summary).is_err());
+    assert!(observer.read_artifact(task.id, Stage::Transcribe).is_ok());
+    assert!(observer
+        .claim_summary(chrono::Utc::now().timestamp_millis(), 10000)
+        .unwrap()
+        .is_none());
+    let report = omm::adapters::pi::recover_workspaces(&paths, &observer).unwrap();
+    assert_eq!(report.removed, 0);
+    assert_eq!(report.retained_unknown, 1);
 }

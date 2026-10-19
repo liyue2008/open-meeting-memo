@@ -226,6 +226,50 @@ async fn invoke(
     transcript: &[u8],
     reapers: &Reapers,
 ) -> Result<String> {
+    struct CancelOnDrop(tokio::sync::watch::Sender<bool>);
+    impl Drop for CancelOnDrop {
+        fn drop(&mut self) {
+            self.0.send_replace(true);
+        }
+    }
+    let (cancel, cancelled) = tokio::sync::watch::channel(false);
+    let _cancel = CancelOnDrop(cancel);
+    let complete = reapers.register_cleanup();
+    let (result, received) = tokio::sync::oneshot::channel();
+    let (cfg, workspace, agent_dir, transcript, reapers) = (
+        cfg.clone(),
+        workspace.clone(),
+        agent_dir.to_owned(),
+        transcript.to_vec(),
+        reapers.clone(),
+    );
+    tokio::spawn(async move {
+        let output = invoke_owned(
+            &cfg,
+            &workspace,
+            &agent_dir,
+            &transcript,
+            &reapers,
+            cancelled,
+        )
+        .await;
+        drop(workspace);
+        complete.send_replace(Some(true));
+        let _ = result.send(output);
+    });
+    received
+        .await
+        .map_err(|_| OmmError::unavailable("Pi cleanup task stopped before completion"))?
+}
+async fn invoke_owned(
+    cfg: &PiConfig,
+    workspace: &Arc<Workspace>,
+    agent_dir: &Path,
+    transcript: &[u8],
+    reapers: &Reapers,
+    mut cancelled: tokio::sync::watch::Receiver<bool>,
+) -> Result<String> {
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(cfg.timeout_ms);
     let mut entries = vec![Path::new("/usr/bin"), Path::new("/bin")];
     if let Some(node) = &cfg.node_executable {
         entries.insert(
@@ -286,11 +330,11 @@ async fn invoke(
         .stdin
         .take()
         .ok_or_else(|| OmmError::unavailable("Pi stdin unavailable"))?;
-    let stdout = child
+    let mut stdout = child
         .stdout
         .take()
         .ok_or_else(|| OmmError::unavailable("Pi stdout unavailable"))?;
-    let stderr = child
+    let mut stderr = child
         .stderr
         .take()
         .ok_or_else(|| OmmError::unavailable("Pi stderr unavailable"))?;
@@ -311,10 +355,29 @@ async fn invoke(
             drop(stdin);
             Ok::<bool, OmmError>(accepted)
         };
-        let output = bounded_read(stdout, cfg.max_output_bytes);
-        let diagnostics = bounded_read(stderr, 64 * 1024);
-        let (accepted, bytes, diagnostics) = tokio::try_join!(input, output, diagnostics)?;
-        let status = child.wait().await?;
+        let output = bounded_read(&mut stdout, cfg.max_output_bytes);
+        let diagnostics = bounded_read(&mut stderr, 64 * 1024);
+        let io = async { tokio::try_join!(input, output, diagnostics) };
+        tokio::pin!(io);
+        let (accepted, bytes, diagnostics) = tokio::select! {
+            output = &mut io => output?,
+            _ = cancelled.changed() => {
+                child.kill().await?;
+                child.wait().await?;
+                if tokio::time::timeout_at(deadline, &mut io).await.is_err() {
+                    tracing::warn!("Pi owned child exited; background pipe EOF unverified; workspace retained");
+                }
+                return Err(OmmError::new(ErrorCode::Unavailable, false, "Pi task cancellation requested"));
+            }
+        };
+        let status = tokio::select! {
+            status = child.wait() => status?,
+            _ = cancelled.changed() => {
+                child.kill().await?;
+                child.wait().await?;
+                return Err(OmmError::new(ErrorCode::Unavailable, false, "Pi task cancellation requested"));
+            }
+        };
         if !status.success() {
             if status.code() == Some(127) {
                 return Err(OmmError::unavailable(
@@ -374,22 +437,42 @@ async fn invoke(
         }
         Ok(body)
     };
-    match tokio::time::timeout(Duration::from_millis(cfg.timeout_ms), operation).await {
+    let result = match tokio::time::timeout_at(deadline, operation).await {
         Ok(result) => {
             if result.is_err() {
                 let _ = child.kill().await;
+                child.wait().await?;
             }
             result
         }
         Err(_) => {
             let _ = child.kill().await;
+            child.wait().await?;
+            tracing::warn!("Pi timeout; owned child waited; background pipe EOF unverified; workspace retained");
             Err(OmmError::new(
                 ErrorCode::Timeout,
                 true,
                 "Pi execution timed out",
             ))
         }
+    };
+    if result.is_err() {
+        // Discard remaining owned pipe output after wait, without extending the call budget.
+        let drain = async {
+            let mut output_sink = tokio::io::sink();
+            let mut diagnostic_sink = tokio::io::sink();
+            tokio::try_join!(
+                tokio::io::copy(&mut stdout, &mut output_sink),
+                tokio::io::copy(&mut stderr, &mut diagnostic_sink)
+            )
+        };
+        if !matches!(tokio::time::timeout_at(deadline, drain).await, Ok(Ok(_))) {
+            tracing::warn!(
+                "Pi owned child waited; remaining pipe EOF unverified; workspace retained"
+            );
+        }
     }
+    result
 }
 async fn bounded_read(mut reader: impl AsyncRead + Unpin, limit: usize) -> Result<Vec<u8>> {
     let mut bytes = vec![];
