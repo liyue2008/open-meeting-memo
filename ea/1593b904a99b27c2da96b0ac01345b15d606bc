@@ -1,0 +1,27 @@
+docs/install.md
+  s_e6fcf3cda4e1bb::t_c68dd9d8f5424d 155-156
+src/core/store/executions.rs
+  s_e6fcf3cda4e1bb::t_b7bf5b857a5b33 223,242-249,260,317-321,356-360
+tests/cancellation_recovery.rs
+  s_e6fcf3cda4e1bb::t_16455025242b8d 542-548,553,566-589,591-592,930-961
+tests/execution_receipts/receipts.rs
+  s_e6fcf3cda4e1bb::t_734f0f78a67725 372-428
+tests/pi_recovery/windows.rs
+  s_e6fcf3cda4e1bb::t_10054919a32349 324-334,373-376,378
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ea1593b904a99b27c2da96b0ac01345b15d606bc",
+  "prompts": {},
+  "sessions": {
+    "s_e6fcf3cda4e1bb": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d6f-1e4a-745b-9d2c-638258fd0d45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
