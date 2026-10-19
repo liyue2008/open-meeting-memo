@@ -365,7 +365,7 @@ function reprocessingEvidence(stage, task, versions, transcript) {
         const current = await raw('task_get', { taskId: enqueued.taskId });
         if (!current.versions.some(v => v.artifact.taskId === enqueued.taskId && v.artifact.stage === 'transcribe' && v.status === 'committed')) return false;
         const artifact = stage === 'transcribe' ? await raw('artifact_read', { artifact: { meetingId: editedMeeting.meetingId, taskId: enqueued.taskId, stage: 'transcribe' }, cursor: null, maxBytes: 4096 }) : null;
-        const transcript = artifact?.text ?? '';
+        const transcript = (artifact?.lines ?? []).map(line => line.text).join('\n');
         return reprocessingEvidence(stage, current.task, current.versions, transcript) ? { ...current, transcript } : false;
       });
       check('real reprocessing requested work: ' + stage, reprocessingEvidence(stage, executed.task, executed.versions, executed.transcript));
