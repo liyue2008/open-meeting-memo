@@ -1,0 +1,27 @@
+packaging/desktop/fixture_normal_quit.js
+  s_e6fcf3cda4e1bb::t_94fdf6c92e1ccd 1-8
+packaging/desktop/fixture_runner.py
+  s_e6fcf3cda4e1bb::t_a08d5f3300da82 12,61-80,82-108,110-129,131
+packaging/desktop/test_fixture_owned_exit.py
+  s_e6fcf3cda4e1bb::t_96d32de61dd708 1-133
+packaging/desktop/test_ui_reprocessing.mjs
+  s_e6fcf3cda4e1bb::t_1cbd36a8d1cf33 1-21
+scripts/fixtures/desktop-ui-probe.js
+  s_e6fcf3cda4e1bb::t_e60a322087e804 1-8,364-371
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "16b3a17d5b66f3bbf63da72790ac3619bde8095d",
+  "prompts": {},
+  "sessions": {
+    "s_e6fcf3cda4e1bb": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d6f-1e4a-745b-9d2c-638258fd0d45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
