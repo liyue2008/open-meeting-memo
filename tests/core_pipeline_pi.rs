@@ -963,3 +963,193 @@ async fn cancelled_owned_pi_is_waited_before_settlement_and_retains_unverified_w
     assert_eq!(report.removed, 0);
     assert_eq!(report.retained_unknown, 1);
 }
+
+// Transfer the actual Pi stdout descriptor to a separately owned, bounded holder.
+// This reproduces inherited-pipe EOF without creating an un-waitable grandchild.
+async fn cancelled_pi_pipe_hold_outlasts_lease(invalidate_lease: bool) {
+    use std::process::Stdio;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    const LEASE_MS: i64 = 600;
+    let (temp, paths, mut store, task) = setup("exit 81");
+    let root = temp.path().canonicalize().unwrap();
+    let ready_path = root.join("ready.sock");
+    let hold_path = root.join("hold.sock");
+    let listener = tokio::net::UnixListener::bind(&ready_path).unwrap();
+    let holder_script = r#"import array,os,select,socket,sys
+server=socket.socket(socket.AF_UNIX)
+server.bind(sys.argv[1]); server.listen(1); server.settimeout(4)
+ready=socket.socket(socket.AF_UNIX); ready.connect(sys.argv[2]); ready.sendall(b'H')
+s,_=server.accept()
+_,anc,_,_=s.recvmsg(1,socket.CMSG_SPACE(4))
+fds=array.array('i'); fds.frombytes(anc[0][2][:4])
+s.sendall(b'held')
+if select.select([sys.stdin],[],[],4)[0]: sys.stdin.buffer.read(1)
+os.close(fds[0]); s.close(); server.close()
+ready.sendall(b'D'); ready.close()
+"#;
+    let mut holder = tokio::process::Command::new("/usr/bin/python3")
+        .args(["-c", holder_script])
+        .arg(&hold_path)
+        .arg(&ready_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let holder_pid = holder.id().unwrap();
+    let (mut holder_ready, _) = listener.accept().await.unwrap();
+    let mut byte = [0];
+    holder_ready.read_exact(&mut byte).await.unwrap();
+    assert_eq!(&byte, b"H");
+    let script = format!("#!/bin/sh\nexec /usr/bin/python3 -c 'import array,socket,sys; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); s.sendmsg([b\"x\"],[(socket.SOL_SOCKET,socket.SCM_RIGHTS,array.array(\"i\",[1]))]); assert s.recv(4)==b\"held\"; r=socket.socket(socket.AF_UNIX); r.connect(sys.argv[2]); r.sendall(b\"P\"); r.recv(1)' '{}' '{}'\n", hold_path.display(), ready_path.display());
+    fs::write(root.join("fake-pi"), script).unwrap();
+    let pi = PiAdapter::new(paths.clone());
+    run_one(&mut store, &FixtureAsr, &pi, 10000).await.unwrap();
+    let mut observer = Store::open(&paths).unwrap();
+    let db = rusqlite::Connection::open(paths.state.join("state.sqlite")).unwrap();
+    let expires = || {
+        db.query_row(
+            "SELECT expires FROM tasks WHERE id=?1",
+            [task.id.to_string()],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap()
+    };
+    let (result, still_draining, lease_before, lease_after, observed_at) = {
+        let notifications = omm::core::notifications::NotificationSink::default();
+        let operation = omm::core::pipeline::run_summary_one_notifying(
+            &mut store,
+            &FixtureAsr,
+            &pi,
+            LEASE_MS,
+            &notifications,
+        );
+        tokio::pin!(operation);
+        let (mut ready, _) = tokio::select! {
+            accepted = listener.accept() => accepted.unwrap(),
+            result = &mut operation => panic!("Pi finished before pipe readiness: {result:?}"),
+        };
+        ready.read_exact(&mut byte).await.unwrap();
+        assert_eq!(&byte, b"P");
+        let before = expires();
+        if invalidate_lease {
+            db.execute(
+                "UPDATE tasks SET expires=0 WHERE id=?1",
+                [task.id.to_string()],
+            )
+            .unwrap();
+        } else {
+            observer.desktop_cancel(task.id).unwrap();
+        }
+        // Deliberately expose two lease windows while EOF is held by the test.
+        let pending = tokio::time::timeout(
+            std::time::Duration::from_millis(2 * LEASE_MS as u64),
+            operation.as_mut(),
+        )
+        .await;
+        let after = expires();
+        let now = chrono::Utc::now().timestamp_millis();
+        let still_draining = pending.is_err();
+        let mut control = holder.stdin.take().unwrap();
+        control.write_all(b"R").await.unwrap();
+        drop(control);
+        let result = match pending {
+            Ok(result) => result,
+            Err(_) => operation.await,
+        };
+        let mut eof = Vec::new();
+        ready.read_to_end(&mut eof).await.unwrap();
+        (result, still_draining, before, after, now)
+    };
+    let holder_status = holder.wait().await.unwrap();
+    assert!(holder_status.success());
+    eprintln!("synthetic pipe holder pid={holder_pid}: actual wait={holder_status}, no stdout/stderr pipes; renewal_loss={invalidate_lease}");
+    holder_ready.read_exact(&mut byte).await.unwrap();
+    assert_eq!(&byte, b"D");
+    pi.drain().await.unwrap();
+    assert!(still_draining, "renewal failure must not drop owned drain");
+    assert!(observer.read_artifact(task.id, Stage::Summary).is_err());
+    assert!(observer.read_artifact(task.id, Stage::Transcribe).is_ok());
+    if invalidate_lease {
+        assert_eq!(
+            result.unwrap_err().code,
+            ErrorCode::Conflict,
+            "lost ownership must remain an error after cleanup"
+        );
+        return;
+    }
+    assert!(
+        result.is_ok(),
+        "cancellation must settle after held EOF: {result:?}"
+    );
+    eprintln!("durable lease before={lease_before} after={lease_after} observed_at={observed_at}; held Pi stdout across two lease windows");
+    assert!(
+        lease_after > lease_before && lease_after > observed_at,
+        "drain must renew the actual durable lease"
+    );
+    assert_eq!(result.unwrap().unwrap().status, TaskStatus::Blocked);
+    assert!(observer
+        .claim_summary(chrono::Utc::now().timestamp_millis(), 10000)
+        .unwrap()
+        .is_none());
+    let config: String = db
+        .query_row(
+            "SELECT config FROM tasks WHERE id=?1",
+            [task.id.to_string()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let config: ConfigSnapshot = serde_json::from_str(&config).unwrap();
+    let session_id = uuid::Uuid::new_v4();
+    let directory = paths.data.join("meetings").join(session_id.to_string());
+    private_dir(&directory).unwrap();
+    let audio = directory.join("segment.wav");
+    fs::write(&audio, b"synthetic").unwrap();
+    let next = store
+        .enqueue(
+            &SealedMeeting {
+                session_id,
+                title: "independent synthetic".into(),
+                directory,
+                sealed_at_ms: 1,
+                segments: vec![AudioSegment {
+                    capture: None,
+                    path: audio,
+                    duration_ms: 1000,
+                    sha256: hash_bytes(b"synthetic"),
+                }],
+            },
+            &config,
+            false,
+        )
+        .unwrap();
+    fs::write(
+        root.join("fake-pi"),
+        "#!/bin/sh\n/bin/cat >/dev/null\nprintf '# independent summary'\n",
+    )
+    .unwrap();
+    run_one(&mut store, &FixtureAsr, &pi, 10000).await.unwrap();
+    let notifications = omm::core::notifications::NotificationSink::default();
+    let completed = omm::core::pipeline::run_summary_one_notifying(
+        &mut store,
+        &FixtureAsr,
+        &pi,
+        10000,
+        &notifications,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(completed.id, next.id);
+    assert_eq!(completed.status, TaskStatus::Completed);
+}
+
+#[tokio::test]
+async fn cancelled_pi_renews_lease_while_owned_drain_waits_for_held_pipe() {
+    cancelled_pi_pipe_hold_outlasts_lease(false).await;
+}
+
+#[tokio::test]
+async fn cancelled_pi_finishes_owned_drain_even_when_renewal_loses_lease() {
+    cancelled_pi_pipe_hold_outlasts_lease(true).await;
+}
