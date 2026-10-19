@@ -1,0 +1,27 @@
+src/adapters/asr/mod.rs
+  s_e6fcf3cda4e1bb::t_fd7ea7d7a9344e 2-3,83-86,166-175,185-186,201-202,204-207,209-210,212-213,216-222,228-229,231-232,256-257,260-261,269-272,274-277,279-280
+src/adapters/pi/mod.rs
+  s_e6fcf3cda4e1bb::t_14b9a52ea21ea4 1-2,292-295,303-306,308-309,323-326,328-329,344-345,351-356,358-359,366-367,369-370,374-375,377-378,380-381,384-387,389-390,450-451,454-455,462-465,467-468
+src/core/execution.rs
+  s_e6fcf3cda4e1bb::t_de06b427a3cc89 16-18,30-31,63-64,221-244
+tests/pi_recovery/windows.rs
+  s_e6fcf3cda4e1bb::t_85869bdf3970b7 113,133-137,193-198,206,209,354,373
+tests/support/child_io_observation.rs
+  s_e6fcf3cda4e1bb::t_28f88039498659 1-154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "995fc678e6b929d6d4c9612f89a493c019dfa9b6",
+  "prompts": {},
+  "sessions": {
+    "s_e6fcf3cda4e1bb": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d6f-1e4a-745b-9d2c-638258fd0d45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
