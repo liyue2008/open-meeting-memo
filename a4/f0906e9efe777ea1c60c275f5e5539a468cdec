@@ -1,0 +1,16 @@
+packaging/desktop/test_ui_reprocessing.mjs
+  h_b4d40596eab523 10-14,17-35
+scripts/fixtures/desktop-ui-probe.js
+  h_b4d40596eab523 368
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a4f0906e9efe777ea1c60c275f5e5539a468cdec",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
