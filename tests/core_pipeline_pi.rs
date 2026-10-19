@@ -734,6 +734,87 @@ async fn pi_node_colon_parent_is_rejected_without_starting_pi_or_unvalidated_nod
     assert!(!node_trace.exists());
 }
 
+// Model the native Node process boundary, not a JavaScript engine or a shell forwarder.
+fn compile_native_node_fixture(
+    node: &std::path::Path,
+    script: &std::path::Path,
+    trace: &std::path::Path,
+) {
+    let source = r##"#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+static const char *script_path = OMM_SCRIPT_PATH;
+static const char *trace_path = OMM_TRACE_PATH;
+static const char script_identity[] = "#!/usr/bin/env node\n// OMM_NATIVE_NODE_FIXTURE\n";
+static int stage(const char *name) {
+    FILE *f = fopen(trace_path, "a");
+    if (!f) return -1;
+    int failed = fprintf(f, "%s\n", name) < 0;
+    return fclose(f) || failed ? -1 : 0;
+}
+int main(int argc, char **argv) {
+    if (argc != 21) return 70;
+    if (strcmp(argv[1], script_path)) return 71;
+    const char *flags[] = {"--print", "--mode", "text", "--no-session", "--no-tools",
+        "--no-mcp", "--no-extensions", "--no-skills", "--no-prompt-templates",
+        "--no-themes", "--no-context-files", "--no-approve", "--offline", "--system-prompt"};
+    for (int i = 0; i < 14; ++i) if (strcmp(argv[i + 2], flags[i])) return 72;
+    if (!argv[16][0] || strcmp(argv[17], "--provider") || strcmp(argv[18], "fixture-provider") ||
+        strcmp(argv[19], "--model") || strcmp(argv[20], "fixture-model")) return 72;
+    char script[sizeof(script_identity)];
+    FILE *f = fopen(argv[1], "rb");
+    if (!f) return 73;
+    size_t length = fread(script, 1, sizeof(script), f);
+    int read_error = ferror(f);
+    int close_error = fclose(f);
+    if (read_error || close_error || length != sizeof(script_identity) - 1 ||
+        memcmp(script, script_identity, sizeof(script_identity) - 1)) return 73;
+    const char *path = getenv("PATH");
+    if (!path || stage("native-node:start") || stage("stdin-before")) return 74;
+    char input[16384];
+    size_t used = 0;
+    for (;;) {
+        if (used == sizeof(input) - 1) return 75;
+        ssize_t count = read(STDIN_FILENO, input + used, sizeof(input) - 1 - used);
+        if (count < 0) { if (errno == EINTR) continue; return 75; }
+        if (count == 0) break;
+        used += (size_t)count;
+    }
+    input[used] = 0;
+    if (!strstr(input, "TRANSCRIPT_FIXTURE_NOT_ARGV")) return 76;
+    if (stage("stdin-after") || stage("stdout-before")) return 74;
+    if (printf("PATH=%s\n# trusted direct Pi", path) < 0 || fflush(stdout)) return 77;
+    return stage("stdout-after") ? 74 : 0;
+}
+"##
+    .replace(
+        "OMM_SCRIPT_PATH",
+        &serde_json::to_string(&script.to_str().unwrap()).unwrap(),
+    )
+    .replace(
+        "OMM_TRACE_PATH",
+        &serde_json::to_string(&trace.to_str().unwrap()).unwrap(),
+    );
+    let source_path = node.with_extension("c");
+    fs::write(&source_path, source).unwrap();
+    fs::set_permissions(&source_path, fs::Permissions::from_mode(0o600)).unwrap();
+    let output = std::process::Command::new("/usr/bin/cc")
+        .args(["-std=c11", "-Wall", "-Wextra", "-Werror"])
+        .arg(&source_path)
+        .arg("-o")
+        .arg(node)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "native fixture compilation: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    fs::set_permissions(node, fs::Permissions::from_mode(0o700)).unwrap();
+}
+
 #[tokio::test]
 async fn pi_colon_executable_is_direct_and_normal_node_path_contains_only_validated_entries() {
     for node_case in [false, true] {
@@ -752,15 +833,11 @@ async fn pi_colon_executable_is_direct_and_normal_node_path_contains_only_valida
         let body = format!("stage() {{ printf '%s\\n' \"$1\" >> '{}' || {{ printf 'fixture-marker-write-failed\\n' >&2; exit 74; }}; }}\ntrap 'stage \"exit=$?\"' EXIT\nstage \"pi:start pid=$$\"\nstage stdin-before\n/bin/cat >/dev/null\nstage stdin-after\nstage stdout-before\nprintf 'PATH=%s\\n' \"$PATH\"\nprintf '# trusted direct Pi'\nstage stdout-after\n", trace.display());
         fs::write(
             &executable,
-            format!(
-                "{}{}",
-                if node_case {
-                    "#!/usr/bin/env node\n"
-                } else {
-                    "#!/bin/sh\n"
-                },
-                body
-            ),
+            if node_case {
+                "#!/usr/bin/env node\n// OMM_NATIVE_NODE_FIXTURE\n".to_owned()
+            } else {
+                format!("#!/bin/sh\n{body}")
+            },
         )
         .unwrap();
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
@@ -773,8 +850,53 @@ async fn pi_colon_executable_is_direct_and_normal_node_path_contains_only_valida
             let runtime = t.path().join("trusted-runtime");
             omm::core::paths::private_dir(&runtime).unwrap();
             let node = runtime.join("node");
-            fs::write(&node, format!("#!/bin/sh\nprintf '%s\\n' \"node:start pid=$$\" >> '{}' || {{ printf 'fixture-node-marker-write-failed\\n' >&2; exit 75; }}\nexec /bin/sh \"$@\"\n", trace.display())).unwrap();
-            fs::set_permissions(&node, fs::Permissions::from_mode(0o700)).unwrap();
+            compile_native_node_fixture(&node, &context.config.pi.executable, &trace);
+            // Wrong script identity and malformed invocation must fail before stdin/output.
+            let valid_args = [
+                "--print",
+                "--mode",
+                "text",
+                "--no-session",
+                "--no-tools",
+                "--no-mcp",
+                "--no-extensions",
+                "--no-skills",
+                "--no-prompt-templates",
+                "--no-themes",
+                "--no-context-files",
+                "--no-approve",
+                "--offline",
+                "--system-prompt",
+                "fixture prompt",
+                "--provider",
+                "fixture-provider",
+                "--model",
+                "fixture-model",
+            ];
+            let wrong_script = std::process::Command::new(&node)
+                .env_clear()
+                .arg(pi_dir.join("wrong-pi"))
+                .args(valid_args)
+                .output()
+                .unwrap();
+            assert_eq!(wrong_script.status.code(), Some(71));
+            assert!(wrong_script.stdout.is_empty());
+            let malformed = std::process::Command::new(&node)
+                .env_clear()
+                .arg(&context.config.pi.executable)
+                .output()
+                .unwrap();
+            assert_eq!(malformed.status.code(), Some(70));
+            assert!(malformed.stdout.is_empty());
+            let empty_input = std::process::Command::new(&node)
+                .env_clear()
+                .env("PATH", "/fixture-negative-path")
+                .arg(&context.config.pi.executable)
+                .args(valid_args)
+                .output()
+                .unwrap();
+            assert_eq!(empty_input.status.code(), Some(76));
+            assert!(empty_input.stdout.is_empty());
             context.config.pi.node_executable = Some(node);
             expected.insert(0, runtime);
         }
@@ -800,6 +922,11 @@ async fn pi_colon_executable_is_direct_and_normal_node_path_contains_only_valida
             )
         });
         assert!(summary.markdown.contains("trusted direct Pi"));
+        if node_case {
+            assert!(stages.contains("native-node:start\n"));
+            assert!(stages.contains("stdin-after\n"));
+            assert!(stages.contains("stdout-after\n"));
+        }
         let observed = summary
             .markdown
             .lines()
