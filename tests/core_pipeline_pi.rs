@@ -964,16 +964,50 @@ async fn cancelled_owned_pi_is_waited_before_settlement_and_retains_unverified_w
     assert_eq!(report.retained_unknown, 1);
 }
 
-// Transfer the actual Pi stdout descriptor to a separately owned, bounded holder.
-// This reproduces inherited-pipe EOF without creating an un-waitable grandchild.
+// A synchronous guard retains the real child handle even if fixture setup unwinds.
+struct PiPipeHolder {
+    control: Option<std::process::ChildStdin>,
+    waiter: Option<std::thread::JoinHandle<std::io::Result<std::process::Output>>>,
+    pid: u32,
+}
+impl PiPipeHolder {
+    fn finish(&mut self) -> std::io::Result<std::process::Output> {
+        drop(self.control.take());
+        let output = self
+            .waiter
+            .take()
+            .unwrap()
+            .join()
+            .map_err(|_| std::io::Error::other("synthetic pipe holder waiter panicked"))??;
+        eprintln!(
+            "synthetic pipe holder pid={}: actual wait={}, stderr={}",
+            self.pid,
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        Ok(output)
+    }
+}
+impl Drop for PiPipeHolder {
+    fn drop(&mut self) {
+        if self.waiter.is_some() {
+            if let Err(error) = self.finish() {
+                eprintln!("synthetic pipe holder wait failed: {error}");
+            }
+        }
+    }
+}
+
+// Transfer actual Pi stdout to an owned bounded holder, not an un-waitable grandchild.
 async fn cancelled_pi_pipe_hold_outlasts_lease(invalidate_lease: bool) {
     use std::process::Stdio;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::AsyncReadExt;
     const LEASE_MS: i64 = 600;
     let (temp, paths, mut store, task) = setup("exit 81");
     let root = temp.path().canonicalize().unwrap();
     let ready_path = root.join("ready.sock");
     let hold_path = root.join("hold.sock");
+    let diagnostic_path = root.join("synthetic-pi-diagnostic.txt");
     let listener = tokio::net::UnixListener::bind(&ready_path).unwrap();
     let holder_script = r#"import array,os,select,socket,sys
 server=socket.socket(socket.AF_UNIX)
@@ -982,27 +1016,38 @@ ready=socket.socket(socket.AF_UNIX); ready.connect(sys.argv[2]); ready.sendall(b
 s,_=server.accept()
 _,anc,_,_=s.recvmsg(1,socket.CMSG_SPACE(4))
 fds=array.array('i'); fds.frombytes(anc[0][2][:4])
-s.sendall(b'held')
+s.sendall(b'K')
 if select.select([sys.stdin],[],[],4)[0]: sys.stdin.buffer.read(1)
 os.close(fds[0]); s.close(); server.close()
 ready.sendall(b'D'); ready.close()
 "#;
-    let mut holder = tokio::process::Command::new("/usr/bin/python3")
-        .args(["-c", holder_script])
-        .arg(&hold_path)
-        .arg(&ready_path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let holder_pid = holder.id().unwrap();
-    let (mut holder_ready, _) = listener.accept().await.unwrap();
-    let mut byte = [0];
-    holder_ready.read_exact(&mut byte).await.unwrap();
-    assert_eq!(&byte, b"H");
-    let script = format!("#!/bin/sh\nexec /usr/bin/python3 -c 'import array,socket,sys; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); s.sendmsg([b\"x\"],[(socket.SOL_SOCKET,socket.SCM_RIGHTS,array.array(\"i\",[1]))]); assert s.recv(4)==b\"held\"; r=socket.socket(socket.AF_UNIX); r.connect(sys.argv[2]); r.sendall(b\"P\"); r.recv(1)' '{}' '{}'\n", hold_path.display(), ready_path.display());
-    fs::write(root.join("fake-pi"), script).unwrap();
+    let pi_script = root.join("synthetic-pi.py");
+    fs::write(
+        &pi_script,
+        r#"import array,os,socket,sys,traceback
+try:
+    s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1])
+    s.sendmsg([b'x'],[(socket.SOL_SOCKET,socket.SCM_RIGHTS,array.array('i',[1]))])
+    assert s.recv(1)==b'K'
+    r=socket.socket(socket.AF_UNIX); r.connect(sys.argv[2]); r.sendall(b'P'); r.recv(1)
+except BaseException:
+    with os.fdopen(os.open(sys.argv[3],os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600),'w') as output:
+        traceback.print_exc(file=output)
+    raise
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("fake-pi"),
+        format!(
+            "#!/bin/sh\nexec /usr/bin/python3 '{}' '{}' '{}' '{}' \"$@\"\n",
+            pi_script.display(),
+            hold_path.display(),
+            ready_path.display(),
+            diagnostic_path.display()
+        ),
+    )
+    .unwrap();
     let pi = PiAdapter::new(paths.clone());
     run_one(&mut store, &FixtureAsr, &pi, 10000).await.unwrap();
     let mut observer = Store::open(&paths).unwrap();
@@ -1013,60 +1058,73 @@ ready.sendall(b'D'); ready.close()
             [task.id.to_string()],
             |row| row.get::<_, i64>(0),
         )
-        .unwrap()
     };
-    let (result, still_draining, lease_before, lease_after, observed_at) = {
+    let mut child = std::process::Command::new("/usr/bin/python3")
+        .args(["-c", holder_script])
+        .arg(&hold_path)
+        .arg(&ready_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut holder = PiPipeHolder {
+        control: child.stdin.take(),
+        pid: child.id(),
+        waiter: Some(std::thread::spawn(move || child.wait_with_output())),
+    };
+    // All fallible setup and adapter work return through the common cleanup below.
+    let phase: Result<_> = async {
+        let (mut holder_ready, _) = tokio::time::timeout(
+            std::time::Duration::from_secs(4), listener.accept(),
+        ).await.map_err(|_| OmmError::unavailable("synthetic holder readiness timed out"))??;
+        let mut byte = [0];
+        holder_ready.read_exact(&mut byte).await?;
+        if &byte != b"H" { return Err(OmmError::invalid("synthetic holder readiness")); }
         let notifications = omm::core::notifications::NotificationSink::default();
         let operation = omm::core::pipeline::run_summary_one_notifying(
-            &mut store,
-            &FixtureAsr,
-            &pi,
-            LEASE_MS,
-            &notifications,
+            &mut store, &FixtureAsr, &pi, LEASE_MS, &notifications,
         );
         tokio::pin!(operation);
         let (mut ready, _) = tokio::select! {
-            accepted = listener.accept() => accepted.unwrap(),
-            result = &mut operation => panic!("Pi finished before pipe readiness: {result:?}"),
+            accepted = listener.accept() => accepted?,
+            result = &mut operation => return Err(OmmError::invalid(&format!("Pi finished before pipe readiness: {result:?}"))),
         };
-        ready.read_exact(&mut byte).await.unwrap();
-        assert_eq!(&byte, b"P");
-        let before = expires();
+        ready.read_exact(&mut byte).await?;
+        if &byte != b"P" { return Err(OmmError::invalid("synthetic Pi readiness")); }
+        let before = expires()?;
         if invalidate_lease {
-            db.execute(
-                "UPDATE tasks SET expires=0 WHERE id=?1",
-                [task.id.to_string()],
-            )
-            .unwrap();
+            db.execute("UPDATE tasks SET expires=0 WHERE id=?1", [task.id.to_string()])?;
         } else {
-            observer.desktop_cancel(task.id).unwrap();
+            observer.desktop_cancel(task.id)?;
         }
         // Deliberately expose two lease windows while EOF is held by the test.
         let pending = tokio::time::timeout(
-            std::time::Duration::from_millis(2 * LEASE_MS as u64),
-            operation.as_mut(),
-        )
-        .await;
-        let after = expires();
+            std::time::Duration::from_millis(2 * LEASE_MS as u64), operation.as_mut(),
+        ).await;
+        let after = expires()?;
         let now = chrono::Utc::now().timestamp_millis();
         let still_draining = pending.is_err();
-        let mut control = holder.stdin.take().unwrap();
-        control.write_all(b"R").await.unwrap();
-        drop(control);
-        let result = match pending {
-            Ok(result) => result,
-            Err(_) => operation.await,
-        };
+        drop(holder.control.take());
+        let result = match pending { Ok(result) => result, Err(_) => operation.await };
         let mut eof = Vec::new();
-        ready.read_to_end(&mut eof).await.unwrap();
-        (result, still_draining, before, after, now)
-    };
-    let holder_status = holder.wait().await.unwrap();
-    assert!(holder_status.success());
-    eprintln!("synthetic pipe holder pid={holder_pid}: actual wait={holder_status}, no stdout/stderr pipes; renewal_loss={invalidate_lease}");
-    holder_ready.read_exact(&mut byte).await.unwrap();
-    assert_eq!(&byte, b"D");
-    pi.drain().await.unwrap();
+        ready.read_to_end(&mut eof).await?;
+        holder_ready.read_to_end(&mut eof).await?;
+        Ok((result, still_draining, before, after, now))
+    }.await;
+    // Release EOF, wait/drain the holder and Pi, then permit any assertion/panic.
+    let holder_output = holder.finish();
+    let drained = pi.drain().await;
+    drop(listener);
+    if let Ok(diagnostic) = fs::read_to_string(&diagnostic_path) {
+        eprintln!(
+            "synthetic Pi diagnostic: {}",
+            diagnostic.chars().take(2000).collect::<String>()
+        );
+    }
+    assert!(holder_output.unwrap().status.success());
+    drained.unwrap();
+    let (result, still_draining, lease_before, lease_after, observed_at) = phase.unwrap();
     assert!(still_draining, "renewal failure must not drop owned drain");
     assert!(observer.read_artifact(task.id, Stage::Summary).is_err());
     assert!(observer.read_artifact(task.id, Stage::Transcribe).is_ok());
