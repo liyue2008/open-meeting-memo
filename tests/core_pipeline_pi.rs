@@ -734,6 +734,38 @@ async fn pi_node_colon_parent_is_rejected_without_starting_pi_or_unvalidated_nod
     assert!(!node_trace.exists());
 }
 
+// Production Node has a native entry. Keep that boundary in the fixture rather
+// than adding executable-script shebang dispatch before the shell fixture body.
+fn write_native_node_forwarder(runtime: &std::path::Path) -> std::path::PathBuf {
+    let source = runtime.join("node-forwarder.c");
+    let node = runtime.join("node");
+    fs::write(
+        &source,
+        r#"#include <unistd.h>
+int main(int argc, char **argv) {
+    if (argc < 2) return 126;
+    argv[0] = "/bin/sh";
+    execv(argv[0], argv);
+    return 127;
+}
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+    let output = std::process::Command::new("/usr/bin/cc")
+        .arg(&source)
+        .arg("-o")
+        .arg(&node)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "native fixture compiler failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    fs::set_permissions(&node, fs::Permissions::from_mode(0o700)).unwrap();
+    node
+}
 #[tokio::test]
 async fn pi_colon_executable_is_direct_and_normal_node_path_contains_only_validated_entries() {
     for node_case in [false, true] {
@@ -749,7 +781,7 @@ async fn pi_colon_executable_is_direct_and_normal_node_path_contains_only_valida
         let trace = t.path().join("colon-stages");
         fs::write(&trace, "").unwrap();
         fs::set_permissions(&trace, fs::Permissions::from_mode(0o600)).unwrap();
-        let body = format!("stage() {{ printf '%s\\n' \"$1\" >> '{}'; }}\ntrap 'stage \"exit=$?\"' EXIT\nstage \"pi:start pid=$$\"\nstage stdin-before\n/bin/cat >/dev/null\nstage stdin-after\nstage stdout-before\nprintf 'PATH=%s\\n' \"$PATH\"\nprintf '# trusted direct Pi'\nstage stdout-after\n", trace.display());
+        let body = format!("stage() {{ printf '%s\\n' \"$1\" >> '{}' || {{ printf 'fixture-marker-write-failed\\n' >&2; exit 74; }}; }}\ntrap 'stage \"exit=$?\"' EXIT\nstage \"pi:start pid=$$\"\nstage stdin-before\n/bin/cat >/dev/null\nstage stdin-after\nstage stdout-before\nprintf 'PATH=%s\\n' \"$PATH\"\nprintf '# trusted direct Pi'\nstage stdout-after\n", trace.display());
         fs::write(
             &executable,
             format!(
@@ -772,10 +804,7 @@ async fn pi_colon_executable_is_direct_and_normal_node_path_contains_only_valida
         if node_case {
             let runtime = t.path().join("trusted-runtime");
             omm::core::paths::private_dir(&runtime).unwrap();
-            let node = runtime.join("node");
-            fs::write(&node, format!("#!/bin/sh\nprintf '%s\\n' \"node:start pid=$$\" >> '{}'\nexec /bin/sh \"$@\"\n", trace.display())).unwrap();
-            fs::set_permissions(&node, fs::Permissions::from_mode(0o700)).unwrap();
-            context.config.pi.node_executable = Some(node);
+            context.config.pi.node_executable = Some(write_native_node_forwarder(&runtime));
             expected.insert(0, runtime);
         }
         let transcript = FixtureAsr
