@@ -29,11 +29,17 @@ describe('ServiceBanner separates service health from protected operations', () 
     expect(screen.getByRole('button', { name: '确认停止' })).toBeDisabled();
     expect(fake.calls.some((c) => c.command === 'service_apply')).toBe(false);
   });
-  for (const state of ['stopped', 'unknown', 'incompatible'] as const) {
+  for (const [state, loadedLabel] of [
+    ['stopped', '后台服务：已停止。'],
+    ['unknown', '后台服务：状态未知。'],
+    ['incompatible', '后台服务：版本不兼容。'],
+  ] as const) {
     it(`retains the global warning for ${state}`, async () => {
       const fake = fixtureBridge({ service_plan: () => ({ ...sample('service_plan'), state }) });
       render(<App bridge={fake.bridge} />);
-      expect(await screen.findByRole('button', { name: '打开服务设置' })).toBeVisible();
+      const banner = screen.getByRole('status', { name: '本机首次设置与服务状态' });
+      expect(await within(banner).findByText(loadedLabel)).toBeVisible();
+      expect(within(banner).getByRole('button', { name: '打开服务设置' })).toBeVisible();
     });
   }
   it('does not hide incompatible busy plans', async () => {
@@ -46,7 +52,9 @@ describe('ServiceBanner separates service health from protected operations', () 
       }),
     });
     render(<App bridge={fake.bridge} />);
-    expect(await screen.findByRole('button', { name: '打开服务设置' })).toBeVisible();
+    const banner = screen.getByRole('status', { name: '本机首次设置与服务状态' });
+    expect(await within(banner).findByText('后台服务：停止或切换暂受保护。')).toBeVisible();
+    expect(within(banner).getByRole('button', { name: '打开服务设置' })).toBeVisible();
   });
   it('labels the queue count as attention including failed and blocked, not running work', async () => {
     const fake = fixtureBridge({
