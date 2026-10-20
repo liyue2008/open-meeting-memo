@@ -1,0 +1,16 @@
+tests/capture_adapter.rs
+  h_b4d40596eab523 1051-1082,1094-1095,1124-1165,1167-1172,1174-1199
+tests/capture_source_contract.rs
+  h_b4d40596eab523 125-299,302-311,353-356
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3027266d4cc8812e5e84cbe97a33aac3bdc50efb",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
