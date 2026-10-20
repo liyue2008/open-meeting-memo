@@ -122,9 +122,193 @@ fn process_tap_io_uses_generation_snapshot_without_hal_or_control_lock() {
     assert!(source.contains("guard let actual = asbd, CapturePCMFormat(actual) != nil"));
 }
 
+// Project only reviewed operational diagnostics back to the 39b6 kernel.
+// Each full literal must occur once inside its original class, including its
+// adjacent control/data statement. No wildcard, new baseline hash or arbitrary
+// logging removal is allowed; every other byte reaches the four original hashes.
+fn without_operational_diagnostics(mut source: String) -> String {
+    for (start, end, edits) in [
+        (
+            r#"class AudioRecorder {"#,
+            r#"final class MeetingMuteMonitor"#,
+            &[
+                (
+                    r#"    private var sysGapMicFallbackLogged = false
+    private var systemNonzeroSeen = false
+    private var micGainState:"#,
+                    r#"    private var sysGapMicFallbackLogged = false
+    private var micGainState:"#,
+                ),
+                (
+                    r#"            guard self.isRecordingState else { return }
+            logEvent(.micGate, code: state == .muted ? 1 : (state == .unmuted ? 0 : -1))
+            switch state {"#,
+                    r#"            guard self.isRecordingState else { return }
+            switch state {"#,
+                ),
+                (
+                    r#"            sysGapMicFallbackLogged = false
+            systemNonzeroSeen = false
+            meetingMicStateState = .unknown"#,
+                    r#"            sysGapMicFallbackLogged = false
+            meetingMicStateState = .unknown"#,
+                ),
+                (
+                    r#"        return syncState {
+            if isRecordingState { logEvent(.stopRequested) }
+            isRecordingState = false"#,
+                    r#"        return syncState {
+            isRecordingState = false"#,
+                ),
+                (
+                    r#"            if !self.systemNonzeroSeen && samples.contains(where: { $0 != 0 }) {
+                self.systemNonzeroSeen = true
+                logEvent(.systemNonzeroSeen)
+            }
+            self.sysBuf.append(contentsOf: normalized)"#,
+                    r#"            self.sysBuf.append(contentsOf: normalized)"#,
+                ),
+                (
+                    r#"            self.autoStopRequested = true
+            logEvent(.silenceThresholdReached)
+            let action = SYS_DISABLED"#,
+                    r#"            self.autoStopRequested = true
+            let action = SYS_DISABLED"#,
+                ),
+            ][..],
+        ),
+        (
+            r#"final class ProcessTapBackend:"#,
+            r#"// ─── Socket"#,
+            &[
+                (
+                    r#"        guard tapErr == noErr, tap != 0 else {
+            logEvent(.tapCreateError, code: tapErr)
+            _lastError"#,
+                    r#"        guard tapErr == noErr, tap != 0 else {
+            _lastError"#,
+                ),
+                (
+                    r#"        logEvent(.tapCreateSuccess, code: probe ? 1 : 0)
+        tapID = tap"#,
+                    r#"        tapID = tap"#,
+                ),
+                (
+                    r#"        guard aggErr == noErr, agg != 0 else {
+            logEvent(.aggregateCreateError, code: aggErr)
+            _lastError"#,
+                    r#"        guard aggErr == noErr, agg != 0 else {
+            _lastError"#,
+                ),
+                (
+                    r#"        guard procErr == noErr, let p = proc else {
+            logEvent(.ioProcCreateError, code: procErr)
+            _lastError"#,
+                    r#"        guard procErr == noErr, let p = proc else {
+            _lastError"#,
+                ),
+                (
+                    r#"        guard startErr == noErr else {
+            logEvent(.deviceStartError, code: startErr)
+            _lastError"#,
+                    r#"        guard startErr == noErr else {
+            _lastError"#,
+                ),
+                (
+                    r#"            if tripped {
+                logEvent(.zeroRecovery, code: Int32(clamping: currentZeroRun))
+                // Rebuild off the realtime IO thread."#,
+                    r#"            if tripped {
+                log("⚠️ Sys tap delivered \(currentZeroRun) all-zero buffers — teardown+rebuild (Pitfall 3)")
+                // Rebuild off the realtime IO thread."#,
+                ),
+                (
+                    r#"            SYS_READY = true; SYS_ERROR = ""
+            logEvent(.zeroRecoverySuccess)"#,
+                    r#"            SYS_READY = true; SYS_ERROR = ""
+            log("🔊 Sys tap rebuilt after zero-buffer recovery")"#,
+                ),
+                (
+                    r#"            SYS_READY = false; SYS_ERROR = _lastError
+            logEvent(.zeroRecoveryFailure)"#,
+                    r#"            SYS_READY = false; SYS_ERROR = _lastError
+            log("Sys tap rebuild failed: \(_lastError)")"#,
+                ),
+            ][..],
+        ),
+    ] {
+        assert_eq!(source.matches(start).count(), 1);
+        assert_eq!(source.matches(end).count(), 1);
+        let a = source.find(start).unwrap();
+        let b = a + source[a..].find(end).unwrap();
+        let mut section = source[a..b].to_owned();
+        for (before, after) in edits {
+            assert_eq!(
+                section.matches(before).count(),
+                1,
+                "diagnostic location/count changed: {before}"
+            );
+            section = section.replacen(before, after, 1);
+        }
+        assert!(
+            !section.contains("logEvent("),
+            "unreviewed diagnostic in frozen class"
+        );
+        assert!(
+            !section.contains("systemNonzeroSeen"),
+            "unreviewed diagnostic state"
+        );
+        source.replace_range(a..b, &section);
+    }
+    source
+}
+
+#[test]
+fn diagnostic_projection_keeps_unrelated_pcm_and_recovery_edits() {
+    let source = include_str!("../native/yulu-capture/audio_daemon.swift");
+    for (before, after) in [
+        ("$0 * gain", "$0 * 0.0"),
+        (
+            "if tripped {\n                rebuilding = true",
+            "if false {\n                rebuilding = true",
+        ),
+        (
+            "let seconds = silenceSecondsState",
+            "let seconds = silenceSecondsState + 1",
+        ),
+    ] {
+        assert_eq!(source.matches(before).count(), 1);
+        let changed = source.replacen(before, after, 1);
+        assert!(std::panic::catch_unwind(|| assert_kernel_matches_reference(&changed)).is_err());
+    }
+    for changed in [
+        source.replacen(
+            "logEvent(.systemNonzeroSeen)",
+            "logEvent(.systemNonzeroSeen)\n                logEvent(.systemNonzeroSeen)",
+            1,
+        ),
+        source.replacen(
+            "private var systemNonzeroSeen = false",
+            "private var systemNonzeroSeen = true",
+            1,
+        ),
+    ] {
+        assert!(std::panic::catch_unwind(|| without_operational_diagnostics(changed)).is_err());
+    }
+}
+
 #[test]
 fn capture_audio_kernel_matches_reference_source() {
-    let source = without_input_format_boundary(include_str!("../native/yulu-capture/audio_daemon.swift").to_owned())
+    assert_kernel_matches_reference(include_str!("../native/yulu-capture/audio_daemon.swift"));
+}
+
+fn assert_kernel_matches_reference(source: &str) {
+    let source = normalized_kernel_source(without_operational_diagnostics(source.to_owned()));
+    assert_kernel_blocks(&source);
+}
+
+fn normalized_kernel_source(source: String) -> String {
+    without_input_format_boundary(source)
         .replace("org.openmeetingmemo.", "com.yulu.")
         .replace("OMM-SysTap", "Yulu-SysTap")
         .replace("let fn = requestedFilename ?? ", "let fn = ")
@@ -166,7 +350,10 @@ fn capture_audio_kernel_matches_reference_source() {
                          "wall_offset_ms": max(0, wallTimeMs - startedWallMs), "kind": "microphone_route_restart"])
             bridge["gaps"] = gaps
             if !saveBridge(bridge) { bridgeError = "capture_recovery_state_failed" }
-"#, "");
+"#, "")
+}
+
+fn assert_kernel_blocks(source: &str) {
     let blocks = [
         (
             "anchored WAV writer and normalization",
