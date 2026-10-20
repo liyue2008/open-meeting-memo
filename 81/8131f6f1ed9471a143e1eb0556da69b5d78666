@@ -1,0 +1,41 @@
+apps/desktop/src/App.tsx
+  s_e6fcf3cda4e1bb::t_f9a562f13eabbb 212,216
+apps/desktop/src/features/lifecycle.tsx
+  s_96107316c23bde::t_c070e7789e3f89 19,36-37,114-126
+apps/desktop/tests/recording-status-sync.test.tsx
+  s_e6fcf3cda4e1bb::t_717d3e0ff056ca 1-106
+apps/desktop/tests/service-banner-busy.test.tsx
+  s_e6fcf3cda4e1bb::t_caa3a418a39d7b 1-64
+docs/install.md
+  s_96107316c23bde::t_239272a761c4a1 19,24,39
+packaging/desktop/install.py
+  s_96107316c23bde::t_fd363cecbd749a 2,24,57,59-61
+packaging/desktop/install.sh
+  s_96107316c23bde::t_092846cd42807e 2
+packaging/desktop/test_install.py
+  s_96107316c23bde::t_3145bc9211c68e 1-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "818131f6f1ed9471a143e1eb0556da69b5d78666",
+  "prompts": {},
+  "sessions": {
+    "s_96107316c23bde": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a15524-388f-70af-b547-691706a22033",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_e6fcf3cda4e1bb": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14d6f-1e4a-745b-9d2c-638258fd0d45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
