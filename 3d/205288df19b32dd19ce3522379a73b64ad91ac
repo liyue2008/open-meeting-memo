@@ -1,0 +1,16 @@
+packaging/capture/README.md
+  h_b4d40596eab523 40-49
+packaging/capture/test_operational_events.py
+  h_b4d40596eab523 5-6,11-56,62-63,71-77,93-171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3d205288df19b32dd19ce3522379a73b64ad91ac",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
