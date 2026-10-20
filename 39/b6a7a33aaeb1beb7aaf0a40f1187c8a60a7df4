@@ -1,0 +1,16 @@
+apps/desktop/tests/service-banner-busy.test.tsx
+  h_b4d40596eab523 32-36,40-42,55-57
+docs/desktop-native.md
+  h_b4d40596eab523 10,63,71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "39b6a7a33aaeb1beb7aaf0a40f1187c8a60a7df4",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
