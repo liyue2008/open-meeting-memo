@@ -1,0 +1,19 @@
+packaging/capture/test_operational_events.py
+  s_95ef956ed33152::t_63888fd5106e2c 1-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "edf29f6e4d3ef6564a8fbda48cc2048cbb8fb72b",
+  "prompts": {},
+  "sessions": {
+    "s_95ef956ed33152": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a158a7-c669-74f1-8669-a6a2aeb84e5a",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
