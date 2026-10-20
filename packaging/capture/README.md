@@ -37,3 +37,13 @@ The tests use generated nonzero PCM for 16/44.1/48 kHz conversion, the actual
 system IO handler with injected buffers, route/zero-recovery policy, mic gating,
 the exact 300-second silence boundary, and bounded/redacted event output.
 They do not test real Node/Pi, TCC consent, hardware capture or audible playback.
+
+The Python driver allows 30 seconds per native fixture, then at most 5 seconds
+for a second wait/drain after timeout, interruption or communication failure.
+It sends no signals. A failed invocation always retains its private workspace
+and `receipt.json`; successful cleanup requires a real child wait and both pipe
+EOFs. If the bounded drain cannot confirm completion, the receipt stays
+`waited=false`, and the actual Popen handle is retained in the driver instead
+of treating PID disappearance as a wait. Do not delete that workspace while the
+child may still be live. Ownership regressions use only finite Python children
+and explicitly wait/drain them before their test directories are removed.
