@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Metadata-only preflight, then explicit side-by-side copy; never reads config/authentication content."""
+"""Metadata-only preflight, then explicit stable-name copy; never reads config/authentication content."""
 
 import json
 import os
@@ -21,8 +21,7 @@ if applications.exists():
     assert applications.resolve() == applications and applications.is_dir()
     assert applications.stat().st_uid == os.geteuid()
     assert applications.stat().st_mode & 0o022 == 0
-name = f"Open Meeting Memo {manifest['version']}-{manifest['sourceRevision'][:12]}.app"
-target = applications / name
+target = applications / "Open Meeting Memo.app"
 receipt = (
     home / ".local/state/omm-desktop-installs" / f"{manifest['sourceRevision']}.json"
 )
@@ -55,7 +54,11 @@ result = {
 }
 if not check:
     applications.mkdir(mode=0o700, exist_ok=True)
+    assert not target.is_symlink(), "application target symlink refused"
     if target.exists():
+        assert target.resolve() == target and target.is_dir()
+        assert target.stat().st_uid == os.geteuid()
+        assert target.stat().st_mode & 0o022 == 0
         verify(target)
         assert sha(target / "Contents/Resources/bundle-manifest.json") == sha(
             source / "Contents/Resources/bundle-manifest.json"
