@@ -203,11 +203,37 @@ func safeRecordingSubdirectory(_ raw: String) -> URL? {
 }
 
 var logFile: FileHandle?
-func log(_ msg: String) {
+
+// Operational diagnostics are fixed events, never imported free-form messages.
+private enum CaptureOperationalEvent: String, CaseIterable {
+    case tapCreateSuccess = "tap_create_success"
+    case tapCreateError = "tap_create_error"
+    case aggregateCreateError = "aggregate_create_error"
+    case ioProcCreateError = "io_proc_create_error"
+    case deviceStartError = "device_start_error"
+    case systemNonzeroSeen = "system_nonzero_seen"
+    case zeroRecovery = "zero_recovery"
+    case zeroRecoverySuccess = "zero_recovery_success"
+    case zeroRecoveryFailure = "zero_recovery_failure"
+    case silenceThresholdReached = "silence_threshold_reached"
+    case stopSilence = "stop_silence"
+    case stopRequested = "stop_requested"
+    case micGate = "mic_gate"
+}
+
+private func writeCaptureLog(_ suffix: String) {
     let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd HH:mm:ss"
-    let line = "[\(df.string(from: Date()))] capture event" // OMM: never persist source paths/titles/errors
+    let line = "[\(df.string(from: Date()))] capture \(suffix)"
     print(line); fflush(stdout)
     logFile?.write(Data((line + "\n").utf8))
+}
+
+func log(_ msg: String) {
+    writeCaptureLog("event") // Never persist source paths, titles, UIDs or raw errors.
+}
+
+private func logEvent(_ event: CaptureOperationalEvent, code: Int32? = nil) {
+    writeCaptureLog("event=\(event.rawValue)" + (code.map { " code=\($0)" } ?? ""))
 }
 
 // This bridge is capture recovery metadata, not the service's task database.
@@ -712,6 +738,7 @@ class AudioRecorder {
     private var outputDirState: URL = RECORDING_DIR
     var onStopRequest: (() -> Void)?
     private var sysGapMicFallbackLogged = false
+    private var systemNonzeroSeen = false
     private var micGainState: Float = DEFAULT_MIC_GAIN
     private var micLevelState: Float = 0
     private var meetingMicStateState: MeetingMicState = .unknown
@@ -796,6 +823,7 @@ class AudioRecorder {
             guard let self = self, self.meetingMicStateState != state else { return }
             self.meetingMicStateState = state
             guard self.isRecordingState else { return }
+            logEvent(.micGate, code: state == .muted ? 1 : (state == .unmuted ? 0 : -1))
             switch state {
             case .muted:
                 log("🎤 Meeting mic muted — microphone track suppressed")
@@ -847,6 +875,7 @@ class AudioRecorder {
             micBuf = []
             micLevelState = 0
             sysGapMicFallbackLogged = false
+            systemNonzeroSeen = false
             meetingMicStateState = .unknown
             autoStopRequested = false
             guard writeState(recording: true, title: title, path: url.path, sequence: sequence,
@@ -862,6 +891,7 @@ class AudioRecorder {
     @discardableResult
     func stop() -> (path: String?, duration: Int) {
         return syncState {
+            if isRecordingState { logEvent(.stopRequested) }
             isRecordingState = false
             stopSilenceMonitorOnQueue()
             let dur = startTime.map { Int(Date().timeIntervalSince($0)) } ?? 0
@@ -911,6 +941,10 @@ class AudioRecorder {
                 normalized = converted.map { Int16(max(-1, min(1, $0)) * Float(Int16.max)) }
             }
             self.noteInput(.system, rate: sourceRate, inputFrames: samples.count / 2, targetFrames: normalized.count / 2)
+            if !self.systemNonzeroSeen && samples.contains(where: { $0 != 0 }) {
+                self.systemNonzeroSeen = true
+                logEvent(.systemNonzeroSeen)
+            }
             self.sysBuf.append(contentsOf: normalized)
             self.sysGapMicFallbackLogged = false
             if self.calcRMS(samples) > self.silenceThresholdState {
@@ -1074,6 +1108,7 @@ class AudioRecorder {
             guard let self = self, self.silenceExpiredOnQueue() else { return }
             guard !self.autoStopRequested else { return }
             self.autoStopRequested = true
+            logEvent(.silenceThresholdReached)
             let action = SYS_DISABLED ? "auto stop" : "confirm before stop"
             log("🔇 silence \(Int(self.silenceSecondsState))s (both channels) — \(action)")
             DispatchQueue.main.async { [weak self] in
@@ -2022,9 +2057,11 @@ final class ProcessTapBackend: CaptureBackend {
         var tap: AudioObjectID = 0
         let tapErr = AudioHardwareCreateProcessTap(desc, &tap)
         guard tapErr == noErr, tap != 0 else {
+            logEvent(.tapCreateError, code: tapErr)
             _lastError = "AudioHardwareCreateProcessTap failed (OSStatus \(tapErr))"
             return false
         }
+        logEvent(.tapCreateSuccess, code: probe ? 1 : 0)
         tapID = tap
 
         // 3. Read the tap's UID string (needed as the aggregate's SubTap UID).
@@ -2049,6 +2086,7 @@ final class ProcessTapBackend: CaptureBackend {
         var agg: AudioObjectID = 0
         let aggErr = AudioHardwareCreateAggregateDevice(aggDict as CFDictionary, &agg)
         guard aggErr == noErr, agg != 0 else {
+            logEvent(.aggregateCreateError, code: aggErr)
             _lastError = "AudioHardwareCreateAggregateDevice failed (OSStatus \(aggErr))"
             teardown()
             return false
@@ -2077,6 +2115,7 @@ final class ProcessTapBackend: CaptureBackend {
             self.handleIO(inInputData, context: context)
         }
         guard procErr == noErr, let p = proc else {
+            logEvent(.ioProcCreateError, code: procErr)
             _lastError = "AudioDeviceCreateIOProcIDWithBlock failed (OSStatus \(procErr))"
             teardown()
             return false
@@ -2085,6 +2124,7 @@ final class ProcessTapBackend: CaptureBackend {
 
         let startErr = AudioDeviceStart(agg, p)
         guard startErr == noErr else {
+            logEvent(.deviceStartError, code: startErr)
             _lastError = "AudioDeviceStart failed (OSStatus \(startErr))"
             teardown()
             return false
@@ -2376,7 +2416,7 @@ final class ProcessTapBackend: CaptureBackend {
             }
             lock.unlock()
             if tripped {
-                log("⚠️ Sys tap delivered \(currentZeroRun) all-zero buffers — teardown+rebuild (Pitfall 3)")
+                logEvent(.zeroRecovery, code: Int32(clamping: currentZeroRun))
                 // Rebuild off the realtime IO thread.
                 DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                     self?.recoverFromZeroBuffers(
@@ -2433,10 +2473,10 @@ final class ProcessTapBackend: CaptureBackend {
         }
         if rebuilt {
             SYS_READY = true; SYS_ERROR = ""
-            log("🔊 Sys tap rebuilt after zero-buffer recovery")
+            logEvent(.zeroRecoverySuccess)
         } else {
             SYS_READY = false; SYS_ERROR = _lastError
-            log("Sys tap rebuild failed: \(_lastError)")
+            logEvent(.zeroRecoveryFailure)
         }
         lock.lock()
         if captureGeneration == generation {
@@ -3316,6 +3356,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             let wasRecording = self.recorder?.isRecording ?? false
+            if wasRecording { logEvent(.stopSilence) }
             _ = self.recorder?.stop()
             var bridge = readBridge(); bridge["recording"] = false; saveBridge(bridge)
             if wasRecording {
@@ -3395,6 +3436,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 // ─── 入口 ──────────────────────────────────────────────
 
+if CommandLine.arguments.contains("--capture-events-self-test") {
+    let directory = RECORDING_DIR.appendingPathComponent("capture-events")
+    try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let sink = directory.appendingPathComponent("events.log")
+    FileManager.default.createFile(atPath: sink.path, contents: nil)
+    logFile = try! FileHandle(forWritingTo: sink)
+    for event in CaptureOperationalEvent.allCases { logEvent(event, code: -50) }
+    log("private-title/path/device-uid/error-must-not-survive")
+    let recorder = AudioRecorder()
+    recorder.configure(silenceSeconds: 300, silenceThreshold: 0.001, outputDir: directory)
+    assert(saveBridge(["session_id": UUID().uuidString.lowercased(), "origin_instance_id": SERVICE_OWNER, "files": [], "recording": true]))
+    assert(recorder.start(title: "Synthetic") != nil)
+    recorder.updateMeetingMicState(.muted)
+    recorder.updateMeetingMicState(.muted)
+    for _ in 0..<10 { recorder.onSysAudio([2000, 2000]) }
+    _ = recorder.stop() // drains the recorder queue before checking the log
+    _ = recorder.stop() // must not create another recording-stop event
+    try! logFile!.close(); logFile = nil
+    let lines = try! String(contentsOf: sink, encoding: .utf8).split(separator: "\n")
+    for event in ["event=mic_gate code=1", "event=system_nonzero_seen", "event=stop_requested"] {
+        guard lines.filter({ $0.hasSuffix(event) }).count == 1 else {
+            fputs("capture operational event missing or not transition-bounded\n", stderr); exit(1)
+        }
+    }
+    for event in CaptureOperationalEvent.allCases {
+        assert(lines.filter { $0.hasSuffix("event=\(event.rawValue) code=-50") }.count == 1)
+    }
+    assert(!lines.contains { $0.contains("private-title") || $0.contains("Synthetic") || $0.contains(directory.path) })
+    print("capture-events-self-test passed; transition_bounded=true; arbitrary_content_redacted=true")
+    exit(0)
+}
+
 if CommandLine.arguments.contains("--input-format-lifecycle-self-test") {
     if #available(macOS 14.4, *) {
         ProcessTapBackend(recorder: AudioRecorder()).inputFormatLifecycleSelfTest()
@@ -3429,7 +3502,7 @@ if CommandLine.arguments.contains("--input-format-self-test") {
     adapter.reset()
     let restartedFrames = adapter.convert(chunk, rate: 44100, channels: 1)!.count
     assert(abs(restartedFrames - 4800) <= 512)
-    for (micRate, sysRate) in [(44100.0, 48000.0), (48000.0, 44100.0), (48000.0, 48000.0)] {
+    for (micRate, sysRate) in [(16000.0, 48000.0), (44100.0, 48000.0), (48000.0, 44100.0), (48000.0, 48000.0)] {
         let recorder = AudioRecorder()
         let directory = RECORDING_DIR.appendingPathComponent(UUID().uuidString)
         try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -3660,6 +3733,12 @@ if CommandLine.arguments.contains("--self-test") {
         silenceSeconds: 1
     )
     assert(!recorder.silenceExpired())
+    let epoch = Date(timeIntervalSince1970: 1000)
+    recorder._selfTestSetSilenceState(recording: true, micLast: epoch, sysLast: epoch)
+    assert(!recorder.silenceExpired(now: epoch.addingTimeInterval(299)))
+    assert(recorder.silenceExpired(now: epoch.addingTimeInterval(300)))
+    recorder._selfTestSetSilenceState(recording: true, micLast: epoch.addingTimeInterval(1), sysLast: epoch)
+    assert(!recorder.silenceExpired(now: epoch.addingTimeInterval(300)))
     print("audio_daemon self-test ok")
     exit(0)
 }
