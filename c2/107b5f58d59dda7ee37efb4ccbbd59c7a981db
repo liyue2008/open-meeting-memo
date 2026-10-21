@@ -1,0 +1,14 @@
+apps/desktop/src-tauri/src/host/permissions.rs
+  h_b4d40596eab523 24-67,70-75,118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c2107b5f58d59dda7ee37efb4ccbbd59c7a981db",
+  "prompts": {},
+  "humans": {
+    "h_b4d40596eab523": {
+      "author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
