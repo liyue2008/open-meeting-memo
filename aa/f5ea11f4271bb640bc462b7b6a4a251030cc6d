@@ -1,0 +1,49 @@
+apps/desktop/src-tauri/src/host.rs
+  s_b0b3f51c57b1e2::t_3b832e4ff74a48 6-8,31-33,48-50,323-341
+apps/desktop/src-tauri/src/host/permissions.rs
+  s_b0b3f51c57b1e2::t_ec2958a19388e0 1-86
+apps/desktop/src-tauri/src/window_acl.rs
+  s_b0b3f51c57b1e2::t_76822a54b926ce 58-71
+apps/desktop/src/bridge/validators.generated.d.ts
+  s_b0b3f51c57b1e2::t_84208471c969e7 1-2
+apps/desktop/src/bridge/validators.generated.js
+  s_b0b3f51c57b1e2::t_9f5cdf585f642f 13
+apps/desktop/src/contracts.generated.ts
+  s_b0b3f51c57b1e2::t_36ed98ff1d96e8 2-10,542
+apps/desktop/tests/diagnostics-permissions.test.tsx
+  s_753be9bdb7a9f8::t_472fdb8b0d62c9 1-57
+contracts/desktop/v1/commands.generated.rs
+  s_b0b3f51c57b1e2::t_3e5e226ff1442d 3
+src/application/desktop_contracts.rs
+  s_b0b3f51c57b1e2::t_680ed6a5500d4c 3-15,1048-1085,1252-1253,1330-1331
+src/application/permissions.rs
+  s_b0b3f51c57b1e2::t_aa8f3db0e84dae 1-247
+tests/capture_adapter.rs
+  s_b0b3f51c57b1e2::t_7a341dac946fb9 1614-1615
+tests/desktop_permissions.rs
+  s_b0b3f51c57b1e2::t_237c6c1dec1502 1-230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "aaf5ea11f4271bb640bc462b7b6a4a251030cc6d",
+  "prompts": {},
+  "sessions": {
+    "s_753be9bdb7a9f8": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a15d1f-2988-7055-a678-da7e36eda86f",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_b0b3f51c57b1e2": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a15a7c-3535-7789-983d-556b7489c0f8",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
