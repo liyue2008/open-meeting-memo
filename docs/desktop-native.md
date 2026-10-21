@@ -7,7 +7,7 @@ The desktop host is a macOS Apple Silicon Tauri 2 application. The UI calls only
 - `src/application/`: shared CLI/service/desktop use cases, frozen request/response validation, profile generations, configuration, imports, artifacts, media, bundle verification and explicit service lifecycle.
 - `src/core/store/desktop.rs`: SQLite meeting metadata, content search, sorting/pagination, retained trash, artifact/task projections, cancellation and persistent request deduplication. `src/core/store/transaction.rs` keeps nested use cases inside the outer write transaction.
 - `apps/desktop/src-tauri/src/host.rs`: trusted local `main` window admission, native dialogs/clipboard, finite command dispatch and identity-bound service requests. `src/lib.rs` declares the individual commands. Tauri build-generated allow permissions are granted only to the local main capability; there is no remote capability or shell/filesystem plugin.
-- `packaging/desktop/`: locked arm64 package assembly, dependency and license/source redistribution, immutable resource manifest, metadata-only installation preflight and versioned side-by-side user installation.
+- `packaging/desktop/`: locked arm64 package assembly, dependency and license/source redistribution, immutable resource manifest, metadata-only installation preflight and user installation at the fixed `~/Applications/Open Meeting Memo.app` path.
 
 The imported Swift/Yulu audio, PCM, synchronization, WAV and recovery code remains untouched. Existing sherpa-onnx C API/model verification, Pi isolation and XDG artifact security remain in their existing layers.
 
@@ -60,7 +60,7 @@ The focused regressions are source-named in `tests/desktop_native.rs`: concurren
 bash packaging/desktop/package.sh
 # Metadata-only preflight; no config/authentication content is read.
 bash packaging/desktop/install.sh --check '/absolute/path/Open Meeting Memo.app'
-# Explicit versioned side-by-side installation under ~/Applications.
+# Explicit installation at ~/Applications/Open Meeting Memo.app.
 bash packaging/desktop/install.sh '/absolute/path/Open Meeting Memo.app'
 ```
 
@@ -68,7 +68,7 @@ The package contains its own CLI, ASR worker, identity-preserving capture app, p
 
 Assembly checks arm64, macOS 15.5 deployment target, dynamic-library closure, capture bundle identity/entitlements, inside-out ad-hoc signatures, bundled licenses/sources and file hashes. The application icon is generated from the original approved OMM glyph geometry. Ad-hoc signing is development signing, not notarization.
 
-Installation verifies the source bundle and copies it to a revision-named new user app bundle. It does not modify `~/.local/bin/omm`, LaunchAgents, personal recording/configuration/authentication, consent or auto-record settings. Its 0600 receipt contains only non-secret package metadata. Integrated release acceptance must rebuild from the final combined clean commit, verify that exact package/install provenance and actually launch the production package with an isolated profile. A component package or fixture is not that final release acceptance.
+Installation verifies the source bundle and copies it to `~/Applications/Open Meeting Memo.app`. Internal version/sourceRevision and revision-specific receipts are retained. Reinstalling the same verified resource package is idempotent; a different resource package is not automatically overwritten and requires separate normal, safe maintenance that preserves the existing target. See the [installation guide](install.md) for target and conflict handling. It does not modify `~/.local/bin/omm`, LaunchAgents, personal recording/configuration/authentication, consent or auto-record settings. Its 0600 receipt contains only non-secret package metadata. Integrated release acceptance must rebuild from the final combined clean commit, verify that exact package/install provenance and actually launch the production package with an isolated profile. A component package or fixture is not that final release acceptance.
 
 ## Main-window close ACL and isolated WebKit fixtures
 

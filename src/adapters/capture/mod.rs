@@ -79,7 +79,7 @@ fn backend_error(value: &Value) -> OmmError {
         | "capture_shutting_down"
         | "already_recording"
         | "capture_session_conflict"
-        | "application_transaction_in_progress" => conflict(),
+        | "application_transaction_in_progress" | "permissions_busy" => conflict(),
         "unsafe_output_dir" | "invalid_capture_request" | "application_transaction_lock_unsafe" => {
             OmmError::new(
                 ErrorCode::Permission,
@@ -134,6 +134,13 @@ impl MacCaptureAdapter {
     /// Explicit lifecycle action only. Core owns child monitoring and reaping.
     /// Launch may resume an interrupted recording; never call it as a status probe.
     pub fn launch_helper(&self, executable: &Path, service_socket: &Path) -> Result<Child> {
+        self.launch_helper_mode(executable, service_socket, false)
+    }
+    /// Permission preparation cannot resume an interrupted recording.
+    pub fn launch_helper_for_permissions(&self, executable: &Path, service_socket: &Path) -> Result<Child> {
+        self.launch_helper_mode(executable, service_socket, true)
+    }
+    fn launch_helper_mode(&self, executable: &Path, service_socket: &Path, permissions_only: bool) -> Result<Child> {
         self.paths.validate()?;
         validate_socket_path(service_socket)?;
         if !executable.is_absolute()
@@ -145,6 +152,7 @@ impl MacCaptureAdapter {
             ));
         }
         let mut command = Command::new(executable);
+        if permissions_only { command.arg("--permissions-only"); }
         command
             .env_clear()
             .env("YULU_APPLICATION_SUPPORT_DIR", &self.paths.state)
@@ -164,6 +172,40 @@ impl MacCaptureAdapter {
         command
             .spawn()
             .map_err(|_| OmmError::unavailable("capture helper could not be launched"))
+    }
+
+    /// Explicit user operation only; never interprets capture readiness as TCC.
+    pub async fn request_permissions(&self, request_id: Uuid) -> Result<CapturePermissions> {
+        let _guard = self.operation.lock().await;
+        let socket = self.socket_path();
+        let identity = SocketIdentity::read(&socket)?.ok_or_else(|| OmmError::unavailable("capture helper unavailable"))?;
+        let operation = async {
+            let mut stream = shutdown_connect(&socket, identity).await?;
+            let value = exchange_connected(&mut stream, &serde_json::to_vec(&json!({
+                "action":"permissions_request", "instance_id":self.instance_id,
+                "request_id":request_id, "captureIPCVersion":1
+            }))?).await?;
+            self.instance_matches(&value)?;
+            let reply: CapturePermissions = serde_json::from_value(value)?;
+            if reply.request_id != request_id || reply.system_audio != "unknown"
+                || !["authorized", "denied", "restricted", "not_determined", "unknown"].contains(&reply.microphone.as_str())
+                || !["completed", "unconfirmed", "timed_out", "cancelled", "cleanup_failed"].contains(&reply.outcome.as_str()) {
+                return Err(conflict());
+            }
+            Ok(reply)
+        };
+        tokio::time::timeout(self.timeout, operation).await.map_err(|_| OmmError::new(ErrorCode::Timeout, false, "permission request unconfirmed; the OS dialog may remain pending"))?
+    }
+    pub async fn cancel_permissions(&self, request_id: Uuid) -> Result<Value> {
+        let operation = async {
+            let identity = SocketIdentity::read(&self.socket_path())?.ok_or_else(conflict)?;
+            let mut stream = shutdown_connect(&self.socket_path(), identity).await?;
+            let value = exchange_connected(&mut stream, &serde_json::to_vec(&json!({"action":"permissions_cancel", "instance_id":self.instance_id, "request_id":request_id, "captureIPCVersion":1}))?).await?;
+            self.instance_matches(&value)?;
+            if value["request_id"] != request_id.to_string() || value["outcome"] != "cancelled" { return Err(conflict()); }
+            Ok(value)
+        };
+        tokio::time::timeout(Duration::from_secs(4), operation).await.map_err(|_| OmmError::new(ErrorCode::Timeout,false,"permission cancellation unconfirmed; OS dialog may remain pending"))?
     }
 
     /// Quit only an idle, authenticated instance and wait for its kernel process-exit event.
@@ -715,6 +757,18 @@ async fn shutdown_connect(socket: &Path, identity: SocketIdentity) -> Result<Uni
 
 #[cfg(target_os = "macos")]
 mod shutdown_process;
+
+/// OS microphone status is public; system-audio authorization remains unverified.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CapturePermissions {
+    pub instance_id: Uuid,
+    pub request_id: Uuid,
+    pub microphone: String,
+    #[serde(rename = "systemAudio")]
+    pub system_audio: String,
+    pub outcome: String,
+}
 
 /// Core authenticates local transport and reconciles this against status before stop.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

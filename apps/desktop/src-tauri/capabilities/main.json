@@ -38,6 +38,7 @@
     "allow-config-validate",
     "allow-config-save",
     "allow-diagnostics-get",
+    "allow-permissions-request",
     "allow-diagnostics-export",
     "allow-notification-history",
     "allow-media-manifest",

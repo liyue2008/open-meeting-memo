@@ -203,11 +203,37 @@ func safeRecordingSubdirectory(_ raw: String) -> URL? {
 }
 
 var logFile: FileHandle?
-func log(_ msg: String) {
+
+// Operational diagnostics are fixed events, never imported free-form messages.
+private enum CaptureOperationalEvent: String, CaseIterable {
+    case tapCreateSuccess = "tap_create_success"
+    case tapCreateError = "tap_create_error"
+    case aggregateCreateError = "aggregate_create_error"
+    case ioProcCreateError = "io_proc_create_error"
+    case deviceStartError = "device_start_error"
+    case systemNonzeroSeen = "system_nonzero_seen"
+    case zeroRecovery = "zero_recovery"
+    case zeroRecoverySuccess = "zero_recovery_success"
+    case zeroRecoveryFailure = "zero_recovery_failure"
+    case silenceThresholdReached = "silence_threshold_reached"
+    case stopSilence = "stop_silence"
+    case stopRequested = "stop_requested"
+    case micGate = "mic_gate"
+}
+
+private func writeCaptureLog(_ suffix: String) {
     let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd HH:mm:ss"
-    let line = "[\(df.string(from: Date()))] capture event" // OMM: never persist source paths/titles/errors
+    let line = "[\(df.string(from: Date()))] capture \(suffix)"
     print(line); fflush(stdout)
     logFile?.write(Data((line + "\n").utf8))
+}
+
+func log(_ msg: String) {
+    writeCaptureLog("event") // Never persist source paths, titles, UIDs or raw errors.
+}
+
+private func logEvent(_ event: CaptureOperationalEvent, code: Int32? = nil) {
+    writeCaptureLog("event=\(event.rawValue)" + (code.map { " code=\($0)" } ?? ""))
 }
 
 // This bridge is capture recovery metadata, not the service's task database.
@@ -712,6 +738,7 @@ class AudioRecorder {
     private var outputDirState: URL = RECORDING_DIR
     var onStopRequest: (() -> Void)?
     private var sysGapMicFallbackLogged = false
+    private var systemNonzeroSeen = false
     private var micGainState: Float = DEFAULT_MIC_GAIN
     private var micLevelState: Float = 0
     private var meetingMicStateState: MeetingMicState = .unknown
@@ -796,6 +823,7 @@ class AudioRecorder {
             guard let self = self, self.meetingMicStateState != state else { return }
             self.meetingMicStateState = state
             guard self.isRecordingState else { return }
+            logEvent(.micGate, code: state == .muted ? 1 : (state == .unmuted ? 0 : -1))
             switch state {
             case .muted:
                 log("🎤 Meeting mic muted — microphone track suppressed")
@@ -847,6 +875,7 @@ class AudioRecorder {
             micBuf = []
             micLevelState = 0
             sysGapMicFallbackLogged = false
+            systemNonzeroSeen = false
             meetingMicStateState = .unknown
             autoStopRequested = false
             guard writeState(recording: true, title: title, path: url.path, sequence: sequence,
@@ -862,6 +891,7 @@ class AudioRecorder {
     @discardableResult
     func stop() -> (path: String?, duration: Int) {
         return syncState {
+            if isRecordingState { logEvent(.stopRequested) }
             isRecordingState = false
             stopSilenceMonitorOnQueue()
             let dur = startTime.map { Int(Date().timeIntervalSince($0)) } ?? 0
@@ -911,6 +941,10 @@ class AudioRecorder {
                 normalized = converted.map { Int16(max(-1, min(1, $0)) * Float(Int16.max)) }
             }
             self.noteInput(.system, rate: sourceRate, inputFrames: samples.count / 2, targetFrames: normalized.count / 2)
+            if !self.systemNonzeroSeen && samples.contains(where: { $0 != 0 }) {
+                self.systemNonzeroSeen = true
+                logEvent(.systemNonzeroSeen)
+            }
             self.sysBuf.append(contentsOf: normalized)
             self.sysGapMicFallbackLogged = false
             if self.calcRMS(samples) > self.silenceThresholdState {
@@ -1074,6 +1108,7 @@ class AudioRecorder {
             guard let self = self, self.silenceExpiredOnQueue() else { return }
             guard !self.autoStopRequested else { return }
             self.autoStopRequested = true
+            logEvent(.silenceThresholdReached)
             let action = SYS_DISABLED ? "auto stop" : "confirm before stop"
             log("🔇 silence \(Int(self.silenceSecondsState))s (both channels) — \(action)")
             DispatchQueue.main.async { [weak self] in
@@ -2022,9 +2057,11 @@ final class ProcessTapBackend: CaptureBackend {
         var tap: AudioObjectID = 0
         let tapErr = AudioHardwareCreateProcessTap(desc, &tap)
         guard tapErr == noErr, tap != 0 else {
+            logEvent(.tapCreateError, code: tapErr)
             _lastError = "AudioHardwareCreateProcessTap failed (OSStatus \(tapErr))"
             return false
         }
+        logEvent(.tapCreateSuccess, code: probe ? 1 : 0)
         tapID = tap
 
         // 3. Read the tap's UID string (needed as the aggregate's SubTap UID).
@@ -2049,6 +2086,7 @@ final class ProcessTapBackend: CaptureBackend {
         var agg: AudioObjectID = 0
         let aggErr = AudioHardwareCreateAggregateDevice(aggDict as CFDictionary, &agg)
         guard aggErr == noErr, agg != 0 else {
+            logEvent(.aggregateCreateError, code: aggErr)
             _lastError = "AudioHardwareCreateAggregateDevice failed (OSStatus \(aggErr))"
             teardown()
             return false
@@ -2077,6 +2115,7 @@ final class ProcessTapBackend: CaptureBackend {
             self.handleIO(inInputData, context: context)
         }
         guard procErr == noErr, let p = proc else {
+            logEvent(.ioProcCreateError, code: procErr)
             _lastError = "AudioDeviceCreateIOProcIDWithBlock failed (OSStatus \(procErr))"
             teardown()
             return false
@@ -2085,6 +2124,7 @@ final class ProcessTapBackend: CaptureBackend {
 
         let startErr = AudioDeviceStart(agg, p)
         guard startErr == noErr else {
+            logEvent(.deviceStartError, code: startErr)
             _lastError = "AudioDeviceStart failed (OSStatus \(startErr))"
             teardown()
             return false
@@ -2376,7 +2416,7 @@ final class ProcessTapBackend: CaptureBackend {
             }
             lock.unlock()
             if tripped {
-                log("⚠️ Sys tap delivered \(currentZeroRun) all-zero buffers — teardown+rebuild (Pitfall 3)")
+                logEvent(.zeroRecovery, code: Int32(clamping: currentZeroRun))
                 // Rebuild off the realtime IO thread.
                 DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                     self?.recoverFromZeroBuffers(
@@ -2433,10 +2473,10 @@ final class ProcessTapBackend: CaptureBackend {
         }
         if rebuilt {
             SYS_READY = true; SYS_ERROR = ""
-            log("🔊 Sys tap rebuilt after zero-buffer recovery")
+            logEvent(.zeroRecoverySuccess)
         } else {
             SYS_READY = false; SYS_ERROR = _lastError
-            log("Sys tap rebuild failed: \(_lastError)")
+            logEvent(.zeroRecoveryFailure)
         }
         lock.lock()
         if captureGeneration == generation {
@@ -2745,8 +2785,93 @@ func acquireRecordingStartGate(cacheRoot: URL = IPC_DIR) -> RecordingStartGateLe
     return RecordingStartGateLease(state: .available, fd: lockFD)
 }
 
+// Explicit permission perimeter only. All state below belongs to the IPC queue;
+// timeout/cancel completes the reply, not the OS operation. Recording stays busy
+// until its callback really returns, so a late callback cannot touch a new session.
+final class CapturePermissionRequest {
+    private(set) var active: UUID?
+    private var reply: ((String, String) -> Void)?
+    private(set) var cleanupFailed = false
+    func awaitingReply(_ id: UUID) -> Bool { active == id && reply != nil }
+    func begin(_ id: UUID, recording: Bool, reply: @escaping (String, String) -> Void) -> Bool {
+        guard active == nil, !recording, !cleanupFailed else { return false }
+        active = id; self.reply = reply; return true
+    }
+    func expire(_ id: UUID, outcome: String) {
+        guard active == id else { return }
+        let callback = reply; reply = nil
+        callback?("unknown", outcome)
+    }
+    func complete(_ id: UUID, microphone: String, confirmed: Bool, cleanupFailed: Bool = false) {
+        guard active == id else { return }
+        let callback = reply; reply = nil; active = nil
+        self.cleanupFailed = cleanupFailed
+        callback?(microphone, cleanupFailed ? "cleanup_failed" : (confirmed ? "completed" : "unconfirmed"))
+    }
+}
+
+func microphoneAuthorization() -> String {
+    switch AVCaptureDevice.authorizationStatus(for: .audio) {
+    case .authorized: return "authorized"
+    case .denied: return "denied"
+    case .restricted: return "restricted"
+    case .notDetermined: return "not_determined"
+    @unknown default: return "unknown"
+    }
+}
+
+func requestMicrophonePermission(_ done: @escaping (String) -> Void) {
+    if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+        AVCaptureDevice.requestAccess(for: .audio) { _ in done(microphoneAuthorization()) }
+    } else { done(microphoneAuthorization()) }
+}
+
+// Process-owned permission tap only: no aggregate, IOProc, stream or READY globals.
+// Failed destruction retains its exact handle. The API has returned (unlike a
+// pending consent callback), so normal process exit can release this OS resource.
+final class PermissionTapProbe {
+    private(set) var retainedTap: AudioObjectID?
+    var create: () -> (OSStatus, AudioObjectID) = {
+        if #available(macOS 14.4, *) {
+            let description = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
+            description.name = "OMM-Permission"; description.isPrivate = true
+            description.muteBehavior = .unmuted
+            var tap = AudioObjectID(kAudioObjectUnknown)
+            let status = AudioHardwareCreateProcessTap(description, &tap)
+            return (status, tap)
+        }
+        _ = CGRequestScreenCaptureAccess()
+        return (-1, AudioObjectID(kAudioObjectUnknown))
+    }
+    var destroy: (AudioObjectID) -> OSStatus = { tap in
+        if #available(macOS 14.4, *) { return AudioHardwareDestroyProcessTap(tap) }
+        return -1
+    }
+    func request(_ done: (Bool, Bool) -> Void) {
+        guard retainedTap == nil else { done(false, true); return }
+        let (status, tap) = create()
+        if tap != kAudioObjectUnknown { retainedTap = tap }
+        releaseForExit()
+        done(status == noErr && retainedTap == nil, retainedTap != nil)
+    }
+    // One bounded attempt, also used before normal quit. Failure keeps the handle
+    // until normal OS process teardown; recording must remain blocked meanwhile.
+    func releaseForExit() {
+        if let tap = retainedTap, destroy(tap) == noErr { retainedTap = nil }
+    }
+}
+
 class SocketServer {
     let recorder: AudioRecorder
+    private let permissions = CapturePermissionRequest()
+    private var permissionRequestID: UUID?
+    var permissionPeer: (Int32) -> Bool = { fd in
+        var uid: uid_t = 0; var gid: gid_t = 0
+        return getpeereid(fd, &uid, &gid) == 0 && uid == geteuid()
+    }
+    var requestMicrophone: (@escaping (String) -> Void) -> Void = requestMicrophonePermission
+    let permissionTap = PermissionTapProbe()
+    var requestSystemAudio: ((@escaping (Bool, Bool) -> Void) -> Void)?
     var sock: Int32 = -1
     private(set) var ownsSocketPath = false
     private var boundSocketIdentity: (dev_t, ino_t)?
@@ -2894,8 +3019,13 @@ class SocketServer {
             return
         }
         ipcQueue.async { [weak self] in
-            defer { close(c) }
-            self?.handleParsed(c, action: request.action, json: request.json)
+            guard let self = self else { close(c); return }
+            if request.action == "permissions_request" {
+                self.handlePermissions(c, json: request.json)
+            } else {
+                defer { close(c) }
+                self.handleParsed(c, action: request.action, json: request.json)
+            }
         }
     }
 
@@ -2951,12 +3081,76 @@ class SocketServer {
         windowScanLock.unlock()
     }
 
+    private func permissionIdentity(_ c: Int32, _ json: [String: Any]) -> UUID? {
+        guard permissionPeer(c),
+              json["instance_id"] as? String == SERVICE_OWNER,
+              json["captureIPCVersion"] as? Int == CAPTURE_IPC_VERSION,
+              let raw = json["request_id"] as? String, let id = UUID(uuidString: raw) else { return nil }
+        return id
+    }
+    private func permissionPeerDisconnected(_ c: Int32) -> Bool {
+        // No protocol bytes; unlike POLLHUP this distinguishes SHUT_WR framing
+        // from a caller that has also closed its read half. prepareClient disables SIGPIPE.
+        return Darwin.send(c, nil, 0, 0) < 0
+    }
+    private func watchPermissionCaller(_ c: Int32, id: UUID) {
+        guard permissions.awaitingReply(id) else { return } // fd is closed after reply
+        if permissionPeerDisconnected(c) { permissions.expire(id, outcome:"cancelled"); return }
+        ipcQueue.asyncAfter(deadline:.now() + 0.025) { [weak self] in self?.watchPermissionCaller(c, id:id) }
+    }
+    private func handlePermissions(_ c: Int32, json: [String: Any]) {
+        guard let id = permissionIdentity(c, json), isStartupComplete(), !quitting else {
+            send(c, ["error":"capture_instance_conflict"]); close(c); return
+        }
+        guard !recorder.isRecording, readBridge()["recording"] as? Bool != true,
+              interruptedRecordingTitle() == nil, bridgeError.isEmpty else {
+            send(c, ["error":"already_recording"]); close(c); return
+        }
+        // Timer/callback identity is never supplied by the peer. Reusing a request
+        // UUID cannot let an old timer cancel a subsequent explicit request.
+        let operation = UUID()
+        guard permissions.begin(operation, recording: recorder.isRecording, reply: { [weak self] mic, outcome in
+            self?.send(c, ["instance_id":SERVICE_OWNER, "request_id":id.uuidString.lowercased(),
+                           "microphone":mic, "systemAudio":"unknown", "outcome":outcome])
+            close(c)
+        }) else { send(c, ["error":"permissions_busy"]); close(c); return }
+        permissionRequestID = id
+        watchPermissionCaller(c, id:operation)
+        guard permissions.awaitingReply(operation) else { permissions.complete(operation, microphone:"unknown", confirmed:false); return }
+        ipcQueue.asyncAfter(deadline: .now() + 8) { [weak self] in self?.permissions.expire(operation, outcome:"timed_out") }
+        requestMicrophone { [weak self] mic in
+            guard let self = self else { return }
+            self.ipcQueue.async {
+                // Cancel/timeout does not start a new OS request. Release only after
+                // the outstanding mic callback returns; the next request is explicit.
+                guard self.permissions.active == operation else { return }
+                if self.permissions.awaitingReply(operation), self.permissionPeerDisconnected(c) { self.permissions.expire(operation, outcome:"cancelled") }
+                guard self.permissions.awaitingReply(operation) else {
+                    self.permissions.complete(operation, microphone:mic, confirmed:false); return
+                }
+                let done: (Bool, Bool) -> Void = { confirmed, cleanupFailed in
+                    self.ipcQueue.async { self.permissions.complete(operation, microphone:mic, confirmed:confirmed, cleanupFailed:cleanupFailed) }
+                }
+                if let request = self.requestSystemAudio { request(done) }
+                else { DispatchQueue.global(qos:.userInitiated).async { self.permissionTap.request(done) } }
+            }
+        }
+    }
+
     private func handleParsed(_ c: Int32, action: String, json: [String: Any]) {
         var resp: [String: Any]
         guard isStartupComplete() else { send(c, ["error": "capture_initializing"]); return }
         guard !quitting else { send(c, ["error": "capture_shutting_down"]); return }
         switch action {
+        case "permissions_cancel":
+            guard let id = permissionIdentity(c, json) else { send(c, ["error":"capture_instance_conflict"]); return }
+            if permissionRequestID == id, let operation = permissions.active { permissions.expire(operation, outcome:"cancelled") }
+            resp = ["instance_id":SERVICE_OWNER, "request_id":id.uuidString.lowercased(), "outcome":"cancelled"]
         case "start":
+            guard permissions.active == nil, !permissions.cleanupFailed else { send(c, ["error":"permissions_busy"]); return }
+            if CommandLine.arguments.contains("--permissions-only"), interruptedRecordingTitle() != nil {
+                send(c, ["error":"already_recording"]); return
+            }
             guard json["instance_id"] as? String == SERVICE_OWNER,
                   let session = json["session_id"] as? String, UUID(uuidString: session) != nil,
                   let filename = json["filename"] as? String, filename.hasSuffix(".wav"),
@@ -3144,6 +3338,7 @@ class SocketServer {
         case "audio_devices":
             resp = listAudioDevices?() ?? ["error": "coreaudio_device_provider_unavailable"]
         case "quit":
+            guard permissions.active == nil else { send(c, ["error":"permissions_busy"]); return }
             guard json["instance_id"] as? String == SERVICE_OWNER else {
                 send(c, ["error": "capture_instance_conflict"]); return
             }
@@ -3151,12 +3346,13 @@ class SocketServer {
                 send(c, ["error": "capture_protocol_conflict"]); return
             }
             guard !recorder.isRecording else { send(c, ["error": "already_recording"]); return }
+            permissionTap.releaseForExit()
             quitting = true
             send(c, ["status": "bye", "instance_id": SERVICE_OWNER,
                      "captureIPCVersion": CAPTURE_IPC_VERSION, "pid": ProcessInfo.processInfo.processIdentifier])
             // Fixture uses dispatchMain, not an NSApplication event loop. Both
             // paths clean only this listener's inode; ack alone is not exit proof.
-            if CommandLine.arguments.contains("--ipc-fixture") {
+            if CommandLine.arguments.contains("--ipc-fixture") || CommandLine.arguments.contains("--permissions-self-test") {
                 stop()
                 exit(0)
             }
@@ -3170,6 +3366,72 @@ class SocketServer {
     private func send(_ c: Int32, _ d: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: d) else { return }
         data.withUnsafeBytes { if let b = $0.baseAddress { _ = write(c, b, data.count) } }
+    }
+
+    func permissionSyntheticChecks() {
+        var micCalls = 0; var systemCalls = 0
+        requestMicrophone = { done in micCalls += 1; done("denied") }
+        requestSystemAudio = { done in systemCalls += 1; done(true, false) }
+        finishStartup()
+        func exchange(_ json: [String: Any]) -> [String: Any] {
+            var fd: [Int32] = [-1,-1]
+            assert(socketpair(AF_UNIX, SOCK_STREAM, 0, &fd) == 0)
+            defer { close(fd[1]) }
+            prepareClient(fd[0])
+            let data = try! JSONSerialization.data(withJSONObject:json)
+            data.withUnsafeBytes { _ = write(fd[1], $0.baseAddress!, data.count) }
+            _ = shutdown(fd[1], SHUT_WR)
+            dispatchClient(fd[0])
+            var response = Data(); var buffer = [UInt8](repeating:0,count:4096)
+            while true { let n = read(fd[1], &buffer, buffer.count); if n <= 0 { break }; response.append(buffer,count:n) }
+            return try! JSONSerialization.jsonObject(with:response) as! [String:Any]
+        }
+        let id = UUID().uuidString.lowercased()
+        let request: [String:Any] = ["action":"permissions_request", "instance_id":SERVICE_OWNER,
+                                    "request_id":id,"captureIPCVersion":1]
+        _ = exchange(["action":"status"])
+        assert(micCalls == 0 && systemCalls == 0) // startup/status never probe
+        var wrong = request; wrong["instance_id"] = UUID().uuidString
+        assert(exchange(wrong)["error"] != nil)
+        permissionPeer = { _ in false }; assert(exchange(request)["error"] != nil)
+        permissionPeer = { _ in true }
+        assert(micCalls == 0 && systemCalls == 0)
+        let beforeFiles = try! FileManager.default.contentsOfDirectory(atPath: RECORDING_DIR.path)
+        let response = exchange(request)
+        assert(response["microphone"] as? String == "denied" && response["systemAudio"] as? String == "unknown")
+        assert(micCalls == 1 && systemCalls == 1)
+        assert(!recorder.isRecording && recorder.currentFilePath.isEmpty)
+        assert(try! FileManager.default.contentsOfDirectory(atPath: RECORDING_DIR.path) == beforeFiles)
+        // Synthetic WAV control only, no capture sources or frames. The permission
+        // action must neither stop it nor create/change a recording or source call.
+        assert(recorder.start(title:"Synthetic permission busy control") != nil)
+        let before = recorder.currentFilePath
+        assert(exchange(request)["error"] as? String == "already_recording")
+        assert(recorder.isRecording && recorder.currentFilePath == before)
+        assert(micCalls == 1 && systemCalls == 1)
+        _ = recorder.stop()
+        // Exercise the actual lower-level probe and coordinator failure branch,
+        // not a fake high-level completion. Both API adapters are injected.
+        var destroys = 0
+        permissionTap.create = { (noErr, AudioObjectID(42)) }
+        permissionTap.destroy = { tap in
+            assert(tap == 42); destroys += 1
+            if destroys == 3 { print("cleanup_failed_quit_retry=3; handle=retained_until_owned_exit") }
+            return -50
+        }
+        requestSystemAudio = nil
+        let failed = exchange(request)
+        assert(failed["outcome"] as? String == "cleanup_failed")
+        assert(permissions.active == nil && permissions.cleanupFailed && permissionTap.retainedTap == 42)
+        assert(destroys == 1)
+        assert(exchange(["action":"start"])["error"] as? String == "permissions_busy")
+        assert(exchange(request)["error"] as? String == "permissions_busy")
+        permissionTap.releaseForExit(); assert(destroys == 2 && permissionTap.retainedTap == 42)
+        print("permissions synthetic state/socket passed; cleanup_failed=retained; normal_owned_quit=true")
+        // Actual quit handler, no forced process termination. Rust output() waits
+        // for this exact child and both EOFs before removing its private roots.
+        _ = exchange(["action":"quit","instance_id":SERVICE_OWNER,"captureIPCVersion":1])
+        assertionFailure("normal quit must exit")
     }
 
     func scanWindows() -> [String: Any] {
@@ -3316,6 +3578,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             let wasRecording = self.recorder?.isRecording ?? false
+            if wasRecording { logEvent(.stopSilence) }
             _ = self.recorder?.stop()
             var bridge = readBridge(); bridge["recording"] = false; saveBridge(bridge)
             if wasRecording {
@@ -3380,7 +3643,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         try? "\(ProcessInfo.processInfo.processIdentifier)".write(to: PID_PATH, atomically: true, encoding: .utf8)
-        resumeInterruptedRecording(rec, ss)
+        if !CommandLine.arguments.contains("--permissions-only") { resumeInterruptedRecording(rec, ss) }
         ss.finishStartup()
         log("Ready")
     }
@@ -3394,6 +3657,65 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 // ─── 入口 ──────────────────────────────────────────────
+
+if CommandLine.arguments.contains("--permissions-self-test") {
+    let gate = CapturePermissionRequest(); let first = UUID(); let second = UUID()
+    var replies = [(String, String)]()
+    assert(gate.active == nil)
+    assert(!gate.begin(first, recording:true) { replies.append(($0,$1)) })
+    assert(gate.begin(first, recording:false) { replies.append(($0,$1)) })
+    assert(!gate.begin(second, recording:false) { replies.append(($0,$1)) })
+    gate.expire(second, outcome:"cancelled"); assert(replies.isEmpty)
+    gate.expire(first, outcome:"timed_out"); assert(replies.count == 1 && replies[0].1 == "timed_out")
+    assert(gate.active == first) // timeout cannot authorize a new recording
+    gate.complete(second, microphone:"authorized", confirmed:true); assert(gate.active == first)
+    gate.complete(first, microphone:"authorized", confirmed:true); assert(replies.count == 1 && gate.active == nil)
+    for mic in ["authorized", "denied", "restricted", "not_determined", "unknown"] {
+        let id = UUID(); assert(gate.begin(id, recording:false) { replies.append(($0,$1)) })
+        gate.complete(id, microphone:mic, confirmed:false)
+        assert(replies.last!.0 == mic && replies.last!.1 == "unconfirmed")
+    }
+    let id = UUID(); assert(gate.begin(id, recording:false) { replies.append(($0,$1)) })
+    gate.expire(id, outcome:"cancelled"); let count = replies.count
+    gate.complete(id, microphone:"denied", confirmed:true); assert(replies.count == count)
+    assert(gate.begin(second, recording:false) { replies.append(($0,$1)) })
+    gate.complete(first, microphone:"authorized", confirmed:true); assert(gate.active == second)
+    gate.complete(second, microphone:"denied", confirmed:true)
+    let server = SocketServer(AudioRecorder()); server.permissionSyntheticChecks()
+    print("permissions synthetic state/socket passed; API backends=fake; owned_exit=true"); exit(0)
+}
+
+if CommandLine.arguments.contains("--capture-events-self-test") {
+    let directory = RECORDING_DIR.appendingPathComponent("capture-events")
+    try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let sink = directory.appendingPathComponent("events.log")
+    FileManager.default.createFile(atPath: sink.path, contents: nil)
+    logFile = try! FileHandle(forWritingTo: sink)
+    for event in CaptureOperationalEvent.allCases { logEvent(event, code: -50) }
+    log("private-title/path/device-uid/error-must-not-survive")
+    let recorder = AudioRecorder()
+    recorder.configure(silenceSeconds: 300, silenceThreshold: 0.001, outputDir: directory)
+    assert(saveBridge(["session_id": UUID().uuidString.lowercased(), "origin_instance_id": SERVICE_OWNER, "files": [], "recording": true]))
+    assert(recorder.start(title: "Synthetic") != nil)
+    recorder.updateMeetingMicState(.muted)
+    recorder.updateMeetingMicState(.muted)
+    for _ in 0..<10 { recorder.onSysAudio([2000, 2000]) }
+    _ = recorder.stop() // drains the recorder queue before checking the log
+    _ = recorder.stop() // must not create another recording-stop event
+    try! logFile!.close(); logFile = nil
+    let lines = try! String(contentsOf: sink, encoding: .utf8).split(separator: "\n")
+    for event in ["event=mic_gate code=1", "event=system_nonzero_seen", "event=stop_requested"] {
+        guard lines.filter({ $0.hasSuffix(event) }).count == 1 else {
+            fputs("capture operational event missing or not transition-bounded\n", stderr); exit(1)
+        }
+    }
+    for event in CaptureOperationalEvent.allCases {
+        assert(lines.filter { $0.hasSuffix("event=\(event.rawValue) code=-50") }.count == 1)
+    }
+    assert(!lines.contains { $0.contains("private-title") || $0.contains("Synthetic") || $0.contains(directory.path) })
+    print("capture-events-self-test passed; transition_bounded=true; arbitrary_content_redacted=true")
+    exit(0)
+}
 
 if CommandLine.arguments.contains("--input-format-lifecycle-self-test") {
     if #available(macOS 14.4, *) {
@@ -3429,7 +3751,7 @@ if CommandLine.arguments.contains("--input-format-self-test") {
     adapter.reset()
     let restartedFrames = adapter.convert(chunk, rate: 44100, channels: 1)!.count
     assert(abs(restartedFrames - 4800) <= 512)
-    for (micRate, sysRate) in [(44100.0, 48000.0), (48000.0, 44100.0), (48000.0, 48000.0)] {
+    for (micRate, sysRate) in [(16000.0, 48000.0), (44100.0, 48000.0), (48000.0, 44100.0), (48000.0, 48000.0)] {
         let recorder = AudioRecorder()
         let directory = RECORDING_DIR.appendingPathComponent(UUID().uuidString)
         try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -3660,6 +3982,12 @@ if CommandLine.arguments.contains("--self-test") {
         silenceSeconds: 1
     )
     assert(!recorder.silenceExpired())
+    let epoch = Date(timeIntervalSince1970: 1000)
+    recorder._selfTestSetSilenceState(recording: true, micLast: epoch, sysLast: epoch)
+    assert(!recorder.silenceExpired(now: epoch.addingTimeInterval(299)))
+    assert(recorder.silenceExpired(now: epoch.addingTimeInterval(300)))
+    recorder._selfTestSetSilenceState(recording: true, micLast: epoch.addingTimeInterval(1), sysLast: epoch)
+    assert(!recorder.silenceExpired(now: epoch.addingTimeInterval(300)))
     print("audio_daemon self-test ok")
     exit(0)
 }
@@ -3675,6 +4003,8 @@ if CommandLine.arguments.contains("--ipc-fixture") {
     umask(0o077)
     let rec = AudioRecorder()
     let server = SocketServer(rec)
+    server.requestMicrophone = { done in done("denied") }
+    server.requestSystemAudio = { done in done(true, false) }
     server.onRecordingStart = { SYS_READY = true; MIC_READY = true }
     server.onRecordingStop = { SYS_READY = false; MIC_READY = false }
     server.listAudioDevices = { ["input": [["uid": "fixture-mic", "name": "Synthetic input"]], "output": [], "default_input_uid": "fixture-mic"] }

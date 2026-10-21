@@ -16,12 +16,12 @@ bash scripts/install-desktop.sh --check
 bash scripts/install-desktop.sh --from "/absolute/path/to/Open Meeting Memo.app"
 ```
 
-桌面包包含自有 CLI、worker、Swift capture helper、固定 sherpa/ONNX Runtime 与 codec 闭包、许可证和源码材料；模型权重仍按固定 manifest 安装至 XDG DATA，Pi/Node/Lark 是外部集成。安装器先验证资源/hash/签名与已有安装元数据，发布到 `~/Applications/Open Meeting Memo <version>-<revision前12位>.app`，保留旧版本；不覆盖 CLI/LaunchAgent，不改配置、录音、认证、auto/consent，也不启动个人服务。具体 receipt 和位置以安装器输出及[原生包装说明](desktop-native.md)为准。
+桌面包包含自有 CLI、worker、Swift capture helper、固定 sherpa/ONNX Runtime 与 codec 闭包、许可证和源码材料；模型权重仍按固定 manifest 安装至 XDG DATA，Pi/Node/Lark 是外部集成。安装器先验证资源/hash/签名与已有安装元数据，发布到固定路径 `~/Applications/Open Meeting Memo.app`，内部版本、sourceRevision、按 revision 保存的 receipt 与压缩包版本名保持不变。同一资源包重复安装不覆盖；目标已有不同资源包、外来目录或符号链接时拒绝，保留原目标，须先另行安排安全维护；不覆盖 CLI/LaunchAgent，不改配置、录音、认证、auto/consent，也不启动个人服务。具体 receipt 和位置以安装器输出及[原生包装说明](desktop-native.md)为准。
 
 正常无参数启动仍使用原有持久WebKit偏好。只想隔离检查生产App启动时，可显式选择本次非持久模式；不是fixture宿主，也不会初始化profile或启动服务。先用已验证安装路径设置`APP`，再在全新私有目录清继承环境运行：
 
 ```sh
-APP="/absolute/path/to/installed/Open Meeting Memo <version>-<revision>.app"
+APP="$HOME/Applications/Open Meeting Memo.app"
 T=$(mktemp -d /private/tmp/omm-production-check-XXXXXX)
 chmod 700 "$T"
 mkdir -m 700 "$T"/{home,config,data,state,cache,runtime,tmp}
@@ -36,7 +36,7 @@ env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin LANG=en_US.UTF-8 \
 
 首次打开仅只读观察。首次初始化、启动/停止/安全切换服务均需在“状态与诊断”显式确认；旧或未知服务/不兼容 schema、活动录音或未封存数据会拒绝不安全写入。缺 owner 标记表示待核验采用，不直接断言 schema 不兼容；严格受支持的停机旧资料库采用成功后仍停止，须另点启动，保留原配置、auto/consent、媒体和个人 CLI。不可验证或仍加载的旧服务不由 App 强制控制；详见[服务恢复与安全人工步骤](desktop-service-recovery.md)。模型、系统权限与专用 Pi 认证分别诊断，服务运行不冒充这些依赖已就绪。开发签名是 ad-hoc，不是 Apple 公证。
 
-后续 release 安装只进入当前用户目录，先只读检查安装元数据、备份非秘密元数据，保留所有录音/配置/认证/auto/consent，不打断在录会议、不盲杀未知进程、不因启动 App 迁移旧 profile。可安全并存版本化 App，并以实际生产包＋私有 profile 验证窗口和真实桥；个人旧 daemon 不兼容时准确报告显式切换路径。ad-hoc 签名不是公证，实际注册也不是权限/运行就绪。
+后续 release 安装只进入当前用户目录，先只读检查安装元数据、备份非秘密元数据，保留所有录音/配置/认证/auto/consent，不打断在录会议、不盲杀未知进程、不因启动 App 迁移旧 profile。默认安装使用固定 App 名称，不自动迁移或删除旧版本化 App；以实际生产包＋私有 profile 验证窗口和真实桥；个人旧 daemon 不兼容时准确报告显式切换路径。ad-hoc 签名不是公证，实际注册也不是权限/运行就绪。
 
 ## 1. 构建及复制到稳定位置
 
@@ -165,7 +165,9 @@ omm permissions check --json
 omm permissions request
 ```
 
-权限请求仅打开系统设置。需要用户在原生界面批准 OMMCapture 的麦克风、系统/屏幕音频，窗口读取还可能需要辅助功能。无人交互时返回 blocked/unknown，不使用权限数据库修改、模拟点击或管理员命令。全系统轨可能包含其他应用声音，短测试前关闭无关播放。
+先显式启动当前兼容服务，再在交互终端执行 `permissions request`：通过该服务拥有的同一 OMMCapture 正常请求麦克风与系统音频权限，不录音、不写 WAV、不启动转写。首次为此启动 helper 不恢复中断录音；活动录音、未完成的授权操作或不兼容 owner 会拒绝。普通启动、status/check 和自动会议观察不会主动申请权限。App 的“状态与诊断”提供同一服务支持的“申请录音权限”按钮；仅显式点击触发，使用受限 typed 命令，无需交互终端或手工添加内部 exe。
+
+麦克风返回公开状态 `authorized/denied/restricted/not_determined/unknown`；系统音频始终 `unknown`，tap 创建成功只表示请求调用结束，不证明已授权或有声音。`outcome` 的 `completed/unconfirmed/timed_out/cancelled/cleanup_failed` 也不是录音恢复。helper 等待本次授权结果最多8秒（整个服务动作最多25秒），CLI 的 Ctrl-C 或 App 的“取消等待”取消本次等待；OS弹窗可能仍等待用户，实际回调返回前 helper 保持 busy，不抢占新录音。已返回的权限 tap 若清理失败，保留准确句柄并返回 `cleanup_failed`、阻止新录音；正常退出服务最多再尝试一次清理，即使仍失败也允许正常 owned 进程退出由 OS 回收，不冒充已恢复。若系统已拒绝，正常API不保证重复弹窗，用户只能在正常原生界面管理权限；不手工添加内部exe、不重置/修改权限数据库或模拟点击。用途声明及开发签名仍须在实际OS责任身份下验证，ad-hoc不等于公证或已授权。窗口读取的辅助功能授权独立诊断，不能以本命令冒充已获准。
 
 ## 5. 后台服务与自动流程
 

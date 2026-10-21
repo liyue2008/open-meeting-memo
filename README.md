@@ -86,7 +86,7 @@ omm permissions request
 
 模型 ID 以 `model list` 的编译清单为准。下载走 HTTPS，校验包大小、SHA-256、解压路径与逐文件 SHA-256，再原子安装到 DATA；不会下载或安装没有已验证清单的 native 动态库。库文件由用户明确定位，worker 检查运行时版本。下载不会改写配置；请用 `config set asr.encoder_path/decoder_path/tokens_path/vad_path` 分别填入 `model list` 中各文件的绝对路径（每次只设置一个字段）。移除模型用 `model remove <id> --confirm`，与正在转写的模型读取互斥。诊断/构建/测试不会自动下载约 1.74 GB 的真实权重。
 
-权限请求只打开系统设置，不授予权限，不声称授权成功；非交互环境返回结构化 `interaction_required`。只读检查可能报告 unknown，helper 的准备状态不等于完整系统权限审计。真实录音仅由用户的明确开始命令或已同意的自动录音触发。
+先启动兼容后台服务，再在 App“状态与诊断”点击“申请录音权限”，或在交互终端执行 `omm permissions request`。显式请求通过同一可信 OMMCapture 正常调用 OS 授权，不录音、不写 WAV、不创建任务；普通启动和只读检查不申请权限。CLI 非交互环境仍返回 `interaction_required`。麦克风返回公开授权状态，系统音频始终 unknown；调用完成不代表授权或已有声音，录音恢复仍需验证。取消等待/超时不能关闭 OS 同意框，未返回的 OS 操作保持 busy；已返回但资源清理失败则阻止新录音、保留句柄且允许正常退出服务。无需手工添加内部 exe，不重置权限。真实录音仅由用户的明确开始命令或已同意的自动录音触发。
 
 ## 服务、录音与处理
 

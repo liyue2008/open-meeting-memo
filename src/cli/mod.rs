@@ -482,17 +482,24 @@ pub async fn execute_at(
                 if non_interactive || std::env::var("TERM").ok().as_deref() == Some("dumb") {
                     return Err(OmmError::new(ErrorCode::InteractionRequired,false,"system permission request needs a desktop; run this explicit command interactively"));
                 }
-                let status=tokio::process::Command::new("/usr/bin/open").args(["x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone","x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture","x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().await.map_err(|_|OmmError::new(ErrorCode::InteractionRequired,false,"desktop permission settings unavailable"))?;
-                if !status.success() {
-                    return Err(OmmError::new(
-                        ErrorCode::InteractionRequired,
-                        false,
-                        "desktop permission settings unavailable",
-                    ));
+                let location = runtime.as_ref().map_err(Clone::clone)?;
+                let id = uuid::Uuid::new_v4();
+                let message = |command: &str| daemon::Request {
+                    schema_version: 1,
+                    command: command.into(),
+                    title: None,
+                    session_id: Some(id),
+                    instance_id: None,
+                    desktop_capability: None,
+                    desktop_request: None,
+                };
+                tokio::select! {
+                    result=daemon::request_message_at(paths,location,message("permissions_request"))=>result,
+                    _=tokio::signal::ctrl_c()=>{
+                        daemon::request_message_at(paths,location,message("permissions_cancel")).await?;
+                        Ok(json!({"outcome":"cancelled","microphone":"unknown","systemAudio":"unknown","note":"OS dialog may remain pending; no recording was requested"}))
+                    }
                 }
-                Ok(
-                    json!({"settingsOpened":true,"authorized":false,"note":"approve OMMCapture in System Settings; this command cannot grant permissions"}),
-                )
             }
         },
         Commands::Service { command } => {

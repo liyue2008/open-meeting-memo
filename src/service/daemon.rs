@@ -747,6 +747,24 @@ pub async fn request_at(
     )
     .await
 }
+// CLI None retains its explicit-current-service semantics. A supplied desktop
+// generation must match before any permission request OR cancellation effect.
+fn permission_instance(message: &Request, current: Uuid) -> Result<()> {
+    if matches!(
+        message.command.as_str(),
+        "permissions_request" | "permissions_cancel"
+    ) && message
+        .instance_id
+        .is_some_and(|instance| instance != current)
+    {
+        return Err(OmmError::new(
+            ErrorCode::Conflict,
+            false,
+            "permission service generation changed",
+        ));
+    }
+    Ok(())
+}
 pub async fn request_message_at(
     paths: &Paths,
     location: &RuntimeLocation,
@@ -755,6 +773,16 @@ pub async fn request_message_at(
     let socket = location.path.join("service.sock");
     check_socket(&socket)?;
     let owner = runtime::verify_active(&location.path, &paths.state)?;
+    permission_instance(&message, owner.instance_id)?;
+    let endpoint = if matches!(
+        message.command.as_str(),
+        "permissions_request" | "permissions_cancel"
+    ) && message.instance_id.is_some()
+    {
+        Some(std::fs::symlink_metadata(&socket)?)
+    } else {
+        None
+    };
     let operation = async {
         let mut stream = UnixStream::connect(&socket)
             .await
@@ -770,6 +798,21 @@ pub async fn request_message_at(
                 false,
                 "service peer does not match runtime owner",
             ));
+        }
+        if let Some(endpoint) = endpoint {
+            check_socket(&socket)?;
+            let current = runtime::verify_active(&location.path, &paths.state)?;
+            let connected = std::fs::symlink_metadata(&socket)?;
+            if current != owner
+                || connected.dev() != endpoint.dev()
+                || connected.ino() != endpoint.ino()
+            {
+                return Err(OmmError::new(
+                    ErrorCode::Conflict,
+                    false,
+                    "permission service endpoint changed",
+                ));
+            }
         }
         stream.write_all(&serde_json::to_vec(&message)?).await?;
         stream.shutdown().await?;
@@ -810,6 +853,19 @@ pub async fn request_message_at(
             )
         })?
 }
+// Request EOF is framing, not cancellation. A zero-byte send contributes no
+// reply bytes but detects closure of the peer's read half (EPIPE). POLLHUP on
+// Darwin also fires on the normal request EOF and cannot distinguish the two.
+async fn permission_client_disconnected(stream: &UnixStream) {
+    use std::os::fd::AsRawFd;
+    loop {
+        if unsafe { libc::send(stream.as_raw_fd(), std::ptr::null(), 0, libc::MSG_NOSIGNAL) } < 0 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
 pub async fn run(paths: Paths) -> Result<Value> {
     let location = paths.runtime_location(&std::env::vars().collect())?;
     run_at(paths, location).await
@@ -996,8 +1052,9 @@ pub async fn run_at_with_notifier(
                 if stream.peer_cred()?.uid()!=unsafe{libc::geteuid()}{continue;}
                 let input=tokio::time::timeout(Duration::from_secs(10),async{let mut bytes=vec![];(&mut stream).take(1024*1024+1).read_to_end(&mut bytes).await?;if bytes.len()>1024*1024{return Err(OmmError::invalid("service request exceeds limit"));}Ok::<Request,OmmError>(serde_json::from_slice(&bytes)?)}).await;
                 let mut reply=match input {
+                    Ok(Ok(req)) if req.schema_version==1 && permission_instance(&req,guard.owner.instance_id).is_err() => Reply::result(Err(OmmError::new(ErrorCode::Conflict,false,"permission service generation changed"))),
                     Ok(Ok(req)) if req.schema_version==1 => {
-                        if matches!(req.command.as_str(), "record_start"|"record_stop"|"capture_auto_stop"|"shutdown") {control_epoch=control_epoch.wrapping_add(1); }
+                        if matches!(req.command.as_str(), "record_start"|"record_stop"|"capture_auto_stop"|"shutdown"|"permissions_request") {control_epoch=control_epoch.wrapping_add(1); }
                         if req.command != "desktop_capabilities_v1" { helper.observe_endpoint(&native,&paths)?; }
                         let action=match req.command.as_str(){
                             "desktop_capabilities_v1"=>{let capability=req.desktop_capability.ok_or_else(||OmmError::invalid("missing capability request"));capability.and_then(|capability|{if capability.protocol_version!=1||capability.desktop_contract_version!=1||capability.required_capabilities.iter().any(|required|!crate::application::profile::CAPABILITIES.contains(&serde_json::to_value(required).ok().and_then(|v|v.as_str().map(str::to_owned)).unwrap_or_default().as_str())){return Err(OmmError::new(ErrorCode::Conflict,false,"unsupported desktop capability"));}Ok(json!({"protocolVersion":1,"compatibility":crate::application::profile::compatible(&desktop_owner,"service")}))})},
@@ -1005,6 +1062,20 @@ pub async fn run_at_with_notifier(
                             "status"=>Ok(json!({"running":true,"paths":paths,"runtime":location,"serviceInstanceId":guard.owner.instance_id,"serviceUid":guard.owner.uid,"servicePid":guard.owner.pid,"singleServiceScope":"selected runtime and persistent STATE; explicitly isolated roots may run independently","capture":native.status().await.ok(),"recording":controller.recording()?.map(|r|json!({"sessionId":r.session_id,"sourceId":r.source_id})),"pipelineHealthy":!worker.is_finished()&&!summary_worker.is_finished()&&!encoder.is_finished(),"asrQueueHealthy":!worker.is_finished(),"summaryQueueHealthy":!summary_worker.is_finished(),"archiveQueueHealthy":!encoder.is_finished(),"piCacheRecovery":Store::open(&paths)?.state::<serde_json::Value>("pi_cache_recovery")?,"lastCaptureError":Store::open(&paths)?.state::<OmmError>("capture_error")?,"lastMeetingObservation":Store::open(&paths)?.state::<serde_json::Value>("meeting_observation")?,"notificationDiagnostic":Store::open(&paths)?.state::<serde_json::Value>("notification_diagnostic")?})),
                             "capture_auto_stop"=>controller.callback(&req).await,
                             "record_status"=>native.status().await.map(|s|json!(s)),
+                            "permissions_request"=>{async {
+                                if controller.recording()?.is_some() { return Err(OmmError::new(ErrorCode::Conflict,false,"recording is active; permissions were not requested")); }
+                                let id=req.session_id.ok_or_else(||OmmError::invalid("permission request id missing"))?;
+                                let operation = async {
+                                    ensure_permission_helper(&native,&cfg,&socket,&mut helper,&paths).await?;
+                                    if native.status().await?.recording { return Err(OmmError::new(ErrorCode::Conflict,false,"capture is recording; permissions were not requested")); }
+                                    native.request_permissions(id).await.map(|r|json!(r))
+                                };
+                                tokio::select! {
+                                    result=tokio::time::timeout(Duration::from_secs(25),operation)=>result.map_err(|_|OmmError::new(ErrorCode::Timeout,false,"permission request unconfirmed; OS dialog may remain pending"))?,
+                                    _=permission_client_disconnected(&stream)=>Err(OmmError::new(ErrorCode::InteractionRequired,false,"permission caller disconnected; OS dialog may remain pending"))
+                                }
+                            }.await},
+                            "permissions_cancel"=>{match req.session_id {Some(id)=>native.cancel_permissions(id).await,None=>Err(OmmError::invalid("permission request id missing"))}},
                             "record_start"=>{async {if let Err(e)=ensure_helper(&native,&cfg,&socket,&mut helper,&paths).await {controller.recording_failed(&e);return Err(e);}controller.start(req.title.unwrap_or_else(||"Meeting".into()),None).await}.await},
                             "record_stop"=>controller.seal(true).await,
                             "desktop_idle_shutdown_v1"=>{if req.instance_id!=Some(guard.owner.instance_id)||controller.recording()?.is_some(){Err(OmmError::new(ErrorCode::Conflict,false,"service generation changed or recording became active"))}else if let Err(error)=store.desktop_begin_idle_shutdown(guard.owner.instance_id){Err(error)}else{let stopped=helper.shutdown(&native,&paths).await.map(|()|json!({"stopped":true}));if stopped.is_ok(){shutdown_reply=Some(stream);break stopped;}store.desktop_abort_idle_shutdown(guard.owner.instance_id)?;stopped}},
@@ -1236,6 +1307,36 @@ async fn ensure_helper_inner(
     helper: &mut HelperProcess,
     paths: &Paths,
 ) -> Result<()> {
+    ensure_helper_mode(native, cfg, socket, helper, paths, false).await
+}
+async fn ensure_permission_helper(
+    native: &MacCaptureAdapter,
+    cfg: &AppConfig,
+    socket: &std::path::Path,
+    helper: &mut HelperProcess,
+    paths: &Paths,
+) -> Result<()> {
+    tokio::time::timeout(
+        Duration::from_secs(15),
+        ensure_helper_mode(native, cfg, socket, helper, paths, true),
+    )
+    .await
+    .map_err(|_| {
+        OmmError::new(
+            ErrorCode::Timeout,
+            false,
+            "permission helper startup unconfirmed",
+        )
+    })?
+}
+async fn ensure_helper_mode(
+    native: &MacCaptureAdapter,
+    cfg: &AppConfig,
+    socket: &std::path::Path,
+    helper: &mut HelperProcess,
+    paths: &Paths,
+    permissions_only: bool,
+) -> Result<()> {
     match native.status().await {
         Ok(_) => return helper.expect(paths),
         Err(e) if e.code != ErrorCode::Unavailable => return Err(e),
@@ -1243,7 +1344,11 @@ async fn ensure_helper_inner(
     }
     helper.reap_exited(native, paths)?;
     if helper.child.is_none() {
-        helper.child = Some(native.launch_helper(&cfg.capture_executable, socket)?);
+        helper.child = Some(if permissions_only {
+            native.launch_helper_for_permissions(&cfg.capture_executable, socket)?
+        } else {
+            native.launch_helper(&cfg.capture_executable, socket)?
+        });
         helper.expect(paths)?;
     }
     for _ in 0..50 {
@@ -1342,5 +1447,28 @@ mod tests {
             error.message,
             "capture helper startup timed out; check bundle and system permissions"
         );
+    }
+}
+
+#[cfg(test)]
+mod permission_transport_tests {
+    use super::*;
+    #[tokio::test]
+    async fn eof_frame_is_not_cancellation_but_full_disconnect_is() {
+        let (mut caller, service) = UnixStream::pair().unwrap();
+        caller.shutdown().await.unwrap();
+        assert!(tokio::time::timeout(
+            Duration::from_millis(60),
+            permission_client_disconnected(&service)
+        )
+        .await
+        .is_err());
+        drop(caller);
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            permission_client_disconnected(&service),
+        )
+        .await
+        .unwrap();
     }
 }

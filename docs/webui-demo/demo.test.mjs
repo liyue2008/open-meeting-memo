@@ -1,5 +1,5 @@
-// Run: node docs/webui-demo/demo.test.mjs
-// Uses ONLY an existing Chrome in an isolated temporary profile. No packages installed.
+// Run: node docs/webui-demo/demo.test.mjs --static-only (no browser or system operations)
+// Without the flag, uses existing Chrome in an isolated profile. No packages installed.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -7,8 +7,58 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { once } from 'node:events';
+import { Script, runInNewContext } from 'node:vm';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
+if (process.argv.includes('--static-only')) {
+  let checks = 0;
+  const check = (value, message) => { assert.ok(value, message); checks++; };
+  for (const file of ['index.html', 'palette.css', 'styles.css', 'theme.js', 'sidebar.js', 'demo-data.js', 'app.js']) {
+    const source = await readFile(path.join(root, file), 'utf8');
+    check(!/https?:\/\//.test(source), `${file}: no external URL`);
+    check(!/\b(fetch\s*\(|XMLHttpRequest|new\s+(?:Audio|WebSocket)|speechSynthesis|navigator\.mediaDevices|new\s+Notification|\.play\s*\()/.test(source), `${file}: no network/audio/notification APIs`);
+    if (file.endsWith('.js')) { new Script(source, { filename: file }); checks++; }
+  }
+  const html = await readFile(path.join(root, 'index.html'), 'utf8');
+  check(html.includes("connect-src 'none'") && html.includes("media-src 'none'"), 'offline CSP retained');
+  for (const [, resource] of html.matchAll(/(?:src|href)="([^"]+)"/g)) {
+    if (resource.startsWith('#')) continue;
+    check(/^[a-z-]+\.(?:css|js)$/.test(resource), `local resource: ${resource}`);
+    await readFile(path.join(root, resource));
+  }
+  const logo = await readFile(path.join(root, '../assets/omm-logo.svg'), 'utf8');
+  check(!/<(?:script|foreignObject|image)\b|\bon\w+\s*=|(?:href|src)\s*=|url\s*\(/i.test(logo), 'logo is inert and has no resource references');
+  const license = await readFile(path.join(root, 'RADIX-COLORS-LICENSE.txt'), 'utf8');
+  check(license.includes('MIT License') && license.includes('Modulz') && license.includes('WorkOS'), 'Radix license retained');
+
+  const sandbox = {};
+  runInNewContext(await readFile(path.join(root, 'demo-data.js'), 'utf8'), sandbox, { timeout: 1000 });
+  const D = sandbox.DemoData;
+  const now = new Date(2026, 0, 1, 12);
+  const state = D.fresh(now);
+  check(state.meetings.length === 6 && new Set(state.meetings.map(m => m.id)).size === 6, 'six unique fictional fixtures');
+  check(state.anchorDate === '2026-01-01' && state.meetings[0].date === '2025-12-31', 'fixtures follow local date across year boundary');
+  check(!state.auto && !state.consent && state.recording === null, 'fixtures never imply recording authorization');
+  check(D.fields.filter(f => f.path || f.pathList).every(f => f.value.startsWith('/demo/')), 'all configured paths are fictional');
+  state.meetings[0].title = 'changed fixture';
+  check(D.fresh(now).meetings[0].title !== state.meetings[0].title, 'fresh data is independent');
+  check(D.parseDay('2026-02-29') === null && D.parseDay('2024-02-29') !== null, 'calendar validation respects leap years');
+  check(D.shiftDay('2024-02-28', 2) === '2024-03-01', 'calendar offset handles leap day');
+  for (const [preset, from] of [['today', '2026-01-01'], ['three', '2025-12-30'], ['seven', '2025-12-26'], ['week', '2025-12-29']]) {
+    const range = D.dateRange(preset, now);
+    check(range.from === from && range.to === '2026-01-01', `${preset}: local inclusive date range`);
+  }
+  const legacy = D.fresh(new Date(2026, 9, 17, 12));
+  legacy.schema = 1;
+  legacy.meetings[0].summary.actions[0].done = true;
+  const migrated = D.migrate(legacy, now);
+  check(migrated.schema === 2 && migrated.anchorDate === '2026-01-01' && migrated.meetings[0].date === '2025-12-31', 'legacy fixture dates migrate relative to anchor');
+  check(!('done' in migrated.meetings[0].summary.actions[0]), 'actions remain read-only');
+  const serialized = JSON.stringify(migrated);
+  check(JSON.stringify(D.migrate(migrated, new Date(2026, 1, 1, 12))) === serialized, 'migration is idempotent and does not rebase saved dates');
+  console.log(JSON.stringify({ mode: 'static-only', checks, passed: true, browserStarted: false }));
+  process.exit(0);
+}
 const chrome = process.env.CHROME_BINARY || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const output = process.env.DEMO_TEST_OUTPUT || await mkdtemp(path.join(tmpdir(), 'omm-webui-evidence-'));
 const profile = await mkdtemp(path.join(tmpdir(), 'omm-webui-chrome-'));

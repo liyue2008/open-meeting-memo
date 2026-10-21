@@ -32,16 +32,20 @@ python3 - "$APP" <<'PY'
 import plistlib,sys,pathlib
 app=pathlib.Path(sys.argv[1])
 version=__import__('json').load(open('apps/desktop/src-tauri/tauri.conf.json'))['version']
-with open(app/'Contents/Info.plist','wb') as f:plistlib.dump({'CFBundleIdentifier':'org.openmeetingmemo.desktop','CFBundleName':'Open Meeting Memo','CFBundleDisplayName':'Open Meeting Memo','CFBundleExecutable':'omm-desktop','CFBundleIconFile':'OMM.icns','CFBundlePackageType':'APPL','CFBundleShortVersionString':version,'CFBundleVersion':version,'LSMinimumSystemVersion':'15.5','NSHighResolutionCapable':True},f)
+with open(app/'Contents/Info.plist','wb') as f:plistlib.dump({'CFBundleIdentifier':'org.openmeetingmemo.desktop','CFBundleName':'Open Meeting Memo','CFBundleDisplayName':'Open Meeting Memo','CFBundleExecutable':'omm-desktop','CFBundleIconFile':'OMM.icns','CFBundlePackageType':'APPL','CFBundleShortVersionString':version,'CFBundleVersion':version,'LSMinimumSystemVersion':'15.5','NSHighResolutionCapable':True,'NSMicrophoneUsageDescription':'Open Meeting Memo requests microphone access only for your explicit permission or recording action.','NSAudioCaptureUsageDescription':'Open Meeting Memo requests system audio access only for your explicit permission or recording action.','NSScreenCaptureUsageDescription':'Open Meeting Memo needs system audio capture access for your explicit action.'},f)
 PY
 # Sign inside-out; preserve the capture helper's own bundle ID and entitlements from its build.
 for executable in "$APP/Contents/Resources/bin/omm" "$APP/Contents/Resources/bin/omm-asr-worker" "$APP/Contents/MacOS/omm-desktop" "$APP/Contents/Resources/sherpa/"*.dylib; do
   file "$executable" | grep -q 'Mach-O 64-bit.*arm64'
-  codesign --force --sign - "$executable"
+  if [[ "$executable" == "$APP/Contents/Resources/bin/omm" || "$executable" == "$APP/Contents/MacOS/omm-desktop" ]]; then
+    codesign --force --sign - --entitlements "$ROOT/packaging/desktop/OMMDesktop.entitlements" "$executable"
+  else
+    codesign --force --sign - "$executable"
+  fi
   codesign --verify --strict "$executable"
 done
 python3 packaging/desktop/resources.py manifest "$APP/Contents/Resources" "$REV"
-codesign --force --sign - "$APP"
+codesign --force --sign - --entitlements "$ROOT/packaging/desktop/OMMDesktop.entitlements" "$APP"
 codesign --verify --deep --strict "$APP"
 python3 packaging/desktop/resources.py verify "$APP"
 DMG="$OUT/Open-Meeting-Memo-$REV.dmg"

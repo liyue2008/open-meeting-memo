@@ -4,6 +4,7 @@ import { compatibilityReasonText, useAction, useBridge, useInfo } from '../app/c
 import { dateTime } from '../app/dates';
 import { ErrorNotice, Heading, Loading } from '../components/ui';
 import { ServiceLifecycle } from './lifecycle';
+import { CapturePermissions } from './permissions';
 const compatibilityLabel = {
   compatible: '兼容',
   read_only: '只读',
@@ -75,6 +76,7 @@ export function DiagnosticsPage() {
         </Button>
       </Heading>
       <ServiceLifecycle />
+      <CapturePermissions />
       <Paper className="panel section-spaced" withBorder p="md" component="section">
         <Title order={2}>桌面与后台服务</Title>
         {info.error && <ErrorNotice error={info.error} retry={() => void info.refetch()} />}
