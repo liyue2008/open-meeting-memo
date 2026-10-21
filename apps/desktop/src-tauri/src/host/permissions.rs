@@ -21,8 +21,58 @@ finally:
  s.close();os.unlink(path)
 "#;
 
+fn permission_fixture_python(path: &std::ffi::OsStr) -> std::io::Result<std::path::PathBuf> {
+    // Resolve before env_clear; never search the current directory or inherit Python context.
+    for directory in std::env::split_paths(path).filter(|directory| directory.is_absolute()) {
+        let Ok(candidate) = directory.join("python3").canonicalize() else {
+            continue;
+        };
+        let metadata = candidate.metadata()?;
+        if metadata.is_file() && metadata.permissions().mode() & 0o111 != 0 {
+            return Ok(candidate);
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "native permission fixture requires executable python3 in an absolute PATH directory",
+    ))
+}
+
+#[test]
+fn permission_fixture_python_missing_is_an_explicit_error() {
+    let temp = tempfile::tempdir().unwrap();
+    let path =
+        std::env::join_paths([temp.path(), std::path::Path::new("relative-unused")]).unwrap();
+    let error = permission_fixture_python(&path).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    assert!(error.to_string().contains("python3"));
+}
+
+#[tokio::test]
+async fn permission_fixture_python_uses_alternate_absolute_path_entries() {
+    let python = permission_fixture_python(&std::env::var_os("PATH").unwrap_or_default())
+        .expect("native permission fixture requires python3");
+    let temp = tempfile::tempdir().unwrap();
+    for name in ["first", "second"] {
+        let bin = temp.path().join(name);
+        std::fs::create_dir(&bin).unwrap();
+        let alias = bin.join("python3");
+        std::os::unix::fs::symlink(&python, &alias).unwrap();
+        let path = std::env::join_paths([std::path::Path::new("relative-unused"), &bin]).unwrap();
+        let resolved = permission_fixture_python(&path).unwrap();
+        assert_eq!(resolved, alias.canonicalize().unwrap());
+        host_core_service_permissions_fixture(&resolved).await;
+    }
+}
+
 #[tokio::test]
 async fn host_core_service_permissions_reject_stale_instance_before_any_action() {
+    let python = permission_fixture_python(&std::env::var_os("PATH").unwrap_or_default())
+        .expect("native permission fixture requires python3");
+    host_core_service_permissions_fixture(&python).await;
+}
+
+async fn host_core_service_permissions_fixture(python: &std::path::Path) {
     use omm::core::{
         config::AppConfig,
         notifications::{NotificationAdapter, NotificationEvent},
@@ -65,7 +115,7 @@ async fn host_core_service_permissions_reject_stale_instance_before_any_action()
         .set_state("capture_instance", &instance)
         .unwrap();
     let marker = root.join("permission-actions");
-    let child = std::process::Command::new("/opt/homebrew/bin/python3.12")
+    let child = std::process::Command::new(python)
         .env_clear()
         .env("HOME", root.join("h"))
         .args(["-B", "-c", PERMISSION_PEER])
