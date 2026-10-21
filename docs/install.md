@@ -165,7 +165,9 @@ omm permissions check --json
 omm permissions request
 ```
 
-权限请求仅打开系统设置。需要用户在原生界面批准 OMMCapture 的麦克风、系统/屏幕音频，窗口读取还可能需要辅助功能。无人交互时返回 blocked/unknown，不使用权限数据库修改、模拟点击或管理员命令。全系统轨可能包含其他应用声音，短测试前关闭无关播放。
+先显式启动当前兼容服务，再在交互终端执行 `permissions request`：通过该服务拥有的同一 OMMCapture 正常请求麦克风与系统音频权限，不录音、不写 WAV、不启动转写。首次为此启动 helper 不恢复中断录音；活动录音、未完成的授权操作或不兼容 owner 会拒绝。普通启动、status/check 和自动会议观察不会主动申请权限。桌面尚无新增权限 mutation 命令。
+
+麦克风返回公开状态 `authorized/denied/restricted/not_determined/unknown`；系统音频始终 `unknown`，tap 创建成功只表示请求调用结束，不证明已授权或有声音。`outcome` 的 `completed/unconfirmed/timed_out/cancelled` 也不是录音恢复。helper 等待本次授权结果最多8秒（整个服务动作最多25秒），Ctrl-C取消调用；OS弹窗可能仍等待用户，实际回调返回前 helper 保持 busy，不抢占新录音。若系统已拒绝，正常API不保证重复弹窗，用户只能在正常原生界面管理权限；不手工添加内部exe、不重置/修改权限数据库或模拟点击。用途声明及开发签名仍须在实际OS责任身份下验证，ad-hoc不等于公证或已授权。窗口读取的辅助功能授权独立诊断，不能以本命令冒充已获准。
 
 ## 5. 后台服务与自动流程
 

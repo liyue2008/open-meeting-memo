@@ -1593,3 +1593,23 @@ async fn capture_native_zero_frame_current_restarts_twice_without_manifest_holes
     a.shutdown().await.unwrap();
     wait_native_exit(&mut child).await;
 }
+
+#[tokio::test]
+#[ignore = "requires compiled Swift bundle; injected permissions and socketpair only, no OS API"]
+async fn capture_permissions_explicit_request_fake_callbacks_and_owned_exit() {
+    let _slot = native_fixture_slot().await;
+    let f = Fixture::new();
+    let output = native_command(&f, "--permissions-self-test")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .unwrap(); // actual wait and both pipe EOFs before fixture cleanup
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout)
+        .contains("permissions synthetic state/socket passed"));
+    println!("{}", String::from_utf8_lossy(&output.stdout));
+}

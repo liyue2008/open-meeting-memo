@@ -416,3 +416,19 @@ fn opus_bitrate_config_is_bounded_default_48_and_cli_round_trips_without_secrets
         );
     }
 }
+
+#[test]
+fn permissions_require_explicit_interaction_and_service_without_opening_settings() {
+    let t = TempDir::new().unwrap();
+    let output = invoke(
+        &t,
+        &["permissions", "request", "--non-interactive", "--json"],
+    );
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["error"]["code"], "interaction_required");
+    assert!(!t.path().join("home").exists());
+    let output = invoke(&t, &["permissions", "request", "--json"]);
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["error"]["code"], "conflict");
+    assert!(!t.path().join("home").exists());
+}
