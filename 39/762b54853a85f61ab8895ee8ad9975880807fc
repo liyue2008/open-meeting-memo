@@ -1,0 +1,41 @@
+docs/install.md
+  s_b0b3f51c57b1e2::t_aa86f62deddbed 168-170
+native/yulu-capture/audio_daemon.swift
+  s_b0b3f51c57b1e2::t_1b63b729bffeea 2788-2849,2852-2859,3007-3013,3069-3122,3128-3131,3133-3136,3324,3353-3396,3606,3621-3647,3966-3967
+packaging/desktop/OMMDesktop.entitlements
+  s_b0b3f51c57b1e2::t_094942f166e2de 1-5
+packaging/desktop/package.sh
+  s_b0b3f51c57b1e2::t_f549d9aa04eb52 35,40-44,48
+packaging/desktop/resources.py
+  s_b0b3f51c57b1e2::t_39abc5c2953863 159-169
+packaging/desktop/test_permissions_resources.py
+  s_b0b3f51c57b1e2::t_32ec052d7f688d 1-46
+src/adapters/capture/mod.rs
+  s_b0b3f51c57b1e2::t_0e00f089d4dd4f 82,137-143,155,177-210,761-772
+src/cli/mod.rs
+  s_b0b3f51c57b1e2::t_b8a672455675a3 485-501
+src/service/daemon.rs
+  s_b0b3f51c57b1e2::t_23c939060e170f 813-825,1013,1021-1034,1265-1294,1303-1307,1408-1430
+tests/capture_adapter.rs
+  s_b0b3f51c57b1e2::t_befa3565ff5e04 1596-1615
+tests/capture_permissions.rs
+  s_b0b3f51c57b1e2::t_44cc705efceba7 1-113
+tests/core_cli.rs
+  s_b0b3f51c57b1e2::t_847d31cc86ce46 419-434
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "39762b54853a85f61ab8895ee8ad9975880807fc",
+  "prompts": {},
+  "sessions": {
+    "s_b0b3f51c57b1e2": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a15a7c-3535-7789-983d-556b7489c0f8",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
