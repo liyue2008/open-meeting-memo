@@ -1,5 +1,7 @@
 # Open Meeting Memo (OMM)
 
+<img src="docs/assets/omm-logo.svg" width="96" height="96" alt="Open Meeting Memo（omm）Logo">
+
 本地录音和转写，使用已配置的 Pi 生成会议纪要。首版面向 macOS、Apple Silicon、飞书与命令行；录音 helper 编译目标是 macOS 13+，本指南固定的官方 ASR 库依赖 macOS 15.5+，较旧系统未验证完整链路。不包含实时字幕、说话人识别、网页界面或 MCP 服务。
 
 **当前为开发版本，不是已发布或验证过真实会议的产品。** 新分段版本待独立复审及用户级部署。录音按音频帧封存为最长30分钟的片段；每段封存后立即进入独立、可恢复的本地转写队列，会议结束后聚合转写并生成一次纪要。最终音频是48kHz、单声道的真实 Ogg/Opus（`.opus`），需要显式安装固定编码工具。受控测试及自产20/60秒语音基准没有验证真实录音、系统授权或长会议质量。
