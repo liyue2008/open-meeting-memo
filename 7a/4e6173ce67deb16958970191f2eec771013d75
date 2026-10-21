@@ -1,0 +1,49 @@
+docs/webui-demo/RADIX-COLORS-LICENSE.txt
+  s_42b89b896b40f5::t_56287dcc2416d9 1-22
+docs/webui-demo/README.md
+  s_980661c8130752::t_ee03f1d48ca468 1-148
+docs/webui-demo/audio-research.md
+  s_980661c8130752::t_a8060592520cf6 1-30
+docs/webui-demo/demo-data.js
+  s_42b89b896b40f5::t_fc066187ead573 1-110
+docs/webui-demo/demo.test.mjs
+  s_285918ca40f636::t_33570e71260903 1-595
+docs/webui-demo/index.html
+  s_980661c8130752::t_20cfcfc91c22f4 1-49
+docs/webui-demo/palette.css
+  s_42b89b896b40f5::t_d34e7ebe76db0f 1-150
+docs/webui-demo/technical-proposal.md
+  s_980661c8130752::t_c59d3ed128a2cd 1-89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7a4e6173ce67deb16958970191f2eec771013d75",
+  "prompts": {},
+  "sessions": {
+    "s_285918ca40f636": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a15f22-724e-771a-8ced-5750173dbc0e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_42b89b896b40f5": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a148bd-b624-76c1-8e40-dd64eb37f1a7",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_980661c8130752": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a15f25-cbf6-71c4-804d-0239934a3874",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
