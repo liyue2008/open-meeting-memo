@@ -189,7 +189,7 @@ impl MacCaptureAdapter {
             let reply: CapturePermissions = serde_json::from_value(value)?;
             if reply.request_id != request_id || reply.system_audio != "unknown"
                 || !["authorized", "denied", "restricted", "not_determined", "unknown"].contains(&reply.microphone.as_str())
-                || !["completed", "unconfirmed", "timed_out", "cancelled"].contains(&reply.outcome.as_str()) {
+                || !["completed", "unconfirmed", "timed_out", "cancelled", "cleanup_failed"].contains(&reply.outcome.as_str()) {
                 return Err(conflict());
             }
             Ok(reply)

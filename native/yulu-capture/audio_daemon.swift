@@ -2791,9 +2791,10 @@ func acquireRecordingStartGate(cacheRoot: URL = IPC_DIR) -> RecordingStartGateLe
 final class CapturePermissionRequest {
     private(set) var active: UUID?
     private var reply: ((String, String) -> Void)?
+    private(set) var cleanupFailed = false
     func awaitingReply(_ id: UUID) -> Bool { active == id && reply != nil }
     func begin(_ id: UUID, recording: Bool, reply: @escaping (String, String) -> Void) -> Bool {
-        guard active == nil, !recording else { return false }
+        guard active == nil, !recording, !cleanupFailed else { return false }
         active = id; self.reply = reply; return true
     }
     func expire(_ id: UUID, outcome: String) {
@@ -2801,10 +2802,11 @@ final class CapturePermissionRequest {
         let callback = reply; reply = nil
         callback?("unknown", outcome)
     }
-    func complete(_ id: UUID, microphone: String, confirmed: Bool) {
+    func complete(_ id: UUID, microphone: String, confirmed: Bool, cleanupFailed: Bool = false) {
         guard active == id else { return }
         let callback = reply; reply = nil; active = nil
-        callback?(microphone, confirmed ? "completed" : "unconfirmed")
+        self.cleanupFailed = cleanupFailed
+        callback?(microphone, cleanupFailed ? "cleanup_failed" : (confirmed ? "completed" : "unconfirmed"))
     }
 }
 
@@ -2824,26 +2826,38 @@ func requestMicrophonePermission(_ done: @escaping (String) -> Void) {
     } else { done(microphoneAuthorization()) }
 }
 
-// Same normal process-tap handshake as Yulu's probe, but no aggregate, IOProc,
-// stream, recorder or READY globals. A successful tap is NOT an authorization audit.
-func requestSystemAudioPermission(_ done: @escaping (Bool) -> Void) {
-    DispatchQueue.global(qos: .userInitiated).async {
+// Process-owned permission tap only: no aggregate, IOProc, stream or READY globals.
+// Failed destruction retains its exact handle. The API has returned (unlike a
+// pending consent callback), so normal process exit can release this OS resource.
+final class PermissionTapProbe {
+    private(set) var retainedTap: AudioObjectID?
+    var create: () -> (OSStatus, AudioObjectID) = {
         if #available(macOS 14.4, *) {
             let description = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
             description.name = "OMM-Permission"; description.isPrivate = true
             description.muteBehavior = .unmuted
             var tap = AudioObjectID(kAudioObjectUnknown)
             let status = AudioHardwareCreateProcessTap(description, &tap)
-            if tap != kAudioObjectUnknown {
-                // On failed cleanup retain the busy gate; never pretend the probe ended.
-                guard AudioHardwareDestroyProcessTap(tap) == noErr else { return }
-            }
-            done(status == noErr)
-        } else {
-            // Public normal consent request only, never starts a ScreenCaptureKit stream.
-            _ = CGRequestScreenCaptureAccess()
-            done(false) // not a complete system-audio authorization assertion
+            return (status, tap)
         }
+        _ = CGRequestScreenCaptureAccess()
+        return (-1, AudioObjectID(kAudioObjectUnknown))
+    }
+    var destroy: (AudioObjectID) -> OSStatus = { tap in
+        if #available(macOS 14.4, *) { return AudioHardwareDestroyProcessTap(tap) }
+        return -1
+    }
+    func request(_ done: (Bool, Bool) -> Void) {
+        guard retainedTap == nil else { done(false, true); return }
+        let (status, tap) = create()
+        if tap != kAudioObjectUnknown { retainedTap = tap }
+        releaseForExit()
+        done(status == noErr && retainedTap == nil, retainedTap != nil)
+    }
+    // One bounded attempt, also used before normal quit. Failure keeps the handle
+    // until normal OS process teardown; recording must remain blocked meanwhile.
+    func releaseForExit() {
+        if let tap = retainedTap, destroy(tap) == noErr { retainedTap = nil }
     }
 }
 
@@ -2856,7 +2870,8 @@ class SocketServer {
         return getpeereid(fd, &uid, &gid) == 0 && uid == geteuid()
     }
     var requestMicrophone: (@escaping (String) -> Void) -> Void = requestMicrophonePermission
-    var requestSystemAudio: (@escaping (Bool) -> Void) -> Void = requestSystemAudioPermission
+    let permissionTap = PermissionTapProbe()
+    var requestSystemAudio: ((@escaping (Bool, Bool) -> Void) -> Void)?
     var sock: Int32 = -1
     private(set) var ownsSocketPath = false
     private var boundSocketIdentity: (dev_t, ino_t)?
@@ -3113,9 +3128,11 @@ class SocketServer {
                 guard self.permissions.awaitingReply(operation) else {
                     self.permissions.complete(operation, microphone:mic, confirmed:false); return
                 }
-                self.requestSystemAudio { confirmed in
-                    self.ipcQueue.async { self.permissions.complete(operation, microphone:mic, confirmed:confirmed) }
+                let done: (Bool, Bool) -> Void = { confirmed, cleanupFailed in
+                    self.ipcQueue.async { self.permissions.complete(operation, microphone:mic, confirmed:confirmed, cleanupFailed:cleanupFailed) }
                 }
+                if let request = self.requestSystemAudio { request(done) }
+                else { DispatchQueue.global(qos:.userInitiated).async { self.permissionTap.request(done) } }
             }
         }
     }
@@ -3130,7 +3147,7 @@ class SocketServer {
             if permissionRequestID == id, let operation = permissions.active { permissions.expire(operation, outcome:"cancelled") }
             resp = ["instance_id":SERVICE_OWNER, "request_id":id.uuidString.lowercased(), "outcome":"cancelled"]
         case "start":
-            guard permissions.active == nil else { send(c, ["error":"permissions_busy"]); return }
+            guard permissions.active == nil, !permissions.cleanupFailed else { send(c, ["error":"permissions_busy"]); return }
             if CommandLine.arguments.contains("--permissions-only"), interruptedRecordingTitle() != nil {
                 send(c, ["error":"already_recording"]); return
             }
@@ -3329,12 +3346,13 @@ class SocketServer {
                 send(c, ["error": "capture_protocol_conflict"]); return
             }
             guard !recorder.isRecording else { send(c, ["error": "already_recording"]); return }
+            permissionTap.releaseForExit()
             quitting = true
             send(c, ["status": "bye", "instance_id": SERVICE_OWNER,
                      "captureIPCVersion": CAPTURE_IPC_VERSION, "pid": ProcessInfo.processInfo.processIdentifier])
             // Fixture uses dispatchMain, not an NSApplication event loop. Both
             // paths clean only this listener's inode; ack alone is not exit proof.
-            if CommandLine.arguments.contains("--ipc-fixture") {
+            if CommandLine.arguments.contains("--ipc-fixture") || CommandLine.arguments.contains("--permissions-self-test") {
                 stop()
                 exit(0)
             }
@@ -3353,7 +3371,7 @@ class SocketServer {
     func permissionSyntheticChecks() {
         var micCalls = 0; var systemCalls = 0
         requestMicrophone = { done in micCalls += 1; done("denied") }
-        requestSystemAudio = { done in systemCalls += 1; done(true) }
+        requestSystemAudio = { done in systemCalls += 1; done(true, false) }
         finishStartup()
         func exchange(_ json: [String: Any]) -> [String: Any] {
             var fd: [Int32] = [-1,-1]
@@ -3392,6 +3410,28 @@ class SocketServer {
         assert(recorder.isRecording && recorder.currentFilePath == before)
         assert(micCalls == 1 && systemCalls == 1)
         _ = recorder.stop()
+        // Exercise the actual lower-level probe and coordinator failure branch,
+        // not a fake high-level completion. Both API adapters are injected.
+        var destroys = 0
+        permissionTap.create = { (noErr, AudioObjectID(42)) }
+        permissionTap.destroy = { tap in
+            assert(tap == 42); destroys += 1
+            if destroys == 3 { print("cleanup_failed_quit_retry=3; handle=retained_until_owned_exit") }
+            return -50
+        }
+        requestSystemAudio = nil
+        let failed = exchange(request)
+        assert(failed["outcome"] as? String == "cleanup_failed")
+        assert(permissions.active == nil && permissions.cleanupFailed && permissionTap.retainedTap == 42)
+        assert(destroys == 1)
+        assert(exchange(["action":"start"])["error"] as? String == "permissions_busy")
+        assert(exchange(request)["error"] as? String == "permissions_busy")
+        permissionTap.releaseForExit(); assert(destroys == 2 && permissionTap.retainedTap == 42)
+        print("permissions synthetic state/socket passed; cleanup_failed=retained; normal_owned_quit=true")
+        // Actual quit handler, no forced process termination. Rust output() waits
+        // for this exact child and both EOFs before removing its private roots.
+        _ = exchange(["action":"quit","instance_id":SERVICE_OWNER,"captureIPCVersion":1])
+        assertionFailure("normal quit must exit")
     }
 
     func scanWindows() -> [String: Any] {
@@ -3964,7 +4004,7 @@ if CommandLine.arguments.contains("--ipc-fixture") {
     let rec = AudioRecorder()
     let server = SocketServer(rec)
     server.requestMicrophone = { done in done("denied") }
-    server.requestSystemAudio = { done in done(true) }
+    server.requestSystemAudio = { done in done(true, false) }
     server.onRecordingStart = { SYS_READY = true; MIC_READY = true }
     server.onRecordingStop = { SYS_READY = false; MIC_READY = false }
     server.listAudioDevices = { ["input": [["uid": "fixture-mic", "name": "Synthetic input"]], "output": [], "default_input_uid": "fixture-mic"] }

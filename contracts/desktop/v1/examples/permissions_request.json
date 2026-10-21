@@ -1,0 +1,5 @@
+{
+  "command":"permissions_request",
+  "request":{"schemaVersion":1,"requestId":"permission-example","payload":{"action":"request","operationId":"00000000-0000-4000-8000-000000000001"}},
+  "response":{"schemaVersion":1,"requestId":"permission-example","data":{"microphone":"denied","systemAudio":"unknown","outcome":"unconfirmed"}}
+}

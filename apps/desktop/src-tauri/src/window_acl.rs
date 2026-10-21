@@ -55,8 +55,20 @@ mod tests {
             .filter_map(|p| p.as_str())
             .filter(|p| !p.starts_with("core:"))
             .collect();
-        assert_eq!(business.len(), 36);
-        assert_eq!(permissions.len(), 39);
+        assert_eq!(business.len(), 37);
+        assert_eq!(permissions.len(), 40);
+        assert!(authority
+            .resolve_access("permissions_request", "main", "main", &Origin::Local)
+            .is_some());
+        assert!(authority
+            .resolve_access("permissions_request", "other", "other", &Origin::Local)
+            .is_none());
+        assert!(authority
+            .resolve_access("permissions_request", "main", "main", &remote)
+            .is_none());
+        assert!(authority
+            .resolve_access("permissions_cancel", "main", "main", &Origin::Local)
+            .is_none());
         assert_eq!(capability["windows"], serde_json::json!(["main"]));
         assert_eq!(capability["local"], true);
         assert!(capability.get("remote").is_none());

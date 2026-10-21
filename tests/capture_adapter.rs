@@ -1611,5 +1611,7 @@ async fn capture_permissions_explicit_request_fake_callbacks_and_owned_exit() {
     );
     assert!(String::from_utf8_lossy(&output.stdout)
         .contains("permissions synthetic state/socket passed"));
+    assert!(String::from_utf8_lossy(&output.stdout)
+        .contains("cleanup_failed_quit_retry=3; handle=retained_until_owned_exit"));
     println!("{}", String::from_utf8_lossy(&output.stdout));
 }

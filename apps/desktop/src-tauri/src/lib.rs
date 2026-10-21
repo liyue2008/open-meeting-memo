@@ -30,6 +30,14 @@ async fn service_apply(
     Ok(host::invoke(window, host, "service_apply", request).await)
 }
 #[tauri::command]
+async fn permissions_request(
+    window: tauri::WebviewWindow,
+    host: tauri::State<'_, host::Host>,
+    request: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    Ok(host::invoke(window, host, "permissions_request", request).await)
+}
+#[tauri::command]
 async fn desktop_info(
     window: tauri::WebviewWindow,
     host: tauri::State<'_, host::Host>,
@@ -378,6 +386,7 @@ pub fn run() {
             config_validate,
             config_save,
             diagnostics_get,
+            permissions_request,
             diagnostics_export,
             notification_history,
             media_manifest,
