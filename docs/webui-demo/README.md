@@ -1,5 +1,7 @@
 # 本地 WebUI · 可点击设计预览
 
+> 历史设计归档（2026-10-17）：本目录保留桌面实现前的离线静态原型和研究，不是当前产品规范。当前 Tauri 桌面实现、Mantine 界面和验收边界以 [桌面开发](../desktop.md)、[冻结契约](../../contracts/desktop/v1/README.md)及[桌面验收](../desktop-acceptance.md)为准；下文“待实现／待确认”描述当时状态，不代表当前能力或新的开发承诺。
+
 **这是一套离线静态原型，用来确认页面、功能和交互；没有开发后端，也没有接入真实 OMM。**
 
 ## 打开方式
@@ -122,10 +124,14 @@ node --check docs/webui-demo/theme.js
 node --check docs/webui-demo/demo-data.js
 node --check docs/webui-demo/app.js
 node --check docs/webui-demo/demo.test.mjs
+node docs/webui-demo/demo.test.mjs --static-only
+# 可选浏览器交互回归（本次 Git 交付未运行）：
 node docs/webui-demo/demo.test.mjs
 ```
 
-测试要求已有 Node.js（支持内置 WebSocket，实际验证为 v22）与已安装 Chrome；默认使用 `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`，可用 `CHROME_BINARY` 指定已有浏览器，**不会下载安装**。可用 `DEMO_TEST_OUTPUT` 指定已有临时输出目录。
+`--static-only` 仅在 Node VM 中检查本地源码、资源边界和虚构日期／迁移数据；不启动浏览器、不创建配置目录，也不执行 DOM、系统或媒体操作。它不代替下面的浏览器交互回归。
+
+完整浏览器测试要求已有 Node.js（支持内置 WebSocket，历史验证为 v22）与已安装 Chrome；默认使用 `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`，可用 `CHROME_BINARY` 指定已有浏览器，**不会下载安装**。可用 `DEMO_TEST_OUTPUT` 指定已有临时输出目录。
 
 测试通过 Chrome 调试协议直接访问 `file://`，临时用户目录用后删除。覆盖本地自然日/跨年/月末/周一周日/夏令时/正负时区、快捷与自定义日期/更早会议/旧存储迁移、顶部播放器与只读行动项、查找/组合筛选、空结果/空库、多选与下载、阅读、静默时间轴、时间定位、编辑注入文本、重新处理/旧版/取消/失败重试、模拟录制/导入、设置校验/离开提醒/保存/放弃、键盘页签/弹窗焦点、刷新、损坏/禁用存储与零外部请求。新增主题专项：模拟 OS 明暗（不改真实 OS）、手动覆盖/切回系统、刷新/首帧、损坏/拒绝存储、草稿/筛选/播放器位置保持、减少动画、全部页面与编辑/重处理/删除弹窗的明暗/桌面/窄屏截图；关键文字取样按 WCAG 相对亮度计算至少4.5:1，控件边界/焦点取样至少3:1，明细写 `theme-contrast.json`。这不是完整无障碍认证，装饰线和禁用控件不按文字阈值处理。保存桌面（1440px）、窄屏（390px）截图及结果 JSON 到系统临时目录，不进仓库；主题截图等待提示消退，移开指针/清除测试残留焦点。
 
