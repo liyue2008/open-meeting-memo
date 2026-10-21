@@ -1,0 +1,27 @@
+docs/webui-demo/README.md
+  s_980661c8130752::t_43b5df893fcaaa 3-4,127-128,132-134
+docs/webui-demo/audio-research.md
+  s_980661c8130752::t_8500370d1a369c 3-4
+docs/webui-demo/demo.test.mjs
+  s_980661c8130752::t_1da316627224a8 1-2,10,13-61
+docs/webui-demo/index.html
+  s_980661c8130752::t_28d60a7a864006 38
+docs/webui-demo/technical-proposal.md
+  s_980661c8130752::t_8941e887935059 3-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0dbd7a9c65d2ccf3f91a460583fa17a84deb16f9",
+  "prompts": {},
+  "sessions": {
+    "s_980661c8130752": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a15f25-cbf6-71c4-804d-0239934a3874",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
