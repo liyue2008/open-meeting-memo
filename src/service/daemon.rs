@@ -747,6 +747,24 @@ pub async fn request_at(
     )
     .await
 }
+// CLI None retains its explicit-current-service semantics. A supplied desktop
+// generation must match before any permission request OR cancellation effect.
+fn permission_instance(message: &Request, current: Uuid) -> Result<()> {
+    if matches!(
+        message.command.as_str(),
+        "permissions_request" | "permissions_cancel"
+    ) && message
+        .instance_id
+        .is_some_and(|instance| instance != current)
+    {
+        return Err(OmmError::new(
+            ErrorCode::Conflict,
+            false,
+            "permission service generation changed",
+        ));
+    }
+    Ok(())
+}
 pub async fn request_message_at(
     paths: &Paths,
     location: &RuntimeLocation,
@@ -755,6 +773,16 @@ pub async fn request_message_at(
     let socket = location.path.join("service.sock");
     check_socket(&socket)?;
     let owner = runtime::verify_active(&location.path, &paths.state)?;
+    permission_instance(&message, owner.instance_id)?;
+    let endpoint = if matches!(
+        message.command.as_str(),
+        "permissions_request" | "permissions_cancel"
+    ) && message.instance_id.is_some()
+    {
+        Some(std::fs::symlink_metadata(&socket)?)
+    } else {
+        None
+    };
     let operation = async {
         let mut stream = UnixStream::connect(&socket)
             .await
@@ -770,6 +798,21 @@ pub async fn request_message_at(
                 false,
                 "service peer does not match runtime owner",
             ));
+        }
+        if let Some(endpoint) = endpoint {
+            check_socket(&socket)?;
+            let current = runtime::verify_active(&location.path, &paths.state)?;
+            let connected = std::fs::symlink_metadata(&socket)?;
+            if current != owner
+                || connected.dev() != endpoint.dev()
+                || connected.ino() != endpoint.ino()
+            {
+                return Err(OmmError::new(
+                    ErrorCode::Conflict,
+                    false,
+                    "permission service endpoint changed",
+                ));
+            }
         }
         stream.write_all(&serde_json::to_vec(&message)?).await?;
         stream.shutdown().await?;
@@ -1009,6 +1052,7 @@ pub async fn run_at_with_notifier(
                 if stream.peer_cred()?.uid()!=unsafe{libc::geteuid()}{continue;}
                 let input=tokio::time::timeout(Duration::from_secs(10),async{let mut bytes=vec![];(&mut stream).take(1024*1024+1).read_to_end(&mut bytes).await?;if bytes.len()>1024*1024{return Err(OmmError::invalid("service request exceeds limit"));}Ok::<Request,OmmError>(serde_json::from_slice(&bytes)?)}).await;
                 let mut reply=match input {
+                    Ok(Ok(req)) if req.schema_version==1 && permission_instance(&req,guard.owner.instance_id).is_err() => Reply::result(Err(OmmError::new(ErrorCode::Conflict,false,"permission service generation changed"))),
                     Ok(Ok(req)) if req.schema_version==1 => {
                         if matches!(req.command.as_str(), "record_start"|"record_stop"|"capture_auto_stop"|"shutdown"|"permissions_request") {control_epoch=control_epoch.wrapping_add(1); }
                         if req.command != "desktop_capabilities_v1" { helper.observe_endpoint(&native,&paths)?; }

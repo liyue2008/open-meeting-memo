@@ -46,6 +46,17 @@ impl Fixture {
             listener,
         }
     }
+    async fn call(
+        &self,
+        requests: &Requests,
+        payload: &Value,
+    ) -> omm::core::contracts::Result<Value> {
+        requests
+            .desktop(&self.paths, &self.runtime, payload, async {
+                profile::compatible(&profile::read(&self.paths).unwrap().unwrap(), "service")
+            })
+            .await
+    }
 }
 fn payload(action: &str, id: Uuid) -> Value {
     json!({"action":action,"operationId":id})
@@ -90,16 +101,10 @@ async fn desktop_permission_explicit_transport_and_replay_refusal() {
         .await;
     };
     let p = payload("request", ui);
-    let (result, ()) = tokio::join!(requests.call(&f.paths, &f.runtime, &p), backend);
+    let (result, ()) = tokio::join!(f.call(&requests, &p), backend);
     assert_eq!(result.unwrap()["microphone"], "denied");
-    assert!(requests
-        .call(&f.paths, &f.runtime, &payload("cancel", ui))
-        .await
-        .is_err());
-    assert!(requests
-        .call(&f.paths, &f.runtime, &payload("request", ui))
-        .await
-        .is_err());
+    assert!(f.call(&requests, &payload("cancel", ui)).await.is_err());
+    assert!(f.call(&requests, &payload("request", ui)).await.is_err());
     assert!(std::fs::read_dir(&f.paths.data).unwrap().next().is_none());
 }
 #[tokio::test]
@@ -109,10 +114,7 @@ async fn desktop_permission_cancel_owns_connection_and_acks_before_success() {
     let ui = Uuid::new_v4();
     let arrived = tokio::sync::Notify::new();
     let owner = f._guard.owner.instance_id;
-    assert!(requests
-        .call(&f.paths, &f.runtime, &payload("cancel", ui))
-        .await
-        .is_err());
+    assert!(f.call(&requests, &payload("cancel", ui)).await.is_err());
     let backend = async {
         let (mut original, _) = f.listener.accept().await.unwrap();
         let request = read(&mut original).await;
@@ -129,27 +131,21 @@ async fn desktop_permission_cancel_owns_connection_and_acks_before_success() {
     };
     let cancel = async {
         arrived.notified().await;
-        assert!(requests
-            .call(&f.paths, &f.runtime, &payload("request", Uuid::new_v4()))
+        assert!(f
+            .call(&requests, &payload("request", Uuid::new_v4()))
             .await
             .is_err());
-        assert!(requests
-            .call(&f.paths, &f.runtime, &payload("cancel", Uuid::new_v4()))
+        assert!(f
+            .call(&requests, &payload("cancel", Uuid::new_v4()))
             .await
             .is_err());
-        requests
-            .call(&f.paths, &f.runtime, &payload("cancel", ui))
-            .await
+        f.call(&requests, &payload("cancel", ui)).await
     };
     let p = payload("request", ui);
-    let (original, cancel, ()) =
-        tokio::join!(requests.call(&f.paths, &f.runtime, &p), cancel, backend);
+    let (original, cancel, ()) = tokio::join!(f.call(&requests, &p), cancel, backend);
     assert_eq!(original.unwrap()["outcome"], "cancelled");
     assert_eq!(cancel.unwrap()["outcome"], "cancelled");
-    assert!(requests
-        .call(&f.paths, &f.runtime, &payload("cancel", ui))
-        .await
-        .is_err());
+    assert!(f.call(&requests, &payload("cancel", ui)).await.is_err());
 }
 #[tokio::test]
 async fn desktop_permission_refuses_bad_payload_busy_and_replaced_endpoint() {
@@ -161,7 +157,7 @@ async fn desktop_permission_refuses_bad_payload_busy_and_replaced_endpoint() {
         json!({"action":"request","operationId":"bad"}),
         json!({"action":"request","operationId":id,"window":"main"}),
     ] {
-        assert!(requests.call(&f.paths, &f.runtime, &p).await.is_err());
+        assert!(f.call(&requests, &p).await.is_err());
     }
     let backend = async {
         let (mut stream, _) = f.listener.accept().await.unwrap();
@@ -181,7 +177,7 @@ async fn desktop_permission_refuses_bad_payload_busy_and_replaced_endpoint() {
         .await;
     };
     let p = payload("request", id);
-    let (result, ()) = tokio::join!(requests.call(&f.paths, &f.runtime, &p), backend);
+    let (result, ()) = tokio::join!(f.call(&requests, &p), backend);
     assert!(result.is_err());
 }
 #[tokio::test]
@@ -193,18 +189,16 @@ async fn desktop_permission_disconnected_backend_is_not_success() {
         let (mut stream, _) = f.listener.accept().await.unwrap();
         read(&mut stream).await;
     };
-    let (result, ()) = tokio::join!(requests.call(&f.paths, &f.runtime, &p), backend);
+    let (result, ()) = tokio::join!(f.call(&requests, &p), backend);
     assert!(result.is_err());
-    // Complete a bounded, private operation; there is no detached task or child.
     assert!(tokio::time::timeout(
         Duration::from_secs(1),
-        requests.call(&f.paths, &f.runtime, &payload("cancel", Uuid::new_v4()))
+        f.call(&requests, &payload("cancel", Uuid::new_v4()))
     )
     .await
     .unwrap()
     .is_err());
 }
-
 #[tokio::test]
 async fn desktop_permission_deadline_includes_stalled_compatibility_without_transport_or_writes() {
     let f = Fixture::new();

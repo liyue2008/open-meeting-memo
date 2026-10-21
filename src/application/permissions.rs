@@ -86,15 +86,25 @@ impl Requests {
     ) -> Result<Value> {
         tokio::time::timeout(Duration::from_secs(25), async {
             super::validation::validate_named("PermissionRequest", payload)?;
-            if payload["action"] == "request" {
+            // Capture before polling the handshake: a later stamp cannot grant a
+            // different owner/endpoint the compatibility of this generation.
+            let expected = if payload["action"] == "request" {
+                let checked = stamp(paths, runtime)?;
                 let value = compatibility.await;
                 if value["admissionMode"] != "service" || value["writesAllowed"] != true {
                     return Err(OmmError::unavailable(
                         "compatible running service required for permission request",
                     ));
                 }
-            }
-            self.call(paths, runtime, payload).await
+                if value["serviceGeneration"] != checked["owner"]["instanceId"] {
+                    return Err(conflict());
+                }
+                recheck(paths, runtime, &checked)?;
+                Some(checked)
+            } else {
+                None
+            };
+            self.call(paths, runtime, payload, expected).await
         })
         .await
         .map_err(|_| {
@@ -105,11 +115,12 @@ impl Requests {
             )
         })?
     }
-    pub async fn call(
+    async fn call(
         &self,
         paths: &Paths,
         runtime: &RuntimeLocation,
         payload: &Value,
+        expected: Option<Value>,
     ) -> Result<Value> {
         super::validation::validate_named("PermissionRequest", payload)?;
         let id = super::id(payload, "operationId")?;
@@ -167,7 +178,8 @@ impl Requests {
         if payload["action"] != "request" {
             return Err(OmmError::invalid("invalid permission action"));
         }
-        let expected = stamp(paths, runtime)?;
+        let expected = expected.ok_or_else(conflict)?;
+        recheck(paths, runtime, &expected)?;
         let (cancel, mut cancellation) = watch::channel(false);
         let (done, _) = watch::channel(None);
         let active = Active {
