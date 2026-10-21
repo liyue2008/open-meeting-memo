@@ -78,6 +78,14 @@ native 每次命令验证 main window＋webview＋当前本地 URL；ACL 只按�
 
 协议仅 GET/HEAD，单 Range（start-end/open/suffix）；206 正确 Content-Range/Length/Accept-Ranges、416 拒多范围/非法/越界；ETag=hash、If-Range 不匹配返回有界错误要求重开，不能假造完整200。no-store/nosniff/CORS仅可信本地 origin。不带 Range 的大文件必须安全流式或显式要求 Range，经实际 WKWebView 证明，禁止截断字节却宣称完整200。播放仅用户点击，不自动播放；fixture 只测 metadata/静音解码/暂停态段内及跨段 seek，**严禁调用 play()**。实际 Tauri/WKWebView 来源/Range/driver 可行性是两个组件开工后的最早 rendezvous，不得拖到最终验收或换 Chromium。
 
+## 显式录音权限（37命令修订，Main指定单owner）
+
+`permissions_request({action: request|cancel, operationId: UUID}) -> PermissionResult` 仅由可信 main 窗口的明确点击调用，复用同一兼容服务/helper，不调用 CLI、不伪造交互环境、不录音/建WAV/排任务。这是明确 OS 交互，不是普通只读诊断或持久 profile mutation；命令仍标记 mutation，Host 在独立窄入口验证兼容服务/profile/owner/代次，不能离线执行。
+
+单命令的 cancel 只能取消同 Host 当前登记的 operation；UI ID 不作为内部 service UUID，且在该 Host 生命周期不复用（有限128次登记上限，超限拒绝）。绑定 profile、service generation 与 socket inode；等待后再验，旧 cancel/reply 不作用于后继。未登记/已完成的取消拒绝，不能返回已取消后才启动。OS等待最多25秒且不持 profile 协调锁，取消可并行；原连接实际关闭并收到服务取消ACK后才确认取消等待。取消不能关闭系统同意框，未返回的 OS 操作仍busy。
+
+响应仅有公开 mic 五态、固定 systemAudio unknown 与 bounded outcome；cleanup_failed 保留程序拥有的 tap、拒绝录音，但允许正常 owned helper 退出回收。调用或授权成功不证明有声。无新通用 action/shell/path/URL 权限，原ACL/CSP及全部原命令保持。
+
 ## 显式首次启用与服务操作（36命令修订）
 
 打开窗口仅观察，不初始化、迁移、启动服务、下载模型或请求桌面权限。

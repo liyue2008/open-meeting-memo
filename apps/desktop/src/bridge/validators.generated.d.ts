@@ -1,3 +1,5 @@
+export function permissions_request_request(value: unknown): boolean;
+export function permissions_request_response(value: unknown): boolean;
 export function desktop_info_request(value: unknown): boolean;
 export function desktop_info_response(value: unknown): boolean;
 export function meeting_list_request(value: unknown): boolean;

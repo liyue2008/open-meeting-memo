@@ -1,5 +1,5 @@
 #!/bin/bash
-# User-only, versioned side-by-side installation. Does not select/start/stop any personal service.
+# User-only stable App name; revision receipts retained. Does not select/start/stop personal services.
 set -euo pipefail
 umask 077
 ROOT=$(cd "$(dirname "$0")/../.." && pwd -P)

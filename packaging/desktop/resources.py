@@ -156,12 +156,17 @@ def verify(app):
     run("codesign", "--verify", "--deep", "--strict", str(app))
     import plistlib
 
-    assert (
-        plistlib.loads((app / "Contents/Info.plist").read_bytes())[
-            "LSMinimumSystemVersion"
-        ]
-        == "15.5"
-    )
+    info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
+    assert info["LSMinimumSystemVersion"] == "15.5"
+    for key in ["NSMicrophoneUsageDescription", "NSAudioCaptureUsageDescription", "NSScreenCaptureUsageDescription"]:
+        assert isinstance(info.get(key), str) and info[key].strip(), key
+    expected_audio = plistlib.loads((ROOT / "packaging/desktop/OMMDesktop.entitlements").read_bytes())
+    for subject in [app, resources / "bin/omm", app / "Contents/MacOS/omm-desktop"]:
+        actual = plistlib.loads(subprocess.check_output(
+            ["codesign", "-d", "--entitlements", ":-", str(subject)],
+            stderr=subprocess.DEVNULL,
+        ))
+        assert actual == expected_audio, str(subject)
     helper = plistlib.loads(
         (resources / "OMMCapture.app/Contents/Info.plist").read_bytes()
     )

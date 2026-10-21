@@ -16,7 +16,7 @@ const stateLabel: Record<ServiceLifecycleState, string> = {
   stopped: '已停止',
   running: '正在运行',
   incompatible: '版本不兼容',
-  busy: '正在录音或处理任务',
+  busy: '停止或切换暂受保护',
   unknown: '状态未知',
 };
 const actionLabel: Record<ServiceAction, string> = {
@@ -33,7 +33,8 @@ const reasonLabel: Record<ServicePlanReason, string> = {
   ready: '本次服务操作检查通过；模型、权限与 Pi 就绪情况另见下方诊断。',
   profile_not_initialized: '尚未初始化本机资料库。请先明确确认首次设置。',
   profile_not_empty: '资料目录已有内容，不能作为空资料库初始化。保留原资料并检查归属。',
-  service_busy: '有活动录音、未封存工作或正在处理的任务；等待工作安全结束后重新检查。',
+  service_busy:
+    '停止或切换暂受保护：有活动录音、未封存工作、处理任务或文件读取占用。请等待工作结束，或关闭会议详情释放读取后重新检查。',
   unowned_service: '当前服务归属不明。为保护已有工作，不能启动、停止或接管它。',
   bundle_unavailable: '当前 App 缺少经过验证的内置程序，不能执行服务操作。',
   service_unreachable: '无法核实当前服务，暂时不能改变其运行状态。',
@@ -110,7 +111,19 @@ function useStartupPlan() {
 export function ServiceBanner({ open }: { open: () => void }) {
   const startup = useStartupPlan();
   const plan = startup.data;
-  if (plan?.state === 'running' && plan.compatibility.writesAllowed) return null;
+  // A busy operation plan can describe a healthy service holding an audio reader.
+  // Keep the protection in settings, rather than treating it as a global health warning.
+  if (
+    !startup.error &&
+    plan?.compatibility.state === 'compatible' &&
+    plan.compatibility.writesAllowed &&
+    (plan.state === 'running' ||
+      (plan.state === 'busy' &&
+        plan.compatibility.admissionMode === 'service' &&
+        plan.reasons.length > 0 &&
+        plan.reasons.every((reason) => reason === 'service_busy')))
+  )
+    return null;
   return (
     <Alert
       component="section"

@@ -4,6 +4,11 @@
   "title": "OMM Desktop v1 bridge exchanges",
   "oneOf": [
     {
+      "type": "object", "additionalProperties": false,
+      "properties": {"command": {"type":"string","const":"permissions_request"}, "request":{"$ref":"#/$defs/permissions_request_request"}, "response":{"$ref":"#/$defs/permissions_request_response"}},
+      "required":["command","request","response"]
+    },
+    {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -761,6 +766,27 @@
     }
   ],
   "$defs": {
+    "PermissionRequest": {
+      "type":"object", "additionalProperties":false,
+      "properties":{"action":{"type":"string","enum":["request","cancel"]},"operationId":{"type":"string","format":"uuid"}},
+      "required":["action","operationId"]
+    },
+    "PermissionResult": {
+      "type":"object", "additionalProperties":false,
+      "properties":{"microphone":{"type":"string","enum":["authorized","denied","restricted","not_determined","unknown"]},"systemAudio":{"type":"string","const":"unknown"},"outcome":{"type":"string","enum":["completed","unconfirmed","timed_out","cancelled","cleanup_failed"]}},
+      "required":["microphone","systemAudio","outcome"]
+    },
+    "permissions_request_request": {
+      "type":"object", "additionalProperties":false,
+      "properties":{"schemaVersion":{"type":"integer","const":1},"requestId":{"$ref":"#/$defs/RequestId"},"payload":{"$ref":"#/$defs/PermissionRequest"}},
+      "required":["schemaVersion","requestId","payload"]
+    },
+    "permissions_request_response": {
+      "oneOf":[
+        {"type":"object","additionalProperties":false,"properties":{"schemaVersion":{"type":"integer","const":1},"requestId":{"$ref":"#/$defs/RequestId"},"data":{"$ref":"#/$defs/PermissionResult"}},"required":["schemaVersion","requestId","data"]},
+        {"type":"object","additionalProperties":false,"properties":{"schemaVersion":{"type":"integer","const":1},"requestId":{"$ref":"#/$defs/RequestId"},"error":{"$ref":"#/$defs/BridgeError"}},"required":["schemaVersion","requestId","error"]}
+      ]
+    },
     "Id": {
       "type": "string",
       "format": "uuid"
@@ -6310,6 +6336,7 @@
     }
   },
   "x-commands": {
+    "permissions_request":{"request":"PermissionRequest","response":"PermissionResult","mutation":true},
     "desktop_info": {
       "request": "Empty",
       "response": "DesktopInfo",

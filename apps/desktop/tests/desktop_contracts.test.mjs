@@ -133,7 +133,7 @@ const cap = JSON.parse(
   fs.readFileSync(path.join(root, 'apps/desktop/src-tauri/capabilities/main.json')),
 );
 const commands = Object.keys(schema['x-commands']);
-assert.equal(commands.length, 36);
+assert.equal(commands.length, 37);
 const closeListenerPermissions = [
   'core:event:allow-listen',
   'core:event:allow-unlisten',

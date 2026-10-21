@@ -3,6 +3,9 @@
 #[path = "host/media_revision.rs"]
 mod media_revision;
 #[cfg(test)]
+#[path = "host/permissions.rs"]
+mod permission_tests;
+#[cfg(test)]
 #[path = "host/recovery_coordination.rs"]
 mod recovery_coordination;
 use omm::{
@@ -25,6 +28,9 @@ pub struct Host {
     admission: Mutex<Option<Value>>,
     grants: Mutex<HashMap<String, Grant>>,
     plans: Mutex<HashMap<String, app::lifecycle::Plan>>,
+    permissions: app::permissions::Requests,
+    #[cfg(test)]
+    permission_compatibility: Option<Value>,
 }
 impl Host {
     #[cfg(feature = "native-bridge-fixture")]
@@ -39,6 +45,9 @@ impl Host {
             admission: Mutex::new(None),
             grants: Mutex::new(HashMap::new()),
             plans: Mutex::new(HashMap::new()),
+            permissions: app::permissions::Requests::default(),
+            #[cfg(test)]
+            permission_compatibility: None,
         }
     }
 }
@@ -311,6 +320,25 @@ impl Host {
             "config_get" => app::configuration::snapshot(&self.paths, &self.compatibility().await)?,
             "config_validate" => app::configuration::validation(&self.paths, &payload["patch"])?,
             "diagnostics_get" => self.diagnostics().await?,
+            "permissions_request" => {
+                // Explicit trusted-window command only; no CLI/TTY impersonation.
+                // Never hold the profile coordination gate across an OS dialog.
+                let compatibility = async {
+                    #[cfg(test)]
+                    if let Some(value) = &self.permission_compatibility {
+                        return value.clone();
+                    }
+                    self.compatibility().await
+                };
+                self.permissions
+                    .desktop(
+                        &self.paths,
+                        &self.runtime_location()?,
+                        payload,
+                        compatibility,
+                    )
+                    .await?
+            }
             "record_status" => self.record_status().await?,
             "meeting_update" | "meeting_trash" | "meeting_restore" | "processing_enqueue"
             | "processing_retry" | "processing_cancel" | "processing_requeue" | "config_save" => {

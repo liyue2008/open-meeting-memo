@@ -1048,6 +1048,38 @@ async fn capture_native_quit_cleans_only_its_owned_socket_inode() {
     );
 }
 
+// A pathname exists between bind(2) and listen(2). Only the owning peer's
+// post-listen pipe acknowledgement admits this fixture's shutdown operation.
+#[cfg(target_os = "macos")]
+async fn shutdown_after_fixture_ready(
+    adapter: &MacCaptureAdapter,
+    ready: &str,
+    child_running: bool,
+) -> Option<Result<()>> {
+    if ready != "shutdown-fixture-ready\n" || !child_running {
+        return None;
+    }
+    Some(adapter.shutdown().await)
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn capture_shutdown_fixture_requires_post_listen_ready_from_live_child() {
+    let f = Fixture::new();
+    let adapter = f.adapter(3000);
+    for (line, live) in [
+        ("", true),
+        ("not-ready\n", true),
+        ("shutdown-fixture-ready\n", false),
+    ] {
+        // No socket exists. Calling shutdown prematurely would return Some(Err),
+        // so None deterministically proves the operation was not entered.
+        assert!(shutdown_after_fixture_ready(&adapter, line, live)
+            .await
+            .is_none());
+    }
+}
+
 #[cfg(target_os = "macos")]
 #[tokio::test]
 async fn capture_shutdown_exit_with_unclean_or_replaced_endpoint_is_not_success() {
@@ -1059,6 +1091,8 @@ async fn capture_shutdown_exit_with_unclean_or_replaced_endpoint_is_not_success(
         let instance = std::env::var("OMM_CAPTURE_SHUTDOWN_MOCK_INSTANCE").unwrap();
         let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        // UnixListener::bind has completed bind AND listen; chmod is complete too.
+        writeln!(std::io::stderr(), "shutdown-fixture-ready").unwrap();
         for action in ["status", "quit"] {
             let (mut stream, _) = listener.accept().unwrap();
             let mut bytes = vec![];
@@ -1087,30 +1121,82 @@ async fn capture_shutdown_exit_with_unclean_or_replaced_endpoint_is_not_success(
     for (mode, expected) in [("replaced", ErrorCode::Conflict), ("stale", ErrorCode::Io)] {
         let f = Fixture::new();
         let adapter = f.adapter(3000);
-        let mut child = NativeChild(
-            std::process::Command::new(std::env::current_exe().unwrap())
-                .args([
-                    "--exact",
-                    "capture_shutdown_exit_with_unclean_or_replaced_endpoint_is_not_success",
-                    "--nocapture",
-                ])
-                .env_clear()
-                .env("OMM_CAPTURE_SHUTDOWN_MOCK_SOCKET", adapter.socket_path())
-                .env("OMM_CAPTURE_SHUTDOWN_MOCK_INSTANCE", f.instance.to_string())
-                .env("OMM_CAPTURE_SHUTDOWN_MOCK_MODE", mode)
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-                .unwrap(),
-        );
-        for _ in 0..200 {
-            if adapter.socket_path().exists() {
-                break;
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "capture_shutdown_exit_with_unclean_or_replaced_endpoint_is_not_success",
+                "--nocapture",
+            ])
+            .env_clear()
+            .env("OMM_CAPTURE_SHUTDOWN_MOCK_SOCKET", adapter.socket_path())
+            .env("OMM_CAPTURE_SHUTDOWN_MOCK_INSTANCE", f.instance.to_string())
+            .env("OMM_CAPTURE_SHUTDOWN_MOCK_MODE", mode)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        use tokio::io::AsyncBufReadExt;
+        let pipe = tokio::process::ChildStderr::from_std(child.stderr.take().unwrap()).unwrap();
+        let mut stderr = tokio::io::BufReader::new(pipe);
+        let mut ready = String::new();
+        let ready_result =
+            tokio::time::timeout(Duration::from_secs(1), stderr.read_line(&mut ready)).await;
+        let child_running = matches!(child.try_wait(), Ok(None));
+        let ready_complete = matches!(ready_result, Ok(Ok(n)) if n > 0);
+        let result =
+            shutdown_after_fixture_ready(&adapter, &ready, child_running && ready_complete).await;
+        // Save the typed result before any wait/assert. Early errors must not
+        // obscure their cause behind a fixture wait failure or implicit Drop.
+        eprintln!("synthetic shutdown mode={mode} ready={ready_result:?} result={result:?}");
+        let record = |value: Value| -> std::io::Result<()> {
+            if let Some(path) = std::env::var_os("OMM_CAPTURE_TEST_RECEIPTS") {
+                use std::io::Write;
+                let mut file = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)?;
+                writeln!(file, "{value}")?;
             }
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-        assert_eq!(adapter.shutdown().await.unwrap_err().code, expected);
-        wait_native_exit(&mut child).await;
+            Ok(())
+        };
+        let saved_result = record(
+            json!({"fixture":"shutdown_endpoint", "phase":"adapter_return", "mode":mode,
+            "pid":child.id(), "ready":ready_complete, "child_running":child_running,
+            "result":format!("{result:?}")}),
+        );
+        let exit = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if let Some(exit) = child.try_wait().unwrap() {
+                    break exit;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await;
+        let (exit, signal) = match exit {
+            Ok(exit) => (exit, false),
+            Err(_) => {
+                // Only this exact owned synthetic handle, never a PID lookup.
+                let killed = child.kill();
+                eprintln!("synthetic shutdown cleanup kill={killed:?}");
+                (child.wait().unwrap(), killed.is_ok())
+            }
+        };
+        let mut tail = String::new();
+        stderr.read_to_string(&mut tail).await.unwrap();
+        eprintln!("synthetic shutdown mode={mode} pid={} waited=true exit={exit:?} forced_signal={signal} stderr_eof=true tail={tail:?}", child.id());
+        use std::os::unix::process::ExitStatusExt;
+        let saved_wait = record(
+            json!({"fixture":"shutdown_endpoint", "phase":"child_wait", "mode":mode,
+            "pid":child.id(), "waited":true, "exit":exit.code(), "signal":exit.signal(),
+            "forced_signal":signal, "stderr_eof":true, "stdout":"devnull"}),
+        );
+        saved_result.unwrap();
+        saved_wait.unwrap();
+        assert!(exit.success());
+        assert!(!signal);
+        assert_eq!(ready, "shutdown-fixture-ready\n");
+        assert_eq!(result.unwrap().unwrap_err().code, expected);
         assert!(adapter.socket_path().exists());
         assert_eq!(
             adapter.shutdown().await.unwrap_err().code,
@@ -1506,4 +1592,26 @@ async fn capture_native_zero_frame_current_restarts_twice_without_manifest_holes
     }
     a.shutdown().await.unwrap();
     wait_native_exit(&mut child).await;
+}
+
+#[tokio::test]
+#[ignore = "requires compiled Swift bundle; injected permissions and socketpair only, no OS API"]
+async fn capture_permissions_explicit_request_fake_callbacks_and_owned_exit() {
+    let _slot = native_fixture_slot().await;
+    let f = Fixture::new();
+    let output = native_command(&f, "--permissions-self-test")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .unwrap(); // actual wait and both pipe EOFs before fixture cleanup
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout)
+        .contains("permissions synthetic state/socket passed"));
+    assert!(String::from_utf8_lossy(&output.stdout)
+        .contains("cleanup_failed_quit_retry=3; handle=retained_until_owned_exit"));
+    println!("{}", String::from_utf8_lossy(&output.stdout));
 }

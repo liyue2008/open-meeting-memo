@@ -10,6 +10,7 @@ pub mod lifecycle;
 pub mod local_coordination;
 pub mod media;
 pub mod observation;
+pub mod permissions;
 pub mod profile;
 pub mod recovery;
 pub mod validation;
