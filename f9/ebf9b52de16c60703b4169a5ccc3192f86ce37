@@ -1,0 +1,31 @@
+src/service/daemon.rs
+  s_01585fc60c3974::t_00f49de5abb487 750-767,776-785,802-816,1055
+tests/desktop_permissions.rs
+  s_b0b3f51c57b1e2::t_67299adefec1b4 49-59,104,106-107,117,134-135,138-139,142,145,148,160,180,192,196
+tests/permission_generation.rs
+  s_b0b3f51c57b1e2::t_0ec559aa7b4bd7 1-276
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f9ebf9b52de16c60703b4169a5ccc3192f86ce37",
+  "prompts": {},
+  "sessions": {
+    "s_01585fc60c3974": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a15d47-af3a-7283-924e-44ddd39207f7",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    },
+    "s_b0b3f51c57b1e2": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a15a7c-3535-7789-983d-556b7489c0f8",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ethan.li <ethan.li@lbk.one>"
+    }
+  }
+}
